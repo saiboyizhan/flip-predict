@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight } from "lucide-react";
@@ -28,12 +28,20 @@ export function PositionList({ history = [] }: PositionListProps) {
   const [activeTab, setActiveTab] = useState<"positions" | "history">("positions");
 
   const positions = usePortfolioStore((s) => s.positions);
-  const getTotalValue = usePortfolioStore((s) => s.getTotalValue);
-  const getTotalPnL = usePortfolioStore((s) => s.getTotalPnL);
   const removePosition = usePortfolioStore((s) => s.removePosition);
 
-  const totalValue = getTotalValue();
-  const totalPnl = getTotalPnL();
+  const totalValue = useMemo(
+    () => positions.reduce((sum, p) => sum + p.shares * p.currentPrice, 0),
+    [positions]
+  );
+  const totalPnl = useMemo(
+    () => positions.reduce((sum, p) => {
+      const cost = p.shares * p.avgCost;
+      const value = p.shares * p.currentPrice;
+      return sum + (value - cost);
+    }, 0),
+    [positions]
+  );
   const wonCount = history.filter((h) => h.result === "won").length;
   const winRate = history.length > 0 ? (wonCount / history.length) * 100 : 0;
 

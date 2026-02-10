@@ -12,13 +12,14 @@ router.get('/:marketId', async (req: Request, res: Response) => {
     const { marketId } = req.params;
 
     const result = await db.query(
-      'SELECT * FROM comments WHERE market_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM comments WHERE market_id = $1 ORDER BY created_at DESC LIMIT 100',
       [marketId]
     );
 
     res.json({ comments: result.rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Comments error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -50,7 +51,8 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
     const comment = (await db.query('SELECT * FROM comments WHERE id = $1', [id])).rows[0];
     res.json({ comment });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Comments error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -103,7 +105,8 @@ router.post('/:commentId/like', authMiddleware, async (req: AuthRequest, res: Re
       client.release();
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Comments error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

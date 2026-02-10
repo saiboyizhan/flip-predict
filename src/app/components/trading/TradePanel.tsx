@@ -1,8 +1,8 @@
 "use client";
 
 import { motion, AnimatePresence } from "motion/react";
-import { useState, useMemo } from "react";
-import { ArrowRight, TrendingUp, Coins, Target, Percent, AlertTriangle, Check } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { ArrowRight, TrendingUp, Coins, Target, Percent, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useTradeStore, calculateBuy, getEstimatedReturn, getPrice } from "@/app/stores/useTradeStore";
@@ -20,8 +20,9 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [amount, setAmount] = useState<string>("100");
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { getOrCreatePool, executeBuy } = useTradeStore();
+  const { getOrCreatePool, executeAPIBuy, executeAPISell } = useTradeStore();
   const pool = getOrCreatePool(marketId);
 
   const numAmount = parseFloat(amount) || 0;
@@ -48,23 +49,30 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
     }
   }, [pool, side, numAmount]);
 
-  const handleConfirm = () => {
-    if (numAmount <= 0) return;
+  const handleConfirm = useCallback(async () => {
+    if (numAmount <= 0 || isSubmitting) return;
 
-    const result = executeBuy(marketId, side, numAmount);
-    if (result.success) {
-      setShowSuccess(true);
-      toast.success(
-        t('trade.buySuccess', { shares: result.shares.toFixed(2), side: side.toUpperCase(), price: result.avgPrice.toFixed(4) }),
-      );
-      setAmount("100");
-      setTimeout(() => setShowSuccess(false), 1500);
-    } else {
+    setIsSubmitting(true);
+    try {
+      const result = await executeAPIBuy(marketId, side, numAmount);
+      if (result.success) {
+        setShowSuccess(true);
+        toast.success(
+          t('trade.buySuccess', { shares: result.shares.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }),
+        );
+        setAmount("100");
+        setTimeout(() => setShowSuccess(false), 1500);
+      } else {
+        toast.error(result.error || t('trade.tradeFailed'));
+      }
+    } catch {
       toast.error(t('trade.tradeFailed'));
+    } finally {
+      setIsSubmitting(false);
     }
-  };
+  }, [numAmount, isSubmitting, executeAPIBuy, marketId, side, t]);
 
-  const isDisabled = status === "settled" || numAmount <= 0;
+  const isDisabled = status === "settled" || numAmount <= 0 || isSubmitting;
   const sideColor = side === "yes" ? "emerald" : "red";
 
   const priceImpactColor =
@@ -247,6 +255,11 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
             >
               {status === "settled" ? (
                 t('trade.marketSettled')
+              ) : isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  {t('trade.processing', { defaultValue: 'Processing...' })}
+                </>
               ) : (
                 <>
                   {t('trade.confirmBuy', { side: side.toUpperCase() })}

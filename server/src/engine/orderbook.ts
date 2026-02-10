@@ -1,9 +1,6 @@
 import { Pool, PoolClient } from 'pg';
+import { randomUUID } from 'crypto';
 import { calculateBuy, calculateSell } from './amm';
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
 
 export interface OrderBookLevel {
   price: number;
@@ -100,12 +97,12 @@ export async function placeLimitOrder(
   try {
     await client.query('BEGIN');
 
-    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1', [marketId]);
+    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
     if (market.status !== 'active') throw new Error('Market is not active');
 
-    const orderId = generateId();
+    const orderId = randomUUID();
     const now = Date.now();
     const trades: Array<{ price: number; amount: number; counterpartyOrderId: string }> = [];
     let filled = 0;
@@ -113,7 +110,7 @@ export async function placeLimitOrder(
 
     if (orderSide === 'buy') {
       // Lock funds: check available balance
-      const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1', [userAddress]);
+      const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
       const balance = balanceRes.rows[0];
       const cost = amount * price;
       if (!balance || balance.available < cost) throw new Error('Insufficient balance');
@@ -124,13 +121,13 @@ export async function placeLimitOrder(
         [cost, cost, userAddress]
       );
 
-      // Match against sell orders (asks) with price <= our buy price
+      // Match against sell orders (asks) with price <= our buy price, excluding own orders
       const matchRes = await client.query(`
         SELECT * FROM open_orders
         WHERE market_id = $1 AND side = $2 AND order_side = 'sell' AND status IN ('open', 'partial')
-          AND price <= $3
+          AND price <= $3 AND user_address != $4
         ORDER BY price ASC, created_at ASC
-      `, [marketId, side, price]);
+      `, [marketId, side, price, userAddress]);
       const matchingOrders = matchRes.rows;
 
       let remaining = amount;
@@ -156,7 +153,7 @@ export async function placeLimitOrder(
         );
 
         // Record trade in orders table
-        const tradeId = generateId();
+        const tradeId = randomUUID();
         await client.query(`
           INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
           VALUES ($1, $2, $3, $4, 'limit', $5, $6, $7, 'filled', $8)
@@ -207,7 +204,7 @@ export async function placeLimitOrder(
     } else {
       // Sell order: check position
       const posRes = await client.query(
-        'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+        'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3 FOR UPDATE',
         [userAddress, marketId, side]
       );
       const position = posRes.rows[0];
@@ -221,13 +218,13 @@ export async function placeLimitOrder(
         await client.query('UPDATE positions SET shares = $1 WHERE id = $2', [newShares, position.id]);
       }
 
-      // Match against buy orders (bids) with price >= our sell price
+      // Match against buy orders (bids) with price >= our sell price, excluding own orders
       const matchRes = await client.query(`
         SELECT * FROM open_orders
         WHERE market_id = $1 AND side = $2 AND order_side = 'buy' AND status IN ('open', 'partial')
-          AND price >= $3
+          AND price >= $3 AND user_address != $4
         ORDER BY price DESC, created_at ASC
-      `, [marketId, side, price]);
+      `, [marketId, side, price, userAddress]);
       const matchingOrders = matchRes.rows;
 
       let remaining = amount;
@@ -258,7 +255,7 @@ export async function placeLimitOrder(
         );
 
         // Record trade
-        const tradeId = generateId();
+        const tradeId = randomUUID();
         await client.query(`
           INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
           VALUES ($1, $2, $3, $4, 'limit', $5, $6, $7, 'filled', $8)
@@ -315,28 +312,29 @@ export async function placeMarketOrder(
   try {
     await client.query('BEGIN');
 
-    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1', [marketId]);
+    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
     if (market.status !== 'active') throw new Error('Market is not active');
 
-    const orderId = generateId();
+    const orderId = randomUUID();
     const now = Date.now();
     const trades: Array<{ price: number; amount: number; counterpartyOrderId: string }> = [];
     let totalFilled = 0;
     let totalCost = 0;
 
     if (orderSide === 'buy') {
-      const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1', [userAddress]);
+      const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
       const balance = balanceRes.rows[0];
       if (!balance || balance.available < amount) throw new Error('Insufficient balance');
 
-      // Eat through sell orders (asks) from lowest price
+      // Eat through sell orders (asks) from lowest price, excluding own orders
       const askRes = await client.query(`
         SELECT * FROM open_orders
         WHERE market_id = $1 AND side = $2 AND order_side = 'sell' AND status IN ('open', 'partial')
+          AND user_address != $3
         ORDER BY price ASC, created_at ASC
-      `, [marketId, side]);
+      `, [marketId, side, userAddress]);
       const askOrders = askRes.rows;
 
       let remainingBudget = amount; // amount is in USDT terms
@@ -400,18 +398,19 @@ export async function placeMarketOrder(
     } else {
       // Sell market order
       const posRes = await client.query(
-        'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+        'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3 FOR UPDATE',
         [userAddress, marketId, side]
       );
       const position = posRes.rows[0];
       if (!position || position.shares < amount) throw new Error('Insufficient shares');
 
-      // Eat through buy orders (bids) from highest price
+      // Eat through buy orders (bids) from highest price, excluding own orders
       const bidRes = await client.query(`
         SELECT * FROM open_orders
         WHERE market_id = $1 AND side = $2 AND order_side = 'buy' AND status IN ('open', 'partial')
+          AND user_address != $3
         ORDER BY price DESC, created_at ASC
-      `, [marketId, side]);
+      `, [marketId, side, userAddress]);
       const bidOrders = bidRes.rows;
 
       let remaining = amount;
@@ -475,7 +474,7 @@ export async function placeMarketOrder(
     }
 
     // Record the market order
-    const tradeId = generateId();
+    const tradeId = randomUUID();
     await client.query(`
       INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
       VALUES ($1, $2, $3, $4, 'market', $5, $6, $7, 'filled', $8)
@@ -563,7 +562,7 @@ async function updatePosition(
     const newAvgCost = (existing.shares * existing.avg_cost + shares * price) / newShares;
     await client.query('UPDATE positions SET shares = $1, avg_cost = $2 WHERE id = $3', [newShares, newAvgCost, existing.id]);
   } else {
-    const posId = generateId();
+    const posId = randomUUID();
     await client.query(`
       INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7)

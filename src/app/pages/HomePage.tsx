@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { CategoryNav } from "../components/explore/CategoryNav";
 import { MarketGrid } from "../components/explore/MarketGrid";
 import { useMarketStore } from "../stores/useMarketStore";
+import { useShallow } from "zustand/react/shallow";
 import { CATEGORIES } from "../data/markets";
 import type { Market } from "../types/market.types";
 
@@ -33,7 +34,13 @@ export default function HomePage() {
     filteredMarkets,
     selectedCategory,
     setCategory,
-  } = useMarketStore();
+  } = useMarketStore(
+    useShallow((s) => ({
+      filteredMarkets: s.filteredMarkets,
+      selectedCategory: s.selectedCategory,
+      setCategory: s.setCategory,
+    }))
+  );
 
   const featuredMarkets = filteredMarkets.filter(m => m.featured).slice(0, 3);
   const cardMarkets = filteredMarkets.map(toCardMarket);

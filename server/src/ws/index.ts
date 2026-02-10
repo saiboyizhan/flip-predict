@@ -13,6 +13,9 @@ interface Client {
 
 const clients: Client[] = [];
 
+// Rate limiting: max 100 messages per 60 seconds per client
+const messageRates = new Map<WebSocket, { count: number; resetTime: number }>();
+
 export function setupWebSocket(server: Server): WebSocketServer {
   const wss = new WebSocketServer({ server });
 
@@ -22,6 +25,19 @@ export function setupWebSocket(server: Server): WebSocketServer {
 
     ws.on('message', (data: Buffer) => {
       try {
+        // Rate limiting check
+        const now = Date.now();
+        let rate = messageRates.get(ws);
+        if (!rate || now > rate.resetTime) {
+          rate = { count: 0, resetTime: now + 60000 };
+          messageRates.set(ws, rate);
+        }
+        rate.count++;
+        if (rate.count > 100) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded' }));
+          return;
+        }
+
         const msg = JSON.parse(data.toString());
 
         if (msg.type === 'subscribe' && msg.marketId) {
@@ -64,6 +80,7 @@ export function setupWebSocket(server: Server): WebSocketServer {
     ws.on('close', () => {
       const idx = clients.indexOf(client);
       if (idx !== -1) clients.splice(idx, 1);
+      messageRates.delete(ws);
     });
 
     // Send welcome message

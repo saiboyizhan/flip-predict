@@ -1,13 +1,18 @@
 import { Router, Request, Response } from 'express';
+import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
 import crypto from 'crypto';
 
 const router = Router();
 
-// GET /api/fees/:address — user fee records
-router.get('/:address', async (req: Request, res: Response) => {
+// GET /api/fees/:address — user fee records (auth required)
+router.get('/:address', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = (req.params.address as string).toLowerCase();
+    if (req.userAddress?.toLowerCase() !== address) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
     const { limit = '50', offset = '0', type } = req.query;
     const db = getDb();
 
@@ -47,7 +52,8 @@ router.get('/:address', async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Fees error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

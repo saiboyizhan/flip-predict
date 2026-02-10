@@ -29,13 +29,13 @@ export async function executeBuy(
   try {
     await client.query('BEGIN');
 
-    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1', [marketId]);
+    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
     if (market.status !== 'active') throw new Error('Market is not active');
 
     // Check balance
-    const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1', [userAddress]);
+    const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
     const balance = balanceRes.rows[0];
     if (!balance || balance.available < amount) throw new Error('Insufficient balance');
 
@@ -64,7 +64,7 @@ export async function executeBuy(
     // Create order record
     await client.query(`
       INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
-      VALUES ($1, $2, $3, $4, 'market', $5, $6, $7, 'filled', $8)
+      VALUES ($1, $2, $3, $4, 'buy', $5, $6, $7, 'filled', $8)
     `, [orderId, userAddress, marketId, side, amount, result.sharesOut, result.pricePerShare, now]);
 
     // Update or insert position
@@ -114,14 +114,14 @@ export async function executeSell(
   try {
     await client.query('BEGIN');
 
-    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1', [marketId]);
+    const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
     if (market.status !== 'active') throw new Error('Market is not active');
 
     // Check position
     const positionRes = await client.query(
-      'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+      'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3 FOR UPDATE',
       [userAddress, marketId, side]
     );
     const position = positionRes.rows[0];
@@ -152,7 +152,7 @@ export async function executeSell(
     // Create order record
     await client.query(`
       INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
-      VALUES ($1, $2, $3, $4, 'market', $5, $6, $7, 'filled', $8)
+      VALUES ($1, $2, $3, $4, 'sell', $5, $6, $7, 'filled', $8)
     `, [orderId, userAddress, marketId, side, result.amountOut, shares, result.pricePerShare, now]);
 
     // Update position

@@ -26,10 +26,8 @@ function toCardMarket(m: Market) {
 export default function MarketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getMarketById } = useMarketStore();
   const { t } = useTranslation();
-
-  const market = id ? getMarketById(id) : null;
+  const market = useMarketStore((s) => id ? s.markets.find((m) => m.id === id) : undefined);
 
   if (!market) {
     return (

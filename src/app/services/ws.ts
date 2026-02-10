@@ -5,6 +5,18 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 let intentionalClose = false
+let connectionDead = false
+
+let reconnectCallbacks: Set<() => void> = new Set()
+
+export function onReconnect(cb: () => void): () => void {
+  reconnectCallbacks.add(cb)
+  return () => { reconnectCallbacks.delete(cb) }
+}
+
+export function isConnectionDead(): boolean {
+  return connectionDead
+}
 
 const MAX_RECONNECT_ATTEMPTS = 10
 const HEARTBEAT_INTERVAL = 30000 // 30 seconds
@@ -64,6 +76,7 @@ export function connectWS(): void {
   }
 
   intentionalClose = false
+  connectionDead = false
   ws = new WebSocket(WS_URL)
 
   ws.addEventListener('open', () => {
@@ -89,6 +102,9 @@ export function connectWS(): void {
       orderbookListenerAttached = false
       ensureOrderbookListener()
     }
+
+    // Notify components that connection was restored so they can resync state
+    reconnectCallbacks.forEach(cb => cb())
   })
 
   ws.addEventListener('message', handleMessage)
@@ -105,6 +121,7 @@ export function connectWS(): void {
 
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.log(`[WS] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`)
+      connectionDead = true
       return
     }
 

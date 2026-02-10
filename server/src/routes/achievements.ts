@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
 import crypto from 'crypto';
 
@@ -251,14 +252,19 @@ router.get('/', async (_req: Request, res: Response) => {
 
     res.json({ achievements });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Achievements error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /api/achievements/:address — Get user achievement progress
-router.get('/:address', async (req: Request, res: Response) => {
+// GET /api/achievements/:address — Get user achievement progress (auth required)
+router.get('/:address', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const address = req.params.address as string;
+    const address = (req.params.address as string).toLowerCase();
+    if (req.userAddress?.toLowerCase() !== address) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
     const db = getDb();
 
     // Calculate progress
@@ -301,7 +307,8 @@ router.get('/:address', async (req: Request, res: Response) => {
 
     res.json({ achievements });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Achievements error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

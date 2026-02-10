@@ -15,6 +15,20 @@ import { createOrder, sellOrder } from '@/app/services/api'
 
 const DEFAULT_LIQUIDITY = 10000
 
+interface APITradeResult {
+  success: boolean
+  shares: number
+  price: number
+  error?: string
+}
+
+interface APISellResult {
+  success: boolean
+  amountOut: number
+  price: number
+  error?: string
+}
+
 interface TradeState {
   pools: Record<string, Pool>
   selectedOutcome: 'YES' | 'NO'
@@ -25,8 +39,8 @@ interface TradeState {
   getOrCreatePool: (marketId: string) => Pool
   executeBuy: (marketId: string, side: 'yes' | 'no', amount: number) => { success: boolean; shares: number; avgPrice: number; priceImpact: number }
   executeSell: (marketId: string, side: 'yes' | 'no', shares: number) => { success: boolean; payout: number; avgPrice: number; priceImpact: number }
-  executeAPIBuy: (marketId: string, side: 'yes' | 'no', amount: number) => Promise<{ success: boolean; shares: number; price: number }>
-  executeAPISell: (marketId: string, side: 'yes' | 'no', shares: number) => Promise<{ success: boolean; amountOut: number; price: number }>
+  executeAPIBuy: (marketId: string, side: 'yes' | 'no', amount: number) => Promise<APITradeResult>
+  executeAPISell: (marketId: string, side: 'yes' | 'no', shares: number) => Promise<APISellResult>
   reset: () => void
 }
 
@@ -44,7 +58,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     if (pools[marketId]) return pools[marketId]
 
     const market = useMarketStore.getState().getMarketById(marketId)
-    const yesPrice = market ? market.yesPrice : 0.5
+    const yesPrice = market ? Math.max(0.01, Math.min(0.99, market.yesPrice)) : 0.5
     const pool = createPoolFromPrices(yesPrice, DEFAULT_LIQUIDITY)
 
     set({ pools: { ...get().pools, [marketId]: pool } })
@@ -143,10 +157,12 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
     try {
       const res = await createOrder({ marketId, side, amount })
-      // Update market prices from API response
-      const market = marketState.getMarketById(marketId)
+
+      // Re-read market state AFTER await to avoid stale data (H10)
+      const freshMarketState = useMarketStore.getState()
+      const market = freshMarketState.getMarketById(marketId)
       const currentVolume = market ? market.volume : 0
-      marketState.updateMarketPrices(marketId, res.newYesPrice, res.newNoPrice, currentVolume + amount)
+      freshMarketState.updateMarketPrices(marketId, res.newYesPrice, res.newNoPrice, currentVolume + amount)
 
       // Add position to portfolio
       const portfolioState = usePortfolioStore.getState()
@@ -160,10 +176,10 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       )
 
       return { success: true, shares: res.shares, price: res.price }
-    } catch {
-      // Fallback to local AMM
-      const result = get().executeBuy(marketId, side, amount)
-      return { success: result.success, shares: result.shares, price: result.avgPrice }
+    } catch (err: unknown) {
+      // Do NOT fallback to local AMM — surface the error to the UI (C2)
+      const message = err instanceof Error ? err.message : 'Trade failed, please try again'
+      return { success: false, shares: 0, price: 0, error: message }
     }
   },
 
@@ -177,9 +193,12 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
     try {
       const res = await sellOrder({ marketId, side, shares })
-      const market = marketState.getMarketById(marketId)
+
+      // Re-read market state AFTER await to avoid stale data (H10)
+      const freshMarketState = useMarketStore.getState()
+      const market = freshMarketState.getMarketById(marketId)
       const currentVolume = market ? market.volume : 0
-      marketState.updateMarketPrices(marketId, res.newYesPrice, res.newNoPrice, currentVolume + res.amountOut)
+      freshMarketState.updateMarketPrices(marketId, res.newYesPrice, res.newNoPrice, currentVolume + res.amountOut)
 
       useNotificationStore.getState().addNotification(
         'trade',
@@ -188,14 +207,16 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       )
 
       return { success: true, amountOut: res.amountOut, price: res.price }
-    } catch {
-      const result = get().executeSell(marketId, side, shares)
-      return { success: result.success, amountOut: result.payout, price: result.avgPrice }
+    } catch (err: unknown) {
+      // Do NOT fallback to local AMM — surface the error to the UI (C2)
+      const message = err instanceof Error ? err.message : 'Sell failed, please try again'
+      return { success: false, amountOut: 0, price: 0, error: message }
     }
   },
 
   reset: () =>
     set({
+      pools: {},
       selectedOutcome: 'YES',
       amount: 0,
     }),

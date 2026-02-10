@@ -6,40 +6,40 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS markets (
   id TEXT PRIMARY KEY,
-  title TEXT,
+  title TEXT NOT NULL,
   description TEXT,
-  category TEXT,
-  end_time BIGINT,
-  status TEXT DEFAULT 'active',
+  category TEXT NOT NULL,
+  end_time BIGINT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
   yes_price DOUBLE PRECISION DEFAULT 0.5,
   no_price DOUBLE PRECISION DEFAULT 0.5,
   volume DOUBLE PRECISION DEFAULT 0,
   total_liquidity DOUBLE PRECISION DEFAULT 10000,
   yes_reserve DOUBLE PRECISION DEFAULT 10000,
   no_reserve DOUBLE PRECISION DEFAULT 10000,
-  created_at BIGINT
+  created_at BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
-  user_address TEXT,
-  market_id TEXT,
-  side TEXT,
-  type TEXT,
-  amount DOUBLE PRECISION,
+  user_address TEXT NOT NULL,
+  market_id TEXT NOT NULL,
+  side TEXT NOT NULL,
+  type TEXT NOT NULL,
+  amount DOUBLE PRECISION NOT NULL,
   shares DOUBLE PRECISION,
   price DOUBLE PRECISION,
   status TEXT DEFAULT 'filled',
-  created_at BIGINT
+  created_at BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS positions (
   id TEXT PRIMARY KEY,
-  user_address TEXT,
-  market_id TEXT,
-  side TEXT,
-  shares DOUBLE PRECISION,
-  avg_cost DOUBLE PRECISION,
+  user_address TEXT NOT NULL,
+  market_id TEXT NOT NULL,
+  side TEXT NOT NULL,
+  shares DOUBLE PRECISION NOT NULL,
+  avg_cost DOUBLE PRECISION NOT NULL,
   created_at BIGINT,
   UNIQUE(user_address, market_id, side)
 );
@@ -321,3 +321,75 @@ CREATE TABLE IF NOT EXISTS user_achievements (
   UNIQUE(user_address, achievement_id)
 );
 CREATE INDEX IF NOT EXISTS idx_user_achievements ON user_achievements(user_address);
+
+-- ============================================
+-- Performance indexes (M1)
+-- ============================================
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_address);
+CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id);
+CREATE INDEX IF NOT EXISTS idx_markets_status_endtime ON markets(status, end_time);
+CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
+CREATE INDEX IF NOT EXISTS idx_settlement_log_market_user ON settlement_log(market_id, user_address, action);
+CREATE INDEX IF NOT EXISTS idx_deposits_txhash ON deposits(tx_hash);
+CREATE INDEX IF NOT EXISTS idx_referrals_referee ON referrals(referee_address);
+CREATE INDEX IF NOT EXISTS idx_open_orders_market ON open_orders(market_id, status);
+
+-- ============================================
+-- Foreign key constraints (M3)
+-- ============================================
+DO $$ BEGIN
+  ALTER TABLE orders ADD CONSTRAINT fk_orders_market FOREIGN KEY (market_id) REFERENCES markets(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE orders ADD CONSTRAINT fk_orders_user FOREIGN KEY (user_address) REFERENCES users(address);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE positions ADD CONSTRAINT fk_positions_market FOREIGN KEY (market_id) REFERENCES markets(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE positions ADD CONSTRAINT fk_positions_user FOREIGN KEY (user_address) REFERENCES users(address);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agent_trades ADD CONSTRAINT fk_agent_trades_agent FOREIGN KEY (agent_id) REFERENCES agents(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE market_resolution ADD CONSTRAINT fk_market_resolution_market FOREIGN KEY (market_id) REFERENCES markets(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE settlement_log ADD CONSTRAINT fk_settlement_log_market FOREIGN KEY (market_id) REFERENCES markets(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE comments ADD CONSTRAINT fk_comments_market FOREIGN KEY (market_id) REFERENCES markets(id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE fee_records ADD CONSTRAINT fk_fee_records_user FOREIGN KEY (user_address) REFERENCES users(address);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE deposits ADD CONSTRAINT fk_deposits_user FOREIGN KEY (user_address) REFERENCES users(address);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE withdrawals ADD CONSTRAINT fk_withdrawals_user FOREIGN KEY (user_address) REFERENCES users(address);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

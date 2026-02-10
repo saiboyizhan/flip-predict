@@ -42,7 +42,8 @@ router.get('/', async (req: Request, res: Response) => {
     const agents = (await db.query(sql, params)).rows;
     res.json({ agents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -55,7 +56,8 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
     )).rows;
     res.json({ agents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -68,7 +70,8 @@ router.get('/marketplace', async (_req: Request, res: Response) => {
     )).rows;
     res.json({ agents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -82,7 +85,8 @@ router.get('/my', authMiddleware, async (req: AuthRequest, res: Response) => {
     )).rows;
     res.json({ agents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -103,7 +107,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     res.json({ agent, trades });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -135,7 +140,8 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
     res.json({ agent });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -171,7 +177,8 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -190,7 +197,8 @@ router.post('/:id/list-sale', authMiddleware, async (req: AuthRequest, res: Resp
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -209,7 +217,8 @@ router.post('/:id/list-rent', authMiddleware, async (req: AuthRequest, res: Resp
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -263,7 +272,8 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
     res.json({ agent: updated });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     client.release();
   }
@@ -280,6 +290,7 @@ router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response)
     if (!agent) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Agent not found' }); return; }
     if (!agent.is_for_rent) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is not for rent' }); return; }
     if (agent.rented_by) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is already rented' }); return; }
+    if (agent.owner_address === req.userAddress) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Cannot rent your own agent' }); return; }
 
     const { days } = req.body;
     if (!days || days < 1) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Valid days required' }); return; }
@@ -322,7 +333,8 @@ router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response)
     res.json({ agent: updated });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   } finally {
     client.release();
   }
@@ -342,7 +354,8 @@ router.post('/:id/delist', authMiddleware, async (req: AuthRequest, res: Respons
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -360,7 +373,8 @@ router.delete('/:id/delist', authMiddleware, async (req: AuthRequest, res: Respo
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -400,7 +414,8 @@ router.get('/:id/predictions', async (req: Request, res: Response) => {
     )).rows;
     res.json({ predictions });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -412,7 +427,8 @@ router.get('/:id/style-profile', async (req: Request, res: Response) => {
     const report = await analyzeStyle(db, req.params.id);
     res.json({ profile: report });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -491,7 +507,8 @@ router.post('/:id/authorize-trade', authMiddleware, async (req: AuthRequest, res
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -514,7 +531,8 @@ router.post('/:id/revoke-trade', authMiddleware, async (req: AuthRequest, res: R
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -538,7 +556,8 @@ router.put('/:id/vault', authMiddleware, async (req: AuthRequest, res: Response)
 
     res.json({ success: true, vaultURI, vaultHash });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -551,7 +570,8 @@ router.get('/:id/vault', async (req: Request, res: Response) => {
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     res.json({ vaultURI: agent.vault_uri, vaultHash: agent.vault_hash });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -563,7 +583,8 @@ router.get('/:id/learning-metrics', async (req: Request, res: Response) => {
     const metrics = await getLearningMetrics(db, req.params.id);
     res.json({ metrics });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

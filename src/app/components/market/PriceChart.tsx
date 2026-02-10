@@ -61,7 +61,7 @@ interface PriceChartProps {
 
 export function PriceChart({ marketId }: PriceChartProps) {
   const { t } = useTranslation();
-  const [interval, setInterval] = useState("1h");
+  const [timeInterval, setTimeInterval] = useState("1h");
   const [data, setData] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,22 +75,28 @@ export function PriceChart({ marketId }: PriceChartProps) {
     try {
       const from = customMode ? toUTCString(fromDate) : undefined;
       const to = customMode ? toUTCString(toDate) : undefined;
-      const res = await fetchPriceHistory(marketId, interval, from, to);
+      const res = await fetchPriceHistory(marketId, timeInterval, from, to);
       setData(res.history);
     } catch (e: any) {
       setError(e.message || "Failed to load price history");
     } finally {
       setLoading(false);
     }
-  }, [marketId, interval, customMode, fromDate, toDate]);
+  }, [marketId, timeInterval, customMode, fromDate, toDate]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const timer = window.setInterval(() => { load(); }, 30000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
   const handlePresetClick = (key: string) => {
     setCustomMode(false);
-    setInterval(key);
+    setTimeInterval(key);
   };
 
   const toggleCustom = () => {
@@ -106,7 +112,7 @@ export function PriceChart({ marketId }: PriceChartProps) {
             key={iv.key}
             onClick={() => handlePresetClick(iv.key)}
             className={`px-3 py-1 text-xs font-medium transition-colors rounded-sm ${
-              !customMode && interval === iv.key
+              !customMode && timeInterval === iv.key
                 ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
                 : "bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300"
             }`}
@@ -149,8 +155,8 @@ export function PriceChart({ marketId }: PriceChartProps) {
             />
           </div>
           <select
-            value={interval}
-            onChange={(e) => setInterval(e.target.value)}
+            value={timeInterval}
+            onChange={(e) => setTimeInterval(e.target.value)}
             className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 outline-none focus:border-amber-500/50 [color-scheme:dark]"
           >
             {INTERVALS.map((iv) => (
@@ -194,7 +200,7 @@ export function PriceChart({ marketId }: PriceChartProps) {
             <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
             <XAxis
               dataKey="time_bucket"
-              tickFormatter={(v) => formatTime(v, interval)}
+              tickFormatter={(v) => formatTime(v, timeInterval)}
               tick={{ fill: "#71717a", fontSize: 10 }}
               axisLine={{ stroke: "#3f3f46" }}
               tickLine={false}
@@ -214,7 +220,7 @@ export function PriceChart({ marketId }: PriceChartProps) {
                 borderRadius: "4px",
                 fontSize: "12px",
               }}
-              labelFormatter={(v) => formatTime(v as string, interval)}
+              labelFormatter={(v) => formatTime(v as string, timeInterval)}
               formatter={(value: number, name: string) => {
                 if (name === "yes_price") return [`${(value * 100).toFixed(1)}%`, "YES"];
                 if (name === "no_price") return [`${(value * 100).toFixed(1)}%`, "NO"];

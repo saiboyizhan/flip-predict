@@ -63,6 +63,7 @@ function Row({
 export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
   const { t } = useTranslation();
   const [data, setData] = useState<OrderBookData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsConnected = useRef(false);
 
@@ -70,8 +71,9 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
     try {
       const result = await getOrderBook(marketId, side);
       setData(result);
+      setError(null);
     } catch {
-      // silently fail, will retry
+      setError('Failed to load orderbook');
     }
   }, [marketId, side]);
 
@@ -166,7 +168,18 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
         <span className="text-right">{t('orderbook.cumulative')}</span>
       </div>
 
-      {isEmpty ? (
+      {error ? (
+        <div className="py-10 text-center">
+          <BookOpen className="w-8 h-8 text-red-500/50 mx-auto mb-2" />
+          <p className="text-red-400 text-sm">{error}</p>
+          <button
+            onClick={fetchData}
+            className="mt-2 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            {t('common.retry', 'Retry')}
+          </button>
+        </div>
+      ) : isEmpty ? (
         <div className="py-10 text-center">
           <BookOpen className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
           <p className="text-zinc-600 text-sm">{t('orderbook.noOrders')}</p>

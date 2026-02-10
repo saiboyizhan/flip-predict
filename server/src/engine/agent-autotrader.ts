@@ -1,9 +1,6 @@
 import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
 import { generateDecisions, StrategyType } from './agent-strategy';
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
 
 const WIN_RATES: Record<StrategyType, number> = {
   conservative: 0.60,
@@ -124,7 +121,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `, [
-        generateId(),
+        randomUUID(),
         agentId,
         d.marketId,
         d.side,

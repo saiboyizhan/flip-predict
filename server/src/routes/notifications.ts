@@ -27,7 +27,8 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ notifications: mapped });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Notifications error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -41,7 +42,8 @@ router.get('/unread-count', authMiddleware, async (req: AuthRequest, res: Respon
     );
     res.json({ count: parseInt(result.rows[0].count) || 0 });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Notifications error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -55,7 +57,8 @@ router.put('/read-all', authMiddleware, async (req: AuthRequest, res: Response) 
     );
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Notifications error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -74,7 +77,8 @@ router.put('/:id/read', authMiddleware, async (req: AuthRequest, res: Response) 
     const notification = { ...result.rows[0], is_read: !!result.rows[0].is_read };
     res.json({ notification });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Notifications error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

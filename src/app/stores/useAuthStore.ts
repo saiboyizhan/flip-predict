@@ -1,6 +1,28 @@
 import { create } from 'zustand'
 import { loginWithWallet } from '@/app/services/auth'
 import { setToken, getToken, clearToken } from '@/app/services/api'
+import { useTradeStore } from './useTradeStore'
+import { usePortfolioStore } from './usePortfolioStore'
+
+/** Decode JWT payload and check if expired (client-side only, no verification) */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return payload.exp * 1000 < Date.now()
+  } catch {
+    return true
+  }
+}
+
+/** Return token only if it exists and is not expired; clear it otherwise */
+function getValidToken(): string | null {
+  const token = getToken()
+  if (token && isTokenExpired(token)) {
+    clearToken()
+    return null
+  }
+  return token
+}
 
 interface AuthState {
   address: string | null
@@ -24,8 +46,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   balance: 0,
   displayName: '',
   isConnected: false,
-  token: getToken(),
-  isAuthenticated: !!getToken(),
+  token: getValidToken(),
+  isAuthenticated: !!getValidToken(),
 
   connect: (address) =>
     set({
@@ -37,6 +59,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   disconnect: () => {
     clearToken()
+
+    // Clear trade and portfolio stores on disconnect (H8)
+    useTradeStore.getState().reset()
+    // Portfolio store has no reset action; clear positions/orders directly via setState
+    usePortfolioStore.setState({ positions: [], orders: [] })
+
     set({
       address: null,
       isConnected: false,
@@ -73,7 +101,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   restoreToken: () => {
-    const token = getToken()
+    const token = getValidToken()
     set({ token, isAuthenticated: !!token })
   },
 }))

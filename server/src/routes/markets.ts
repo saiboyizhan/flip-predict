@@ -18,7 +18,7 @@ router.get('/', async (req: Request, res: Response) => {
   }
 
   if (search) {
-    query += ` AND (title LIKE $${paramIndex++} OR description LIKE $${paramIndex++})`;
+    query += ` AND (title ILIKE $${paramIndex++} OR description ILIKE $${paramIndex++})`;
     params.push(`%${search}%`, `%${search}%`);
   }
 

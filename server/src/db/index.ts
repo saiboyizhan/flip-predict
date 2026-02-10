@@ -9,8 +9,14 @@ let pool: Pool;
 export async function initDatabase(): Promise<Pool> {
   const connectionString = process.env.DATABASE_URL;
 
+  const poolConfig = {
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+  };
+
   if (connectionString) {
-    pool = new Pool({ connectionString });
+    pool = new Pool({ connectionString, ...poolConfig });
   } else {
     pool = new Pool({
       host: process.env.PG_HOST || 'localhost',
@@ -18,8 +24,13 @@ export async function initDatabase(): Promise<Pool> {
       user: process.env.PG_USER || 'postgres',
       password: process.env.PG_PASSWORD || 'postgres',
       database: process.env.PG_DB || 'prediction',
+      ...poolConfig,
     });
   }
+
+  pool.on('error', (err) => {
+    console.error('Unexpected pool error:', err);
+  });
 
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
   await pool.query(schema);

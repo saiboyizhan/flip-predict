@@ -102,6 +102,9 @@ router.post('/:marketId/resolve', authMiddleware, adminMiddleware, async (req: A
 });
 
 // POST /api/settlement/:marketId/claim — user claims reward (auth required)
+// Bug C6 Fix: The keeper's settleMarketPositions() already pays all winners automatically.
+// This claim endpoint primarily serves as confirmation / idempotent retrieval.
+// It only pays out if the user was somehow missed during automatic settlement (edge case).
 router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { marketId } = req.params;
   const userAddress = req.userAddress!;
@@ -128,64 +131,73 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
     return;
   }
 
-  // Check if user already has a settle_winner log entry (already settled during resolution)
-  const settleLogResult = await db.query(
-    "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'settle_winner'",
-    [marketId, userAddress]
-  );
-  const settleLog = settleLogResult.rows[0] as any;
-  if (settleLog) {
-    // Already settled by keeper/admin during resolution, no manual claim needed
-    res.status(400).json({ error: 'Already settled' });
-    return;
-  }
-
-  // Check if already claimed via this endpoint
-  const alreadyClaimedResult = await db.query(
-    "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'claimed'",
-    [marketId, userAddress]
-  );
-  if (alreadyClaimedResult.rows.length > 0) {
-    res.status(400).json({ error: 'Already claimed' });
-    return;
-  }
-
-  // User must hold the winning side position
-  const positionResult = await db.query(
-    'SELECT * FROM positions WHERE market_id = $1 AND user_address = $2 AND side = $3',
-    [marketId, userAddress, resolution.outcome]
-  );
-  const position = positionResult.rows[0] as any;
-  if (!position || position.shares <= 0) {
-    res.status(400).json({ error: 'No winning position found' });
-    return;
-  }
-
-  // Calculate proper payout: principal + proportional share of loser pool
-  const winningSide = resolution.outcome;
-  const allPositions = await db.query('SELECT * FROM positions WHERE market_id = $1', [marketId]);
-  const winners = allPositions.rows.filter((p: any) => p.side === winningSide);
-  const losers = allPositions.rows.filter((p: any) => p.side !== winningSide);
-
-  const totalWinnerShares = winners.reduce((sum: number, p: any) => sum + p.shares, 0);
-  const totalLoserValue = losers.reduce((sum: number, p: any) => sum + p.shares * p.avg_cost, 0);
-
-  const principal = position.shares * position.avg_cost;
-  const bonus = totalWinnerShares > 0 ? (position.shares / totalWinnerShares) * totalLoserValue : 0;
-  const claimAmount = principal + bonus;
-
-  const now = Date.now();
   const client = await db.connect();
   try {
     await client.query('BEGIN');
 
-    // Credit user balance
+    // Use FOR UPDATE to prevent race conditions on concurrent claim requests
+    const settleLogResult = await client.query(
+      "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'settle_winner' FOR UPDATE",
+      [marketId, userAddress]
+    );
+    const settleLog = settleLogResult.rows[0] as any;
+
+    if (settleLog) {
+      // Already settled by keeper/admin during resolution — return the amount (no additional payout)
+      await client.query('COMMIT');
+      res.json({ success: true, amount: settleLog.amount, marketId, source: 'auto_settled' });
+      return;
+    }
+
+    // Check if already claimed via this endpoint (with FOR UPDATE to prevent race)
+    const alreadyClaimedResult = await client.query(
+      "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'claimed' FOR UPDATE",
+      [marketId, userAddress]
+    );
+    if (alreadyClaimedResult.rows.length > 0) {
+      await client.query('COMMIT');
+      res.json({ success: true, amount: alreadyClaimedResult.rows[0].amount, marketId, source: 'already_claimed' });
+      return;
+    }
+
+    // Edge case: User had a winning position but was not settled automatically.
+    // Check if user holds the winning side position.
+    const positionResult = await client.query(
+      'SELECT * FROM positions WHERE market_id = $1 AND user_address = $2 AND side = $3 FOR UPDATE',
+      [marketId, userAddress, resolution.outcome]
+    );
+    const position = positionResult.rows[0] as any;
+    if (!position || position.shares <= 0) {
+      await client.query('COMMIT');
+      res.status(400).json({ error: 'No winning position found' });
+      return;
+    }
+
+    // Calculate proper payout: principal + proportional share of loser pool
+    const winningSide = resolution.outcome;
+    const allPositions = await client.query('SELECT * FROM positions WHERE market_id = $1', [marketId]);
+    const winners = allPositions.rows.filter((p: any) => p.side === winningSide);
+    const losers = allPositions.rows.filter((p: any) => p.side !== winningSide);
+
+    const totalWinnerShares = winners.reduce((sum: number, p: any) => sum + p.shares, 0);
+    const totalLoserValue = losers.reduce((sum: number, p: any) => sum + p.shares * p.avg_cost, 0);
+
+    const principal = position.shares * position.avg_cost;
+    const bonus = totalWinnerShares > 0 ? (position.shares / totalWinnerShares) * totalLoserValue : 0;
+    const claimAmount = principal + bonus;
+
+    const now = Date.now();
+
+    // Credit user balance (use UPSERT for safety, matching Bug C7 fix)
     await client.query(
-      'UPDATE balances SET available = available + $1 WHERE user_address = $2',
+      `INSERT INTO balances (user_address, available, locked) VALUES ($2, $1, 0)
+       ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $1`,
       [claimAmount, userAddress]
     );
 
-    // Log the claim
+    // Insert claim log — use a deterministic approach to prevent duplicates.
+    // If another concurrent request somehow got past the FOR UPDATE check, this will
+    // simply fail and the transaction will rollback (no double payout).
     await client.query(`
       INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
       VALUES ($1, $2, 'claimed', $3, $4, $5, $6)
@@ -194,14 +206,13 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
     }), now]);
 
     await client.query('COMMIT');
+    res.json({ success: true, amount: claimAmount, marketId, source: 'claimed' });
   } catch (txErr) {
     await client.query('ROLLBACK');
     throw txErr;
   } finally {
     client.release();
   }
-
-  res.json({ success: true, amount: claimAmount, marketId });
 });
 
 export default router;

@@ -55,10 +55,10 @@ router.get('/balances', authMiddleware, async (req: AuthRequest, res: Response) 
   });
 });
 
-// GET /api/portfolio/:address — user positions
+// GET /api/portfolio/:address — user positions (public)
 router.get('/portfolio/:address', async (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = (req.params.address as string).toLowerCase();
     const db = getDb();
 
     const { rows: positions } = await db.query(`
@@ -74,14 +74,19 @@ router.get('/portfolio/:address', async (req: Request, res: Response) => {
 
     res.json({ positions });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Portfolio positions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /api/portfolio/:address/history — trade history from orders table
-router.get('/portfolio/:address/history', async (req: Request, res: Response) => {
+// GET /api/portfolio/:address/history — trade history from orders table (auth required)
+router.get('/portfolio/:address/history', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = (req.params.address as string).toLowerCase();
+    if (req.userAddress?.toLowerCase() !== address) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
     const { limit = '50', offset = '0' } = req.query;
     const db = getDb();
 
@@ -102,14 +107,19 @@ router.get('/portfolio/:address/history', async (req: Request, res: Response) =>
 
     res.json({ orders, trades: orders, total });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Portfolio history error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /api/portfolio/:address/balance — user balance from balances table
-router.get('/portfolio/:address/balance', async (req: Request, res: Response) => {
+// GET /api/portfolio/:address/balance — user balance from balances table (auth required)
+router.get('/portfolio/:address/balance', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = (req.params.address as string).toLowerCase();
+    if (req.userAddress?.toLowerCase() !== address) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
     const db = getDb();
 
     const balanceResult = await db.query('SELECT * FROM balances WHERE user_address = $1', [address]);
@@ -141,14 +151,19 @@ router.get('/portfolio/:address/balance', async (req: Request, res: Response) =>
       totalValue: balance.available + balance.locked + portfolioValue,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Portfolio balance error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /api/portfolio/:address/stats — user statistics (total PnL, win rate, etc.)
-router.get('/portfolio/:address/stats', async (req: Request, res: Response) => {
+// GET /api/portfolio/:address/stats — user statistics (auth required)
+router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = (req.params.address as string).toLowerCase();
+    if (req.userAddress?.toLowerCase() !== address) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
     const db = getDb();
 
     // Total trades count and volume
@@ -213,7 +228,8 @@ router.get('/portfolio/:address/stats', async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Portfolio stats error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
