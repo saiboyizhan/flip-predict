@@ -1,0 +1,100 @@
+import { Router, Response } from 'express';
+import { AuthRequest, authMiddleware } from './middleware/auth';
+import { getDb } from '../db';
+import crypto from 'crypto';
+import { broadcastNotification } from '../ws';
+
+const router = Router();
+
+// GET /api/notifications — get current user's notifications
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const { limit = '50', offset = '0' } = req.query;
+
+    const { rows: notifications } = await db.query(`
+      SELECT * FROM notifications
+      WHERE user_address = $1
+      ORDER BY created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [req.userAddress, Math.min(parseInt(limit as string) || 50, 200), parseInt(offset as string) || 0]);
+
+    res.json({ notifications });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/notifications/unread-count — unread count
+router.get('/unread-count', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const result = await db.query(
+      'SELECT COUNT(*) as count FROM notifications WHERE user_address = $1 AND is_read = 0',
+      [req.userAddress]
+    );
+    res.json({ count: parseInt(result.rows[0].count) || 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/notifications/read-all — mark all as read
+router.put('/read-all', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    await db.query(
+      'UPDATE notifications SET is_read = 1 WHERE user_address = $1 AND is_read = 0',
+      [req.userAddress]
+    );
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/notifications/:id/read — mark single as read
+router.put('/:id/read', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const result = await db.query(
+      'UPDATE notifications SET is_read = 1 WHERE id = $1 AND user_address = $2 RETURNING *',
+      [req.params.id, req.userAddress]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Notification not found' });
+      return;
+    }
+    res.json({ notification: result.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper: create notification and push via WebSocket
+export async function createNotification(params: {
+  userAddress: string;
+  type: string;
+  title: string;
+  message: string;
+  metadata?: Record<string, any>;
+}): Promise<any> {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const now = Date.now();
+
+  const { rows } = await db.query(`
+    INSERT INTO notifications (id, user_address, type, title, message, metadata, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING *
+  `, [id, params.userAddress, params.type, params.title, params.message, JSON.stringify(params.metadata || {}), now]);
+
+  const notification = rows[0];
+
+  // Push via WebSocket
+  broadcastNotification(params.userAddress, notification);
+
+  return notification;
+}
+
+export default router;
