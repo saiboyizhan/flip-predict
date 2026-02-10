@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { adminMiddleware } from './middleware/admin';
 import { getDb } from '../db';
@@ -6,9 +7,17 @@ import { settleMarketPositions } from '../engine/keeper';
 
 const router = Router();
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
+// IMPORTANT: Specific named routes MUST come before parameterized routes
+// to avoid "resolved" being captured as a :marketId parameter.
+
+// GET /api/settlement/resolved — list resolved/pending_resolution markets
+router.get('/resolved', async (_req: Request, res: Response) => {
+  const db = getDb();
+  const { rows: markets } = await db.query(
+    "SELECT m.*, mr.outcome, mr.resolved_price, mr.resolved_at FROM markets m LEFT JOIN market_resolution mr ON m.id = mr.market_id WHERE m.status IN ('resolved', 'pending_resolution') ORDER BY m.end_time DESC"
+  );
+  res.json({ markets });
+});
 
 // GET /api/settlement/:marketId — get settlement info (no auth required)
 router.get('/:marketId', async (req: Request, res: Response) => {
@@ -79,7 +88,7 @@ router.post('/:marketId/resolve', authMiddleware, adminMiddleware, async (req: A
     await client.query(`
       INSERT INTO settlement_log (id, market_id, action, user_address, details, created_at)
       VALUES ($1, $2, 'manual_resolve', $3, $4, $5)
-    `, [generateId(), marketId, userAddress, JSON.stringify({ outcome }), now]);
+    `, [randomUUID(), marketId, userAddress, JSON.stringify({ outcome }), now]);
 
     await client.query('COMMIT');
   } catch (txErr) {
@@ -119,6 +128,29 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
     return;
   }
 
+  // Check if user already has a settle_winner log entry (already settled during resolution)
+  const settleLogResult = await db.query(
+    "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'settle_winner'",
+    [marketId, userAddress]
+  );
+  const settleLog = settleLogResult.rows[0] as any;
+  if (settleLog) {
+    // Already settled by keeper/admin during resolution, no manual claim needed
+    res.status(400).json({ error: 'Already settled' });
+    return;
+  }
+
+  // Check if already claimed via this endpoint
+  const alreadyClaimedResult = await db.query(
+    "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'claimed'",
+    [marketId, userAddress]
+  );
+  if (alreadyClaimedResult.rows.length > 0) {
+    res.status(400).json({ error: 'Already claimed' });
+    return;
+  }
+
+  // User must hold the winning side position
   const positionResult = await db.query(
     'SELECT * FROM positions WHERE market_id = $1 AND user_address = $2 AND side = $3',
     [marketId, userAddress, resolution.outcome]
@@ -129,38 +161,47 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
     return;
   }
 
-  const alreadyClaimedResult = await db.query(
-    "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'claimed'",
-    [marketId, userAddress]
-  );
-  if (alreadyClaimedResult.rows.length > 0) {
-    res.status(400).json({ error: 'Already claimed' });
-    return;
-  }
+  // Calculate proper payout: principal + proportional share of loser pool
+  const winningSide = resolution.outcome;
+  const allPositions = await db.query('SELECT * FROM positions WHERE market_id = $1', [marketId]);
+  const winners = allPositions.rows.filter((p: any) => p.side === winningSide);
+  const losers = allPositions.rows.filter((p: any) => p.side !== winningSide);
 
-  const settleLogResult = await db.query(
-    "SELECT * FROM settlement_log WHERE market_id = $1 AND user_address = $2 AND action = 'settle_winner'",
-    [marketId, userAddress]
-  );
-  const settleLog = settleLogResult.rows[0] as any;
-  const claimAmount = settleLog ? settleLog.amount : position.shares * position.avg_cost;
+  const totalWinnerShares = winners.reduce((sum: number, p: any) => sum + p.shares, 0);
+  const totalLoserValue = losers.reduce((sum: number, p: any) => sum + p.shares * p.avg_cost, 0);
+
+  const principal = position.shares * position.avg_cost;
+  const bonus = totalWinnerShares > 0 ? (position.shares / totalWinnerShares) * totalLoserValue : 0;
+  const claimAmount = principal + bonus;
 
   const now = Date.now();
-  await db.query(`
-    INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
-    VALUES ($1, $2, 'claimed', $3, $4, $5, $6)
-  `, [generateId(), marketId, userAddress, claimAmount, JSON.stringify({ side: resolution.outcome }), now]);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Credit user balance
+    await client.query(
+      'UPDATE balances SET available = available + $1 WHERE user_address = $2',
+      [claimAmount, userAddress]
+    );
+
+    // Log the claim
+    await client.query(`
+      INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
+      VALUES ($1, $2, 'claimed', $3, $4, $5, $6)
+    `, [randomUUID(), marketId, userAddress, claimAmount, JSON.stringify({
+      side: resolution.outcome, shares: position.shares, principal, bonus
+    }), now]);
+
+    await client.query('COMMIT');
+  } catch (txErr) {
+    await client.query('ROLLBACK');
+    throw txErr;
+  } finally {
+    client.release();
+  }
 
   res.json({ success: true, amount: claimAmount, marketId });
-});
-
-// GET /api/markets/resolved — list resolved/pending_resolution markets
-router.get('/', async (req: Request, res: Response) => {
-  const db = getDb();
-  const { rows: markets } = await db.query(
-    "SELECT m.*, mr.outcome, mr.resolved_price, mr.resolved_at FROM markets m LEFT JOIN market_resolution mr ON m.id = mr.market_id WHERE m.status IN ('resolved', 'pending_resolution') ORDER BY m.end_time DESC"
-  );
-  res.json({ markets });
 });
 
 export default router;

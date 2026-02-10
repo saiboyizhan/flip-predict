@@ -100,7 +100,7 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
     }, 5000);
 
     return () => {
-      unsubscribeOrderBook(marketId, side);
+      unsubscribeOrderBook(marketId, side, handleWsUpdate);
       if (pollRef.current) clearInterval(pollRef.current);
       wsConnected.current = false;
     };

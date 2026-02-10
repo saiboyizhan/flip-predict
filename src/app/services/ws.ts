@@ -153,8 +153,26 @@ export function subscribeMarket(
   }
 }
 
-export function unsubscribeMarket(marketId: string): void {
-  callbacks.delete(marketId)
+export function unsubscribeMarket(marketId: string, callback?: (data: unknown) => void): void {
+  if (callback) {
+    const fns = callbacks.get(marketId)
+    if (fns) {
+      fns.delete(callback)
+      if (fns.size === 0) {
+        callbacks.delete(marketId)
+        // Unsubscribe from server when no callbacks remain
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'unsubscribe', marketId }))
+        }
+      }
+    }
+  } else {
+    // If no specific callback provided, remove all callbacks for this market
+    callbacks.delete(marketId)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'unsubscribe', marketId }))
+    }
+  }
 }
 
 // --- Orderbook WebSocket ---
@@ -205,7 +223,23 @@ export function subscribeOrderBook(
   }
 }
 
-export function unsubscribeOrderBook(marketId: string, side: string): void {
+export function unsubscribeOrderBook(marketId: string, side: string, callback?: (data: unknown) => void): void {
   const key = `${marketId}:${side}`
-  orderbookCallbacks.delete(key)
+  if (callback) {
+    const fns = orderbookCallbacks.get(key)
+    if (fns) {
+      fns.delete(callback)
+      if (fns.size === 0) {
+        orderbookCallbacks.delete(key)
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'unsubscribe_orderbook', marketId, side }))
+        }
+      }
+    }
+  } else {
+    orderbookCallbacks.delete(key)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'unsubscribe_orderbook', marketId, side }))
+    }
+  }
 }

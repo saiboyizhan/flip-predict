@@ -5,8 +5,8 @@ export async function loginWithWallet(
   signMessage: (message: string) => Promise<string>,
 ): Promise<boolean> {
   try {
-    const { nonce } = await getNonce(address)
-    const signature = await signMessage(nonce)
+    const { nonce, message } = await getNonce(address)
+    const signature = await signMessage(message)
     const { token } = await verifySignature(address, signature)
     setToken(token)
     return true

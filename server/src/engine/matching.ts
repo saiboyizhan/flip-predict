@@ -1,9 +1,6 @@
 import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
 import { calculateBuy, calculateSell } from './amm';
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
 
 export interface OrderResult {
   orderId: string;
@@ -45,7 +42,7 @@ export async function executeBuy(
     // Calculate trade via AMM
     const result = calculateBuy(market.yes_reserve, market.no_reserve, side, amount);
 
-    const orderId = generateId();
+    const orderId = randomUUID();
     const now = Date.now();
 
     // Deduct balance
@@ -82,7 +79,7 @@ export async function executeBuy(
       const newAvgCost = (existing.shares * existing.avg_cost + amount) / newShares;
       await client.query('UPDATE positions SET shares = $1, avg_cost = $2 WHERE id = $3', [newShares, newAvgCost, existing.id]);
     } else {
-      const posId = generateId();
+      const posId = randomUUID();
       await client.query(`
         INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -133,7 +130,7 @@ export async function executeSell(
     // Calculate trade via AMM
     const result = calculateSell(market.yes_reserve, market.no_reserve, side, shares);
 
-    const orderId = generateId();
+    const orderId = randomUUID();
     const now = Date.now();
 
     // Credit balance

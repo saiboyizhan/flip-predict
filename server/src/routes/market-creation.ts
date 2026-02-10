@@ -44,52 +44,53 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       return;
     }
 
-    // Rate limit check
-    const today = Math.floor(now / 86400000);
-    const rateLimitResult = await db.query(
-      'SELECT * FROM market_creation_ratelimit WHERE user_address = $1',
-      [userAddress]
-    );
-    let rateLimit = rateLimitResult.rows[0] as any;
-
-    if (rateLimit) {
-      if (rateLimit.last_reset_day !== today) {
-        // New day, reset count
-        await db.query(
-          'UPDATE market_creation_ratelimit SET daily_count = 0, last_reset_day = $1 WHERE user_address = $2',
-          [today, userAddress]
-        );
-        rateLimit.daily_count = 0;
-      }
-      if (rateLimit.daily_count >= 3) {
-        res.status(429).json({ error: '今日创建市场数量已达上限 (3/天)' });
-        return;
-      }
-    } else {
-      await db.query(
-        'INSERT INTO market_creation_ratelimit (user_address, daily_count, last_reset_day, total_created) VALUES ($1, 0, $2, 0)',
-        [userAddress, today]
-      );
-      rateLimit = { daily_count: 0 };
-    }
-
-    // Check user balance for creation fee (10 USDT equivalent)
-    const balanceResult = await db.query('SELECT available FROM balances WHERE user_address = $1', [userAddress]);
-    const balance = balanceResult.rows[0] as any;
     const creationFee = 10;
-    if (!balance || balance.available < creationFee) {
-      res.status(400).json({ error: `余额不足，创建市场需要 ${creationFee} USDT` });
-      return;
-    }
 
-    // Use transaction for the create operation
+    // Use a single transaction for rate limit check + balance check + creation
+    // to prevent race conditions where concurrent requests bypass the rate limit
     const client = await db.connect();
     try {
       await client.query('BEGIN');
 
-      // Deduct fee
-      await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2',
-        [creationFee, userAddress]);
+      // Atomic rate limit check inside transaction:
+      // First, ensure the ratelimit row exists (upsert)
+      const today = Math.floor(now / 86400000);
+      await client.query(`
+        INSERT INTO market_creation_ratelimit (user_address, daily_count, last_reset_day, total_created)
+        VALUES ($1, 0, $2, 0)
+        ON CONFLICT (user_address) DO UPDATE
+        SET daily_count = CASE
+          WHEN market_creation_ratelimit.last_reset_day != $2 THEN 0
+          ELSE market_creation_ratelimit.daily_count
+        END,
+        last_reset_day = $2
+      `, [userAddress, today]);
+
+      // Atomically increment daily_count only if under the limit (FOR UPDATE locks the row)
+      const rateLimitResult = await client.query(
+        `UPDATE market_creation_ratelimit
+         SET daily_count = daily_count + 1, total_created = total_created + 1
+         WHERE user_address = $1 AND daily_count < 3
+         RETURNING *`,
+        [userAddress]
+      );
+
+      if (rateLimitResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(429).json({ error: '今日创建市场数量已达上限 (3/天)' });
+        return;
+      }
+
+      // Check and deduct balance atomically
+      const balanceResult = await client.query(
+        'UPDATE balances SET available = available - $1 WHERE user_address = $2 AND available >= $1 RETURNING *',
+        [creationFee, userAddress]
+      );
+      if (balanceResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: `余额不足，创建市场需要 ${creationFee} USDT` });
+        return;
+      }
 
       // Create market
       const marketId = generateId();
@@ -103,12 +104,6 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
         INSERT INTO user_created_markets (id, market_id, creator_address, creation_fee, created_at)
         VALUES ($1, $2, $3, $4, $5)
       `, [generateId(), marketId, userAddress, creationFee, now]);
-
-      // Update rate limit
-      await client.query(
-        'UPDATE market_creation_ratelimit SET daily_count = daily_count + 1, total_created = total_created + 1 WHERE user_address = $1',
-        [userAddress]
-      );
 
       // Also create market_resolution entry
       await client.query(
@@ -152,34 +147,52 @@ router.get('/user-created', authMiddleware, async (req: AuthRequest, res: Respon
 router.post('/:id/flag', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const ucmResult = await db.query(
-      'SELECT * FROM user_created_markets WHERE market_id = $1',
-      [req.params.id]
-    );
-    const ucm = ucmResult.rows[0] as any;
 
-    if (!ucm) {
-      res.status(404).json({ error: '市场不是用户创建的' });
-      return;
+    // Use transaction with FOR UPDATE to prevent race conditions on concurrent flags
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const ucmResult = await client.query(
+        'SELECT * FROM user_created_markets WHERE market_id = $1 FOR UPDATE',
+        [req.params.id]
+      );
+      const ucm = ucmResult.rows[0] as any;
+
+      if (!ucm) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: '市场不是用户创建的' });
+        return;
+      }
+
+      // Check if already flagged by this user
+      const flaggedBy: string[] = Array.isArray(ucm.flagged_by)
+        ? ucm.flagged_by
+        : JSON.parse(ucm.flagged_by || '[]');
+      if (flaggedBy.includes(req.userAddress!)) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: '你已经举报过了' });
+        return;
+      }
+
+      flaggedBy.push(req.userAddress!);
+      const newFlagCount = ucm.flag_count + 1;
+      const newStatus = newFlagCount >= 5 ? 'flagged' : ucm.status;
+
+      await client.query(
+        'UPDATE user_created_markets SET flag_count = $1, flagged_by = $2, status = $3 WHERE market_id = $4',
+        [newFlagCount, JSON.stringify(flaggedBy), newStatus, req.params.id]
+      );
+
+      await client.query('COMMIT');
+
+      res.json({ flagCount: newFlagCount, status: newStatus });
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
     }
-
-    // Check if already flagged by this user
-    const flaggedBy = JSON.parse(ucm.flagged_by || '[]');
-    if (flaggedBy.includes(req.userAddress)) {
-      res.status(400).json({ error: '你已经举报过了' });
-      return;
-    }
-
-    flaggedBy.push(req.userAddress);
-    const newFlagCount = ucm.flag_count + 1;
-    const newStatus = newFlagCount >= 5 ? 'flagged' : ucm.status;
-
-    await db.query(
-      'UPDATE user_created_markets SET flag_count = $1, flagged_by = $2, status = $3 WHERE market_id = $4',
-      [newFlagCount, JSON.stringify(flaggedBy), newStatus, req.params.id]
-    );
-
-    res.json({ flagCount: newFlagCount, status: newStatus });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -59,10 +59,16 @@ router.post('/verify', async (req: Request, res: Response) => {
   try {
     const recoveredAddress = ethers.verifyMessage(message, signature);
     if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+      // Invalidate nonce on failed attempt to prevent replay attacks
+      const newNonce = crypto.randomBytes(16).toString('hex');
+      await db.query('UPDATE users SET nonce = $1 WHERE address = $2', [newNonce, address.toLowerCase()]);
       res.status(401).json({ error: 'Signature verification failed' });
       return;
     }
   } catch {
+    // Invalidate nonce on failed attempt to prevent replay attacks
+    const newNonce = crypto.randomBytes(16).toString('hex');
+    await db.query('UPDATE users SET nonce = $1 WHERE address = $2', [newNonce, address.toLowerCase()]);
     res.status(401).json({ error: 'Invalid signature' });
     return;
   }

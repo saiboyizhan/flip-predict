@@ -19,7 +19,13 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       LIMIT $2 OFFSET $3
     `, [req.userAddress, Math.min(parseInt(limit as string) || 50, 200), parseInt(offset as string) || 0]);
 
-    res.json({ notifications });
+    // Map is_read integer to boolean for API response
+    const mapped = notifications.map((n: any) => ({
+      ...n,
+      is_read: !!n.is_read,
+    }));
+
+    res.json({ notifications: mapped });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -65,7 +71,8 @@ router.put('/:id/read', authMiddleware, async (req: AuthRequest, res: Response) 
       res.status(404).json({ error: 'Notification not found' });
       return;
     }
-    res.json({ notification: result.rows[0] });
+    const notification = { ...result.rows[0], is_read: !!result.rows[0].is_read };
+    res.json({ notification });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

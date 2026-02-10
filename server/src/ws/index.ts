@@ -1,5 +1,8 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'prediction-market-dev-secret';
 
 interface Client {
   ws: WebSocket;
@@ -43,10 +46,15 @@ export function setupWebSocket(server: Server): WebSocketServer {
           ws.send(JSON.stringify({ type: 'unsubscribed_orderbook', marketId: msg.marketId, side: msg.side }));
         }
 
-        // Subscribe to user notifications by address
-        if (msg.type === 'auth' && msg.address) {
-          client.userAddress = msg.address.toLowerCase();
-          ws.send(JSON.stringify({ type: 'authed', address: client.userAddress }));
+        // Subscribe to user notifications — requires valid JWT token
+        if (msg.type === 'auth' && msg.token) {
+          try {
+            const decoded = jwt.verify(msg.token, JWT_SECRET) as { address: string };
+            client.userAddress = decoded.address.toLowerCase();
+            ws.send(JSON.stringify({ type: 'authed', address: client.userAddress }));
+          } catch {
+            ws.send(JSON.stringify({ type: 'auth_error', error: 'Invalid or expired token' }));
+          }
         }
       } catch {
         // ignore invalid messages

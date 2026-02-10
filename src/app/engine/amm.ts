@@ -92,13 +92,13 @@ export function getPrice(pool: Pool, side: 'yes' | 'no'): number {
  * Calculate the result of buying shares on a given side.
  *
  * When buying YES shares with `amount` USDT:
- *   1. The amount is added to the YES reserve (buyer adds to the pool)
- *   2. NO reserve adjusts to maintain k: newNoReserve = k / newYesReserve
- *   3. Shares received = old NO reserve - new NO reserve
+ *   1. The amount is added to the NO reserve (the opposite side)
+ *   2. YES reserve adjusts to maintain k: newYesReserve = k / newNoReserve
+ *   3. Shares received = old YES reserve - new YES reserve
  *
  * This follows the standard CPMM swap model:
- *   - Buying YES = swapping USDT into the YES side of the pool
- *   - The pool gives back shares from the opposite side's reserve decrease
+ *   - Buying YES = swapping USDT into the opposite side of the pool
+ *   - The pool gives back shares from the target side's reserve decrease
  */
 export function calculateBuy(
   pool: Pool,
@@ -116,15 +116,15 @@ export function calculateBuy(
   let shares: number;
 
   if (side === 'yes') {
-    // Buying YES: add amount to yesReserve, noReserve decreases
-    newYesReserve = pool.yesReserve + amount;
-    newNoReserve = pool.k / newYesReserve;
-    shares = pool.noReserve - newNoReserve;
-  } else {
-    // Buying NO: add amount to noReserve, yesReserve decreases
+    // Buying YES: add amount to noReserve (the other side), yesReserve decreases
     newNoReserve = pool.noReserve + amount;
     newYesReserve = pool.k / newNoReserve;
     shares = pool.yesReserve - newYesReserve;
+  } else {
+    // Buying NO: add amount to yesReserve (the other side), noReserve decreases
+    newYesReserve = pool.yesReserve + amount;
+    newNoReserve = pool.k / newYesReserve;
+    shares = pool.noReserve - newNoReserve;
   }
 
   const avgPrice = amount / shares;
@@ -144,9 +144,9 @@ export function calculateBuy(
  * Calculate the result of selling shares on a given side.
  *
  * When selling YES shares:
- *   1. Shares are returned to the NO reserve (reverse of buying)
- *   2. YES reserve adjusts to maintain k: newYesReserve = k / newNoReserve
- *   3. Payout = old YES reserve - new YES reserve
+ *   1. Shares are returned to the YES reserve (reverse of buying)
+ *   2. NO reserve adjusts to maintain k: newNoReserve = k / newYesReserve
+ *   3. Payout = old NO reserve - new NO reserve
  */
 export function calculateSell(
   pool: Pool,
@@ -164,15 +164,15 @@ export function calculateSell(
   let payout: number;
 
   if (side === 'yes') {
-    // Selling YES: add shares back to noReserve, yesReserve decreases
-    newNoReserve = pool.noReserve + shares;
-    newYesReserve = pool.k / newNoReserve;
-    payout = pool.yesReserve - newYesReserve;
-  } else {
-    // Selling NO: add shares back to yesReserve, noReserve decreases
+    // Selling YES: add shares back to yesReserve, noReserve decreases
     newYesReserve = pool.yesReserve + shares;
     newNoReserve = pool.k / newYesReserve;
     payout = pool.noReserve - newNoReserve;
+  } else {
+    // Selling NO: add shares back to noReserve, yesReserve decreases
+    newNoReserve = pool.noReserve + shares;
+    newYesReserve = pool.k / newNoReserve;
+    payout = pool.yesReserve - newYesReserve;
   }
 
   const avgPrice = payout / shares;

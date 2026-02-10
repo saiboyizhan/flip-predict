@@ -61,33 +61,47 @@ router.post('/:commentId/like', authMiddleware, async (req: AuthRequest, res: Re
     const { commentId } = req.params;
     const userAddress = req.userAddress!;
 
-    const existing = (await db.query('SELECT * FROM comments WHERE id = $1', [commentId])).rows[0];
-    if (!existing) {
-      res.status(404).json({ error: 'Comment not found' });
-      return;
-    }
+    // Use transaction with FOR UPDATE to prevent race conditions on concurrent likes
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
 
-    const likedBy: string[] = existing.liked_by || [];
-    const alreadyLiked = likedBy.includes(userAddress);
+      const existing = (await client.query(
+        'SELECT * FROM comments WHERE id = $1 FOR UPDATE',
+        [commentId]
+      )).rows[0];
 
-    if (alreadyLiked) {
-      // Remove like
-      const newLikedBy = likedBy.filter((addr: string) => addr !== userAddress);
-      await db.query(
+      if (!existing) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Comment not found' });
+        return;
+      }
+
+      const likedBy: string[] = existing.liked_by || [];
+      const alreadyLiked = likedBy.includes(userAddress);
+
+      let newLikedBy: string[];
+      if (alreadyLiked) {
+        newLikedBy = likedBy.filter((addr: string) => addr !== userAddress);
+      } else {
+        newLikedBy = [...likedBy, userAddress];
+      }
+
+      await client.query(
         'UPDATE comments SET likes = $1, liked_by = $2 WHERE id = $3',
         [newLikedBy.length, JSON.stringify(newLikedBy), commentId]
       );
-    } else {
-      // Add like
-      const newLikedBy = [...likedBy, userAddress];
-      await db.query(
-        'UPDATE comments SET likes = $1, liked_by = $2 WHERE id = $3',
-        [newLikedBy.length, JSON.stringify(newLikedBy), commentId]
-      );
-    }
 
-    const updated = (await db.query('SELECT * FROM comments WHERE id = $1', [commentId])).rows[0];
-    res.json({ comment: updated });
+      await client.query('COMMIT');
+
+      const updated = (await db.query('SELECT * FROM comments WHERE id = $1', [commentId])).rows[0];
+      res.json({ comment: updated });
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

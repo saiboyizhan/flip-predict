@@ -62,11 +62,13 @@ export async function fetchMarkets(params?: {
   if (params?.sort) query.set('sort', params.sort)
 
   const qs = query.toString()
-  return request<Market[]>(`/api/markets${qs ? `?${qs}` : ''}`)
+  const data = await request<{ markets: Market[] }>(`/api/markets${qs ? `?${qs}` : ''}`)
+  return data.markets
 }
 
 export async function fetchMarket(id: string): Promise<Market> {
-  return request<Market>(`/api/markets/${id}`)
+  const data = await request<{ market: Market; recentOrders: unknown[] }>(`/api/markets/${id}`)
+  return data.market
 }
 
 export async function createOrder(data: {
@@ -104,7 +106,8 @@ export async function sellOrder(data: {
 }
 
 export async function getPositions(): Promise<unknown[]> {
-  return request('/api/positions')
+  const data = await request<{ positions: unknown[] }>('/api/positions')
+  return data.positions
 }
 
 export async function getBalances(): Promise<{
@@ -116,7 +119,7 @@ export async function getBalances(): Promise<{
 
 export async function getNonce(
   address: string,
-): Promise<{ nonce: string }> {
+): Promise<{ nonce: string; message: string }> {
   return request(`/api/auth/nonce/${address}`)
 }
 
@@ -505,45 +508,28 @@ export async function flagMarket(marketId: string): Promise<{ flagCount: number;
 // --- Leaderboard API ---
 
 export async function fetchLeaderboard() {
-  const res = await fetch(`${API_BASE}/api/leaderboard`)
-  if (!res.ok) throw new Error('Failed to fetch leaderboard')
-  return res.json()
+  const data = await request<{ leaderboard: unknown[] }>('/api/leaderboard')
+  return data.leaderboard
 }
 
 // --- Comments API ---
 
-function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const currentToken = getToken()
-  if (currentToken) {
-    headers['Authorization'] = `Bearer ${currentToken}`
-  }
-  return headers
-}
-
 export async function fetchComments(marketId: string) {
-  const res = await fetch(`${API_BASE}/api/comments/${marketId}`)
-  if (!res.ok) throw new Error('Failed to fetch comments')
-  return res.json()
+  const data = await request<{ comments: unknown[] }>(`/api/comments/${marketId}`)
+  return data.comments
 }
 
 export async function postComment(marketId: string, content: string) {
-  const res = await fetch(`${API_BASE}/api/comments/${marketId}`, {
+  return request<{ comment: unknown }>(`/api/comments/${marketId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ content }),
   })
-  if (!res.ok) throw new Error('Failed to post comment')
-  return res.json()
 }
 
 export async function toggleCommentLike(commentId: string) {
-  const res = await fetch(`${API_BASE}/api/comments/${commentId}/like`, {
+  return request<{ comment: unknown }>(`/api/comments/${commentId}/like`, {
     method: 'POST',
-    headers: authHeaders(),
   })
-  if (!res.ok) throw new Error('Failed to like comment')
-  return res.json()
 }
 
 // === Portfolio / Wallet API ===

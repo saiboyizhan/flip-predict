@@ -215,44 +215,116 @@ router.post('/:id/list-rent', authMiddleware, async (req: AuthRequest, res: Resp
 
 // POST /api/agents/:id/buy — buy agent
 router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const db = getDb();
+  const client = await db.connect();
   try {
-    const db = getDb();
-    const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
-    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (!agent.is_for_sale) { res.status(400).json({ error: 'Agent is not for sale' }); return; }
-    if (agent.owner_address === req.userAddress) { res.status(400).json({ error: 'Cannot buy your own agent' }); return; }
+    await client.query('BEGIN');
 
-    await db.query(`
+    const agent = (await client.query('SELECT * FROM agents WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0] as any;
+    if (!agent) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Agent not found' }); return; }
+    if (!agent.is_for_sale) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is not for sale' }); return; }
+    if (agent.owner_address === req.userAddress) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Cannot buy your own agent' }); return; }
+
+    const price = agent.sale_price;
+
+    // Check buyer has sufficient balance
+    const buyerBalance = (await client.query(
+      'SELECT available FROM balances WHERE user_address = $1 FOR UPDATE',
+      [req.userAddress]
+    )).rows[0];
+    if (!buyerBalance || buyerBalance.available < price) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Insufficient balance' });
+      return;
+    }
+
+    // Deduct buyer's balance
+    await client.query(
+      'UPDATE balances SET available = available - $1 WHERE user_address = $2',
+      [price, req.userAddress]
+    );
+
+    // Credit seller's balance
+    await client.query(`
+      INSERT INTO balances (user_address, available, locked)
+      VALUES ($1, $2, 0)
+      ON CONFLICT (user_address)
+      DO UPDATE SET available = balances.available + $2
+    `, [agent.owner_address, price]);
+
+    // Transfer ownership
+    await client.query(`
       UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL WHERE id = $2
     `, [req.userAddress, req.params.id]);
+
+    await client.query('COMMIT');
 
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
 // POST /api/agents/:id/rent — rent agent
 router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const db = getDb();
+  const client = await db.connect();
   try {
-    const db = getDb();
-    const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
-    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (!agent.is_for_rent) { res.status(400).json({ error: 'Agent is not for rent' }); return; }
-    if (agent.rented_by) { res.status(400).json({ error: 'Agent is already rented' }); return; }
+    await client.query('BEGIN');
+
+    const agent = (await client.query('SELECT * FROM agents WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0] as any;
+    if (!agent) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Agent not found' }); return; }
+    if (!agent.is_for_rent) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is not for rent' }); return; }
+    if (agent.rented_by) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is already rented' }); return; }
 
     const { days } = req.body;
-    if (!days || days < 1) { res.status(400).json({ error: 'Valid days required' }); return; }
+    if (!days || days < 1) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Valid days required' }); return; }
 
+    const totalRentCost = agent.rent_price * days;
+
+    // Check renter has sufficient balance
+    const renterBalance = (await client.query(
+      'SELECT available FROM balances WHERE user_address = $1 FOR UPDATE',
+      [req.userAddress]
+    )).rows[0];
+    if (!renterBalance || renterBalance.available < totalRentCost) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Insufficient balance' });
+      return;
+    }
+
+    // Deduct renter's balance
+    await client.query(
+      'UPDATE balances SET available = available - $1 WHERE user_address = $2',
+      [totalRentCost, req.userAddress]
+    );
+
+    // Credit owner's balance
+    await client.query(`
+      INSERT INTO balances (user_address, available, locked)
+      VALUES ($1, $2, 0)
+      ON CONFLICT (user_address)
+      DO UPDATE SET available = balances.available + $2
+    `, [agent.owner_address, totalRentCost]);
+
+    // Set rental info
     const rentExpires = Date.now() + days * 86400000;
-    await db.query('UPDATE agents SET rented_by = $1, rent_expires = $2 WHERE id = $3',
+    await client.query('UPDATE agents SET rented_by = $1, rent_expires = $2 WHERE id = $3',
       [req.userAddress, rentExpires, req.params.id]);
+
+    await client.query('COMMIT');
 
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
