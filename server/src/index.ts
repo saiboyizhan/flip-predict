@@ -77,13 +77,13 @@ async function main() {
 
   // Routes
   app.use('/api/auth', authLimiter, authRoutes);
+  app.use('/api/markets', marketCreationRoutes);
   app.use('/api/markets', marketsRoutes);
   app.use('/api/orders', tradingLimiter, tradingRoutes);
   app.use('/api', portfolioRoutes);
   app.use('/api/orderbook', orderbookRoutes);
   app.use('/api/settlement', settlementRoutes);
   app.use('/api/agents', agentRoutes);
-  app.use('/api/markets', marketCreationRoutes);
   app.use('/api/leaderboard', leaderboardRoutes);
   app.use('/api/comments', commentsRoutes);
   app.use('/api/notifications', notificationRoutes);

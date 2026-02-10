@@ -119,7 +119,7 @@ const ACHIEVEMENT_DEFS = [
 ];
 
 /** Calculate user progress for all achievement types */
-async function calculateUserProgress(address: string) {
+async function calculateUserProgress(address: string): Promise<Record<string, number>> {
   const db = getDb();
 
   // Trade count
@@ -258,7 +258,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // GET /api/achievements/:address — Get user achievement progress
 router.get('/:address', async (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const address = req.params.address as string;
     const db = getDb();
 
     // Calculate progress
