@@ -57,11 +57,13 @@ CREATE TABLE IF NOT EXISTS open_orders (
   side TEXT NOT NULL,
   order_side TEXT NOT NULL,
   price DOUBLE PRECISION NOT NULL,
+  cost_basis DOUBLE PRECISION,
   amount DOUBLE PRECISION NOT NULL,
   filled DOUBLE PRECISION DEFAULT 0,
   status TEXT DEFAULT 'open',
   created_at BIGINT NOT NULL
 );
+ALTER TABLE open_orders ADD COLUMN IF NOT EXISTS cost_basis DOUBLE PRECISION;
 CREATE INDEX IF NOT EXISTS idx_open_orders_market ON open_orders(market_id, side, status);
 CREATE INDEX IF NOT EXISTS idx_open_orders_user ON open_orders(user_address, status);
 
@@ -333,8 +335,22 @@ CREATE INDEX IF NOT EXISTS idx_markets_status_endtime ON markets(status, end_tim
 CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
 CREATE INDEX IF NOT EXISTS idx_settlement_log_market_user ON settlement_log(market_id, user_address, action);
 CREATE INDEX IF NOT EXISTS idx_deposits_txhash ON deposits(tx_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_txhash_unique ON deposits ((LOWER(tx_hash))) WHERE tx_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_referrals_referee ON referrals(referee_address);
 CREATE INDEX IF NOT EXISTS idx_open_orders_market ON open_orders(market_id, status);
+
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_referee_unique
+    ON referrals ((LOWER(referee_address))) WHERE referee_address IS NOT NULL;
+EXCEPTION WHEN unique_violation THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_settlement_log_claim_unique
+    ON settlement_log (market_id, user_address)
+    WHERE action = 'claimed' AND user_address IS NOT NULL;
+EXCEPTION WHEN unique_violation THEN NULL;
+END $$;
 
 -- ============================================
 -- Foreign key constraints (M3)

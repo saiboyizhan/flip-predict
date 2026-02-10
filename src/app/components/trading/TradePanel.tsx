@@ -5,7 +5,7 @@ import { useState, useMemo, useCallback } from "react";
 import { ArrowRight, TrendingUp, Coins, Target, Percent, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { useTradeStore, calculateBuy, getEstimatedReturn, getPrice } from "@/app/stores/useTradeStore";
+import { useTradeStore, calculateBuy, calculateSell, getEstimatedReturn, getPrice } from "@/app/stores/useTradeStore";
 
 interface TradePanelProps {
   marketId: string;
@@ -18,6 +18,7 @@ const QUICK_AMOUNTS = [10, 50, 100, 500];
 export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
   const { t } = useTranslation();
   const [side, setSide] = useState<"yes" | "no">("yes");
+  const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState<string>("100");
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,6 +35,17 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
     }
 
     try {
+      if (tradeMode === "sell") {
+        const sellResult = calculateSell(pool, side, numAmount);
+        return {
+          shares: numAmount,
+          avgPrice: sellResult.avgPrice,
+          priceImpact: sellResult.priceImpact,
+          potentialProfit: sellResult.payout,
+          roi: sellResult.avgPrice * 100,
+        };
+      }
+
       const buyResult = calculateBuy(pool, side, numAmount);
       const estimated = getEstimatedReturn(pool, side, numAmount);
 
@@ -47,20 +59,31 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
     } catch {
       return { shares: 0, avgPrice: 0, priceImpact: 0, potentialProfit: 0, roi: 0 };
     }
-  }, [pool, side, numAmount]);
+  }, [pool, side, numAmount, tradeMode]);
 
   const handleConfirm = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
-      const result = await executeAPIBuy(marketId, side, numAmount);
+      const result = tradeMode === "buy"
+        ? await executeAPIBuy(marketId, side, numAmount)
+        : await executeAPISell(marketId, side, numAmount);
       if (result.success) {
         setShowSuccess(true);
-        toast.success(
-          t('trade.buySuccess', { shares: result.shares.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }),
-        );
-        setAmount("100");
+        if (tradeMode === "buy") {
+          toast.success(
+            t('trade.buySuccess', { shares: result.shares.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }),
+          );
+          setAmount("100");
+        } else {
+          toast.success(
+            t('trade.sellSuccess', {
+              defaultValue: `Sold ${numAmount.toFixed(2)} ${side.toUpperCase()} shares at $${result.price.toFixed(4)}`,
+            }),
+          );
+          setAmount("10");
+        }
         setTimeout(() => setShowSuccess(false), 1500);
       } else {
         toast.error(result.error || t('trade.tradeFailed'));
@@ -70,10 +93,11 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [numAmount, isSubmitting, executeAPIBuy, marketId, side, t]);
+  }, [numAmount, isSubmitting, executeAPIBuy, executeAPISell, marketId, side, t, tradeMode]);
 
   const isDisabled = status === "settled" || numAmount <= 0 || isSubmitting;
-  const sideColor = side === "yes" ? "emerald" : "red";
+  const sideTextClass = side === "yes" ? "text-emerald-400" : "text-red-400";
+  const sideButtonClass = side === "yes" ? "bg-emerald-500 hover:bg-emerald-400 text-white" : "bg-red-500 hover:bg-red-400 text-white";
 
   const priceImpactColor =
     calculation.priceImpact > 10
@@ -112,9 +136,33 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
         </button>
       </div>
 
+      {/* Buy/Sell Tabs */}
+      <div className="grid grid-cols-2 border-t border-zinc-800">
+        <button
+          onClick={() => setTradeMode("buy")}
+          className={`py-2.5 text-sm font-bold transition-colors ${
+            tradeMode === "buy"
+              ? "bg-emerald-500/20 text-emerald-400"
+              : "bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          {t('trade.buy', { defaultValue: 'Buy' })}
+        </button>
+        <button
+          onClick={() => setTradeMode("sell")}
+          className={`py-2.5 text-sm font-bold transition-colors ${
+            tradeMode === "sell"
+              ? "bg-red-500/20 text-red-400"
+              : "bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          {t('trade.sell', { defaultValue: 'Sell' })}
+        </button>
+      </div>
+
       <AnimatePresence mode="wait">
         <motion.div
-          key={side}
+          key={`${side}-${tradeMode}`}
           initial={{ opacity: 0, x: side === "yes" ? -20 : 20 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: side === "yes" ? 20 : -20 }}
@@ -126,7 +174,7 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
             <div className="text-xs text-zinc-500 tracking-wider uppercase mb-1">
               {t('trade.currentPrice', { side: side === "yes" ? "YES" : "NO" })}
             </div>
-            <div className={`text-4xl font-bold font-mono text-${sideColor}-400`}>
+            <div className={`text-4xl font-bold font-mono ${sideTextClass}`}>
               ${currentPrice.toFixed(2)}
             </div>
             <div className="text-xs text-zinc-600 mt-1">
@@ -137,17 +185,21 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
           {/* Amount Input */}
           <div>
             <label className="block text-zinc-400 text-sm tracking-wider uppercase mb-3">
-              {t('trade.tradeAmount')}
+              {tradeMode === "buy"
+                ? t('trade.tradeAmount')
+                : t('trade.sellShares', { defaultValue: 'Shares to sell' })}
             </label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 text-xl">
-                $
-              </span>
+              {tradeMode === "buy" && (
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 text-xl">
+                  $
+                </span>
+              )}
               <input
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 text-white text-2xl font-bold py-4 pl-10 pr-4 focus:outline-none focus:border-amber-500/50 transition-colors"
+                className={`w-full bg-zinc-950 border border-zinc-800 text-white text-2xl font-bold py-4 ${tradeMode === "buy" ? "pl-10" : "pl-4"} pr-4 focus:outline-none focus:border-amber-500/50 transition-colors`}
                 placeholder="0.00"
               />
             </div>
@@ -175,16 +227,20 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2 text-zinc-500 text-sm">
                 <Coins className="w-3.5 h-3.5" />
-                <span>{t('trade.estCost')}</span>
+                <span>{tradeMode === "buy" ? t('trade.estCost') : t('trade.shares', { defaultValue: 'Shares' })}</span>
               </div>
-              <span className="text-white font-mono">${numAmount.toFixed(2)}</span>
+              <span className="text-white font-mono">
+                {tradeMode === "buy" ? `$${numAmount.toFixed(2)}` : numAmount.toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2 text-zinc-500 text-sm">
                 <Target className="w-3.5 h-3.5" />
-                <span>{t('trade.estShares')}</span>
+                <span>{tradeMode === "buy" ? t('trade.estShares') : t('trade.estPayout', { defaultValue: 'Est. payout' })}</span>
               </div>
-              <span className="text-white font-mono">{calculation.shares.toFixed(2)}</span>
+              <span className="text-white font-mono">
+                {tradeMode === "buy" ? calculation.shares.toFixed(2) : `$${calculation.potentialProfit.toFixed(2)}`}
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2 text-zinc-500 text-sm">
@@ -207,19 +263,23 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2 text-zinc-500 text-sm">
                 <TrendingUp className="w-3.5 h-3.5" />
-                <span>{t('trade.potentialReturn')}</span>
+                <span>{tradeMode === "buy" ? t('trade.potentialReturn') : t('trade.payout', { defaultValue: 'Payout' })}</span>
               </div>
-              <span className={`text-${sideColor}-400 font-mono`}>
-                ${(numAmount + calculation.potentialProfit).toFixed(2)}
+              <span className={`${sideTextClass} font-mono`}>
+                {tradeMode === "buy"
+                  ? `$${(numAmount + calculation.potentialProfit).toFixed(2)}`
+                  : `$${calculation.potentialProfit.toFixed(2)}`}
               </span>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-zinc-800">
               <div className="flex items-center gap-2 text-sm font-semibold">
-                <Percent className={`w-3.5 h-3.5 text-${sideColor}-400`} />
-                <span className={`text-${sideColor}-400`}>{t('trade.returnRate')}</span>
+                <Percent className={`w-3.5 h-3.5 ${sideTextClass}`} />
+                <span className={sideTextClass}>
+                  {tradeMode === "buy" ? t('trade.returnRate') : t('trade.avgExitPrice', { defaultValue: 'Avg. exit price' })}
+                </span>
               </div>
-              <span className={`text-${sideColor}-400 font-mono text-lg font-bold`}>
-                +{calculation.roi.toFixed(1)}%
+              <span className={`${sideTextClass} font-mono text-lg font-bold`}>
+                {tradeMode === "buy" ? `+${calculation.roi.toFixed(1)}%` : `$${calculation.avgPrice.toFixed(4)}`}
               </span>
             </div>
           </div>
@@ -247,11 +307,7 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
             <button
               onClick={handleConfirm}
               disabled={isDisabled}
-              className={`w-full py-4 font-bold text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2 group disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed hover:scale-[1.02] ${
-                side === "yes"
-                  ? "bg-emerald-500 hover:bg-emerald-400 text-white"
-                  : "bg-red-500 hover:bg-red-400 text-white"
-              }`}
+              className={`w-full py-4 font-bold text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2 group disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed hover:scale-[1.02] ${sideButtonClass}`}
             >
               {status === "settled" ? (
                 t('trade.marketSettled')
@@ -262,7 +318,9 @@ export function TradePanel({ marketId, marketTitle, status }: TradePanelProps) {
                 </>
               ) : (
                 <>
-                  {t('trade.confirmBuy', { side: side.toUpperCase() })}
+                  {tradeMode === "buy"
+                    ? t('trade.confirmBuy', { side: side.toUpperCase() })
+                    : t('trade.confirmSell', { side: side.toUpperCase(), defaultValue: `Confirm Sell ${side.toUpperCase()}` })}
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </>
               )}

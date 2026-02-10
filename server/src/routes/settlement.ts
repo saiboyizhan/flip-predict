@@ -49,23 +49,27 @@ router.post('/:marketId/resolve', authMiddleware, adminMiddleware, async (req: A
     return;
   }
 
-  const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [marketId]);
-  const market = marketResult.rows[0] as any;
-  if (!market) {
-    res.status(404).json({ error: 'Market not found' });
-    return;
-  }
-
-  if (market.status !== 'pending_resolution') {
-    res.status(400).json({ error: `Market status is "${market.status}", expected "pending_resolution"` });
-    return;
-  }
-
   const now = Date.now();
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    const marketResult = await client.query(
+      'SELECT id, status FROM markets WHERE id = $1 FOR UPDATE',
+      [marketId]
+    );
+    const market = marketResult.rows[0] as any;
+    if (!market) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    if (market.status !== 'pending_resolution') {
+      await client.query('ROLLBACK');
+      res.status(409).json({ error: `Market status is "${market.status}", expected "pending_resolution"` });
+      return;
+    }
 
     await client.query("UPDATE markets SET status = 'resolved' WHERE id = $1", [marketId]);
 
@@ -91,14 +95,14 @@ router.post('/:marketId/resolve', authMiddleware, adminMiddleware, async (req: A
     `, [randomUUID(), marketId, userAddress, JSON.stringify({ outcome }), now]);
 
     await client.query('COMMIT');
+    res.json({ success: true, outcome, marketId });
   } catch (txErr) {
     await client.query('ROLLBACK');
-    throw txErr;
+    console.error('Settlement resolve error:', txErr);
+    res.status(500).json({ error: 'Failed to resolve market' });
   } finally {
     client.release();
   }
-
-  res.json({ success: true, outcome, marketId });
 });
 
 // POST /api/settlement/:marketId/claim — user claims reward (auth required)
@@ -110,30 +114,39 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
   const userAddress = req.userAddress!;
   const db = getDb();
 
-  const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [marketId]);
-  const market = marketResult.rows[0] as any;
-  if (!market) {
-    res.status(404).json({ error: 'Market not found' });
-    return;
-  }
-  if (market.status !== 'resolved') {
-    res.status(400).json({ error: 'Market is not resolved yet' });
-    return;
-  }
-
-  const resolutionResult = await db.query(
-    'SELECT * FROM market_resolution WHERE market_id = $1',
-    [marketId]
-  );
-  const resolution = resolutionResult.rows[0] as any;
-  if (!resolution || !resolution.outcome) {
-    res.status(400).json({ error: 'No resolution found' });
-    return;
-  }
-
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+
+    const marketResult = await client.query(
+      'SELECT id, status FROM markets WHERE id = $1 FOR SHARE',
+      [marketId]
+    );
+    const market = marketResult.rows[0] as any;
+    if (!market) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+    if (market.status !== 'resolved') {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Market is not resolved yet' });
+      return;
+    }
+
+    const resolutionResult = await client.query(
+      'SELECT outcome FROM market_resolution WHERE market_id = $1 FOR SHARE',
+      [marketId]
+    );
+    const resolution = resolutionResult.rows[0] as any;
+    if (!resolution || !resolution.outcome) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'No resolution found' });
+      return;
+    }
+
+    // Serialize claims per (market, user) to enforce idempotency under concurrency.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [marketId, userAddress.toLowerCase()]);
 
     // Use FOR UPDATE to prevent race conditions on concurrent claim requests
     const settleLogResult = await client.query(
@@ -205,11 +218,16 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
       side: resolution.outcome, shares: position.shares, principal, bonus
     }), now]);
 
+    // Prevent stale winning positions from remaining visible in portfolio
+    // for edge-case manual claims that bypassed keeper auto-settlement.
+    await client.query('DELETE FROM positions WHERE id = $1', [position.id]);
+
     await client.query('COMMIT');
     res.json({ success: true, amount: claimAmount, marketId, source: 'claimed' });
   } catch (txErr) {
     await client.query('ROLLBACK');
-    throw txErr;
+    console.error('Settlement claim error:', txErr);
+    res.status(500).json({ error: 'Failed to claim settlement' });
   } finally {
     client.release();
   }

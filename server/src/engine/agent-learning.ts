@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { createHash } from 'crypto';
 
 /**
- * Compute keccak256 hash (using crypto sha256 as lightweight alternative for off-chain)
+ * Compute sha256 hash for off-chain learning tree commitments.
  */
 function hashLeaf(data: string): string {
   return createHash('sha256').update(data).digest('hex');

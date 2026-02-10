@@ -14,6 +14,10 @@ router.get('/:address', authMiddleware, async (req: AuthRequest, res: Response) 
       return;
     }
     const { limit = '50', offset = '0', type } = req.query;
+    const rawLimit = Number.parseInt(String(limit), 10);
+    const rawOffset = Number.parseInt(String(offset), 10);
+    const parsedLimit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 200));
+    const parsedOffset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
     const db = getDb();
 
     let sql = 'SELECT f.*, m.title as market_title FROM fee_records f LEFT JOIN markets m ON f.market_id = m.id WHERE f.user_address = $1';
@@ -26,8 +30,8 @@ router.get('/:address', authMiddleware, async (req: AuthRequest, res: Response) 
     }
 
     sql += ` ORDER BY f.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
-    params.push(Math.min(parseInt(limit as string) || 50, 200));
-    params.push(parseInt(offset as string) || 0);
+    params.push(parsedLimit);
+    params.push(parsedOffset);
 
     const { rows: fees } = await db.query(sql, params);
 

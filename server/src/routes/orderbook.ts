@@ -48,7 +48,7 @@ router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) =>
   const { marketId, side, orderSide, price, amount } = req.body;
   const userAddress = req.userAddress!;
 
-  if (!marketId || !side || !orderSide || price == null || !amount) {
+  if (!marketId || !side || !orderSide || price == null || amount == null) {
     res.status(400).json({ error: 'marketId, side, orderSide, price, and amount are required' });
     return;
   }
@@ -63,9 +63,32 @@ router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) =>
     return;
   }
 
+  const parsedPrice = Number(price);
+  const parsedAmount = Number(amount);
+
+  if (!Number.isFinite(parsedPrice)) {
+    res.status(400).json({ error: 'price must be a finite number' });
+    return;
+  }
+
+  if (!Number.isFinite(parsedAmount)) {
+    res.status(400).json({ error: 'amount must be a finite number' });
+    return;
+  }
+
+  if (parsedPrice < 0.01 || parsedPrice > 0.99) {
+    res.status(400).json({ error: 'price must be between 0.01 and 0.99' });
+    return;
+  }
+
+  if (parsedAmount <= 0) {
+    res.status(400).json({ error: 'amount must be positive' });
+    return;
+  }
+
   try {
     const db = getDb();
-    const result = await placeLimitOrder(db, userAddress, marketId, side, orderSide, price, amount);
+    const result = await placeLimitOrder(db, userAddress, marketId, side, orderSide, parsedPrice, parsedAmount);
 
     // Broadcast updated order book
     const orderbook = await getOrderBook(db, marketId, side);
@@ -82,7 +105,7 @@ router.post('/market', authMiddleware, async (req: AuthRequest, res: Response) =
   const { marketId, side, orderSide, amount } = req.body;
   const userAddress = req.userAddress!;
 
-  if (!marketId || !side || !orderSide || !amount) {
+  if (!marketId || !side || !orderSide || amount == null) {
     res.status(400).json({ error: 'marketId, side, orderSide, and amount are required' });
     return;
   }
@@ -97,9 +120,20 @@ router.post('/market', authMiddleware, async (req: AuthRequest, res: Response) =
     return;
   }
 
+  const parsedAmount = Number(amount);
+  if (!Number.isFinite(parsedAmount)) {
+    res.status(400).json({ error: 'amount must be a finite number' });
+    return;
+  }
+
+  if (parsedAmount <= 0) {
+    res.status(400).json({ error: 'amount must be positive' });
+    return;
+  }
+
   try {
     const db = getDb();
-    const result = await placeMarketOrder(db, userAddress, marketId, side, orderSide, amount);
+    const result = await placeMarketOrder(db, userAddress, marketId, side, orderSide, parsedAmount);
 
     // Broadcast updated order book
     const orderbook = await getOrderBook(db, marketId, side);

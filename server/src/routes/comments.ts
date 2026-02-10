@@ -5,6 +5,23 @@ import { getDb } from '../db';
 
 const router = Router();
 
+function parseAddressArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).toLowerCase());
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => String(v).toLowerCase());
+      }
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // GET /api/comments/:marketId — list comments for a market
 router.get('/:marketId', async (req: Request, res: Response) => {
   try {
@@ -30,12 +47,18 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
     const { marketId } = req.params;
     const { content } = req.body;
 
-    if (!content || !content.trim()) {
+    if (typeof content !== 'string' || !content.trim()) {
       res.status(400).json({ error: 'Content is required' });
       return;
     }
     if (content.length > 500) {
       res.status(400).json({ error: 'Content must be 500 characters or less' });
+      return;
+    }
+
+    const marketResult = await db.query('SELECT id FROM markets WHERE id = $1', [marketId]);
+    if (marketResult.rows.length === 0) {
+      res.status(404).json({ error: 'Market not found' });
       return;
     }
 
@@ -61,10 +84,11 @@ router.post('/:commentId/like', authMiddleware, async (req: AuthRequest, res: Re
   try {
     const db = getDb();
     const { commentId } = req.params;
-    const userAddress = req.userAddress!;
+    const userAddress = req.userAddress!.toLowerCase();
 
     // Use transaction with FOR UPDATE to prevent race conditions on concurrent likes
     const client = await db.connect();
+    let committed = false;
     try {
       await client.query('BEGIN');
 
@@ -79,7 +103,7 @@ router.post('/:commentId/like', authMiddleware, async (req: AuthRequest, res: Re
         return;
       }
 
-      const likedBy: string[] = existing.liked_by || [];
+      const likedBy = parseAddressArray(existing.liked_by);
       const alreadyLiked = likedBy.includes(userAddress);
 
       let newLikedBy: string[];
@@ -95,11 +119,14 @@ router.post('/:commentId/like', authMiddleware, async (req: AuthRequest, res: Re
       );
 
       await client.query('COMMIT');
+      committed = true;
 
       const updated = (await db.query('SELECT * FROM comments WHERE id = $1', [commentId])).rows[0];
       res.json({ comment: updated });
     } catch (txErr) {
-      await client.query('ROLLBACK');
+      if (!committed) {
+        await client.query('ROLLBACK');
+      }
       throw txErr;
     } finally {
       client.release();

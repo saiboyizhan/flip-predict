@@ -15,7 +15,7 @@ interface Market {
   volume: number;
   participants: number;
   endTime: string;
-  status: "active" | "expiring" | "settled";
+  status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved";
   description?: string;
   resolution?: string;
 }
@@ -35,6 +35,14 @@ const STATUS_CONFIG = {
   },
   settled: {
     labelKey: "market.status.settled",
+    className: "bg-zinc-700/50 text-zinc-400 border border-zinc-600",
+  },
+  pending_resolution: {
+    labelKey: "market.status.pending",
+    className: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+  },
+  resolved: {
+    labelKey: "market.status.resolved",
     className: "bg-zinc-700/50 text-zinc-400 border border-zinc-600",
   },
 };
@@ -60,7 +68,7 @@ function formatVolume(volume: number): string {
 
 export function MarketHeader({ market }: MarketHeaderProps) {
   const { t } = useTranslation();
-  const statusConfig = STATUS_CONFIG[market.status];
+  const statusConfig = STATUS_CONFIG[market.status] ?? STATUS_CONFIG.active;
 
   return (
     <motion.div

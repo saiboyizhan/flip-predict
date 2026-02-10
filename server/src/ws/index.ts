@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
 import jwt from 'jsonwebtoken';
+import { ethers } from 'ethers';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'prediction-market-dev-secret';
 
@@ -65,7 +66,11 @@ export function setupWebSocket(server: Server): WebSocketServer {
         // Subscribe to user notifications — requires valid JWT token
         if (msg.type === 'auth' && msg.token) {
           try {
-            const decoded = jwt.verify(msg.token, JWT_SECRET) as { address: string };
+            const decoded = jwt.verify(msg.token, JWT_SECRET) as { address?: unknown };
+            if (typeof decoded.address !== 'string' || !ethers.isAddress(decoded.address)) {
+              ws.send(JSON.stringify({ type: 'auth_error', error: 'Invalid token payload' }));
+              return;
+            }
             client.userAddress = decoded.address.toLowerCase();
             ws.send(JSON.stringify({ type: 'authed', address: client.userAddress }));
           } catch {

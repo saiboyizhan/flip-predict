@@ -11,7 +11,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { marketId, side, amount } = req.body;
   const userAddress = req.userAddress!;
 
-  if (!marketId || !side || !amount) {
+  if (!marketId || !side || amount == null) {
     res.status(400).json({ error: 'marketId, side, and amount are required' });
     return;
   }
@@ -21,14 +21,15 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  if (typeof amount !== 'number' || amount <= 0) {
+  const parsedAmount = Number(amount);
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
     res.status(400).json({ error: 'amount must be a positive number' });
     return;
   }
 
   try {
     const db = getDb();
-    const result = await executeBuy(db, userAddress, marketId, side, amount);
+    const result = await executeBuy(db, userAddress, marketId, side, parsedAmount);
 
     // Broadcast via WebSocket
     broadcastPriceUpdate(marketId, result.newYesPrice, result.newNoPrice);
@@ -38,7 +39,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       userAddress,
       side,
       type: 'buy',
-      amount,
+      amount: parsedAmount,
       shares: result.shares,
       price: result.price,
       timestamp: Date.now(),
@@ -58,7 +59,7 @@ router.post('/sell', authMiddleware, async (req: AuthRequest, res: Response) => 
   const { marketId, side, shares } = req.body;
   const userAddress = req.userAddress!;
 
-  if (!marketId || !side || !shares) {
+  if (!marketId || !side || shares == null) {
     res.status(400).json({ error: 'marketId, side, and shares are required' });
     return;
   }
@@ -68,14 +69,15 @@ router.post('/sell', authMiddleware, async (req: AuthRequest, res: Response) => 
     return;
   }
 
-  if (typeof shares !== 'number' || shares <= 0) {
+  const parsedShares = Number(shares);
+  if (!Number.isFinite(parsedShares) || parsedShares <= 0) {
     res.status(400).json({ error: 'shares must be a positive number' });
     return;
   }
 
   try {
     const db = getDb();
-    const result = await executeSell(db, userAddress, marketId, side, shares);
+    const result = await executeSell(db, userAddress, marketId, side, parsedShares);
 
     // Broadcast via WebSocket
     broadcastPriceUpdate(marketId, result.newYesPrice, result.newNoPrice);
@@ -86,7 +88,7 @@ router.post('/sell', authMiddleware, async (req: AuthRequest, res: Response) => 
       side,
       type: 'sell',
       amount: result.amountOut,
-      shares,
+      shares: parsedShares,
       price: result.price,
       timestamp: Date.now(),
     });

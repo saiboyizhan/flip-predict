@@ -132,19 +132,28 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
 
 export function startAgentRunner(db: Pool, intervalMs: number = 60000): NodeJS.Timeout {
   console.log(`Agent Runner started (${intervalMs / 1000}s interval)`);
+  let isRunning = false;
 
   const run = async () => {
-    const agents = (await db.query("SELECT id FROM agents WHERE status = 'active'")).rows as { id: string }[];
-    for (const agent of agents) {
-      try {
-        await runAgentCycle(db, agent.id);
-      } catch (err: any) {
-        console.error(`Agent ${agent.id} cycle error:`, err.message);
+    if (isRunning) return;
+    isRunning = true;
+    try {
+      const agents = (await db.query("SELECT id FROM agents WHERE status = 'active'")).rows as { id: string }[];
+      for (const agent of agents) {
+        try {
+          await runAgentCycle(db, agent.id);
+        } catch (err: any) {
+          console.error(`Agent ${agent.id} cycle error:`, err.message);
+        }
       }
+    } catch (err: any) {
+      console.error('Agent runner cycle error:', err.message);
+    } finally {
+      isRunning = false;
     }
   };
 
   // First run delayed 10s to let seed complete
-  setTimeout(() => run(), 10000);
-  return setInterval(() => run(), intervalMs);
+  setTimeout(() => { void run(); }, 10000);
+  return setInterval(() => { void run(); }, intervalMs);
 }

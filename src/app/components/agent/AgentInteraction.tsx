@@ -10,12 +10,13 @@ import {
   executeSuggestion,
   authorizeAutoTrade,
   revokeAutoTrade,
+  getAutoTradeAuth,
 } from "@/app/services/api";
 
 interface AgentInteractionProps {
   agentId: string;
   isOwner: boolean;
-  markets: Array<{ id: string; title: string; yes_price: number; status: string }>;
+  markets: Array<{ id: string; title: string; yes_price?: number; yesPrice?: number; status: string }>;
 }
 
 export function AgentInteraction({ agentId, isOwner, markets }: AgentInteractionProps) {
@@ -46,6 +47,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
   useEffect(() => {
     // Load predictions on mount
     loadPredictions();
+    loadAutoTradeState();
   }, [agentId]);
 
   const loadPredictions = async () => {
@@ -53,6 +55,30 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
       const data = await getAgentPredictions(agentId);
       setPredictions(data);
     } catch { /* ignore */ }
+  };
+
+  const loadAutoTradeState = async () => {
+    try {
+      const agent = await getAutoTradeAuth(agentId);
+      if (!agent) return;
+
+      const expiresAt = Number(agent.auto_trade_expires) || 0;
+      const enabled = Boolean(agent.auto_trade_enabled) && (expiresAt === 0 || expiresAt > Date.now());
+      setAutoEnabled(enabled);
+
+      if (agent.max_per_trade != null) {
+        setMaxPerTrade(String(agent.max_per_trade));
+      }
+      if (agent.max_daily_amount != null) {
+        setMaxDaily(String(agent.max_daily_amount));
+      }
+      if (expiresAt > Date.now()) {
+        const hoursLeft = Math.max(1, Math.ceil((expiresAt - Date.now()) / 3600000));
+        setDuration(String(hoursLeft));
+      }
+    } catch {
+      // ignore initialization errors
+    }
   };
 
   const handlePredict = async () => {

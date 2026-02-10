@@ -90,8 +90,9 @@ export async function placeLimitOrder(
   price: number,
   amount: number
 ): Promise<LimitOrderResult> {
-  if (price < 0.01 || price > 0.99) throw new Error('Price must be between 0.01 and 0.99');
-  if (amount <= 0) throw new Error('Amount must be positive');
+  if (side !== 'yes' && side !== 'no') throw new Error('Side must be yes or no');
+  if (!Number.isFinite(price) || price < 0.01 || price > 0.99) throw new Error('Price must be between 0.01 and 0.99');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be positive');
 
   const client = await db.connect();
   try {
@@ -127,6 +128,7 @@ export async function placeLimitOrder(
         WHERE market_id = $1 AND side = $2 AND order_side = 'sell' AND status IN ('open', 'partial')
           AND price <= $3 AND user_address != $4
         ORDER BY price ASC, created_at ASC
+        FOR UPDATE SKIP LOCKED
       `, [marketId, side, price, userAddress]);
       const matchingOrders = matchRes.rows;
 
@@ -147,16 +149,13 @@ export async function placeLimitOrder(
         // Update buyer's position (add shares)
         await updatePosition(client, userAddress, marketId, side, matchAmount, matchPrice);
         // Counterparty gets paid: unlock nothing (they locked shares), credit balance
-        await client.query(
-          'UPDATE balances SET available = available + $1 WHERE user_address = $2',
-          [matchAmount * matchPrice, counterOrder.user_address]
-        );
+        await creditAvailableBalance(client, counterOrder.user_address, matchAmount * matchPrice);
 
         // Record trade in orders table
         const tradeId = randomUUID();
         await client.query(`
           INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
-          VALUES ($1, $2, $3, $4, 'limit', $5, $6, $7, 'filled', $8)
+          VALUES ($1, $2, $3, $4, 'buy', $5, $6, $7, 'filled', $8)
         `, [tradeId, userAddress, marketId, side, matchAmount * matchPrice, matchAmount, matchPrice, now]);
 
         trades.push({ price: matchPrice, amount: matchAmount, counterpartyOrderId: counterOrder.id });
@@ -209,6 +208,7 @@ export async function placeLimitOrder(
       );
       const position = posRes.rows[0];
       if (!position || position.shares < amount) throw new Error('Insufficient shares');
+      const lockedCostBasis = Number(position.avg_cost) || 0;
 
       // Reduce position (lock shares conceptually by reducing position)
       const newShares = position.shares - amount;
@@ -224,6 +224,7 @@ export async function placeLimitOrder(
         WHERE market_id = $1 AND side = $2 AND order_side = 'buy' AND status IN ('open', 'partial')
           AND price >= $3 AND user_address != $4
         ORDER BY price DESC, created_at ASC
+        FOR UPDATE SKIP LOCKED
       `, [marketId, side, price, userAddress]);
       const matchingOrders = matchRes.rows;
 
@@ -249,16 +250,13 @@ export async function placeLimitOrder(
         await updatePosition(client, counterOrder.user_address, marketId, side, matchAmount, matchPrice);
 
         // Seller gets paid
-        await client.query(
-          'UPDATE balances SET available = available + $1 WHERE user_address = $2',
-          [matchAmount * matchPrice, userAddress]
-        );
+        await creditAvailableBalance(client, userAddress, matchAmount * matchPrice);
 
         // Record trade
         const tradeId = randomUUID();
         await client.query(`
           INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
-          VALUES ($1, $2, $3, $4, 'limit', $5, $6, $7, 'filled', $8)
+          VALUES ($1, $2, $3, $4, 'sell', $5, $6, $7, 'filled', $8)
         `, [tradeId, userAddress, marketId, side, matchAmount * matchPrice, matchAmount, matchPrice, now]);
 
         trades.push({ price: matchPrice, amount: matchAmount, counterpartyOrderId: counterOrder.id });
@@ -271,9 +269,9 @@ export async function placeLimitOrder(
       if (remaining > 0.0001) {
         const status = filled > 0 ? 'partial' : 'open';
         await client.query(`
-          INSERT INTO open_orders (id, user_address, market_id, side, order_side, price, amount, filled, status, created_at)
-          VALUES ($1, $2, $3, $4, 'sell', $5, $6, $7, $8, $9)
-        `, [orderId, userAddress, marketId, side, price, amount, filled, status, now]);
+          INSERT INTO open_orders (id, user_address, market_id, side, order_side, price, cost_basis, amount, filled, status, created_at)
+          VALUES ($1, $2, $3, $4, 'sell', $5, $6, $7, $8, $9, $10)
+        `, [orderId, userAddress, marketId, side, price, lockedCostBasis, amount, filled, status, now]);
       }
     }
 
@@ -306,7 +304,8 @@ export async function placeMarketOrder(
   orderSide: 'buy' | 'sell',
   amount: number
 ): Promise<MarketOrderResult> {
-  if (amount <= 0) throw new Error('Amount must be positive');
+  if (side !== 'yes' && side !== 'no') throw new Error('Side must be yes or no');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be positive');
 
   const client = await db.connect();
   try {
@@ -334,6 +333,7 @@ export async function placeMarketOrder(
         WHERE market_id = $1 AND side = $2 AND order_side = 'sell' AND status IN ('open', 'partial')
           AND user_address != $3
         ORDER BY price ASC, created_at ASC
+        FOR UPDATE SKIP LOCKED
       `, [marketId, side, userAddress]);
       const askOrders = askRes.rows;
 
@@ -359,7 +359,7 @@ export async function placeMarketOrder(
         await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2', [matchCost, userAddress]);
 
         // Pay seller
-        await client.query('UPDATE balances SET available = available + $1 WHERE user_address = $2', [matchCost, askOrder.user_address]);
+        await creditAvailableBalance(client, askOrder.user_address, matchCost);
 
         // Give buyer the shares
         await updatePosition(client, userAddress, marketId, side, matchAmount, askOrder.price);
@@ -410,6 +410,7 @@ export async function placeMarketOrder(
         WHERE market_id = $1 AND side = $2 AND order_side = 'buy' AND status IN ('open', 'partial')
           AND user_address != $3
         ORDER BY price DESC, created_at ASC
+        FOR UPDATE SKIP LOCKED
       `, [marketId, side, userAddress]);
       const bidOrders = bidRes.rows;
 
@@ -435,7 +436,7 @@ export async function placeMarketOrder(
         await updatePosition(client, bidOrder.user_address, marketId, side, matchAmount, bidOrder.price);
 
         // Pay seller
-        await client.query('UPDATE balances SET available = available + $1 WHERE user_address = $2', [matchCost, userAddress]);
+        await creditAvailableBalance(client, userAddress, matchCost);
 
         // Reduce seller's position
         await reducePosition(client, userAddress, marketId, side, matchAmount);
@@ -452,7 +453,7 @@ export async function placeMarketOrder(
 
         await reducePosition(client, userAddress, marketId, side, remaining);
 
-        await client.query('UPDATE balances SET available = available + $1 WHERE user_address = $2', [ammResult.amountOut, userAddress]);
+        await creditAvailableBalance(client, userAddress, ammResult.amountOut);
 
         await client.query(`
           UPDATE markets
@@ -477,8 +478,8 @@ export async function placeMarketOrder(
     const tradeId = randomUUID();
     await client.query(`
       INSERT INTO orders (id, user_address, market_id, side, type, amount, shares, price, status, created_at)
-      VALUES ($1, $2, $3, $4, 'market', $5, $6, $7, 'filled', $8)
-    `, [tradeId, userAddress, marketId, side, totalCost, totalFilled, totalFilled > 0 ? totalCost / totalFilled : 0, now]);
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'filled', $9)
+    `, [tradeId, userAddress, marketId, side, orderSide, totalCost, totalFilled, totalFilled > 0 ? totalCost / totalFilled : 0, now]);
 
     await client.query('COMMIT');
 
@@ -508,7 +509,7 @@ export async function cancelOrder(
   try {
     await client.query('BEGIN');
 
-    const orderRes = await client.query('SELECT * FROM open_orders WHERE id = $1', [orderId]);
+    const orderRes = await client.query('SELECT * FROM open_orders WHERE id = $1 FOR UPDATE', [orderId]);
     const order = orderRes.rows[0];
     if (!order) throw new Error('Order not found');
     if (order.user_address !== userAddress) throw new Error('Not your order');
@@ -522,12 +523,17 @@ export async function cancelOrder(
       // Return locked funds
       const lockedAmount = remaining * order.price;
       await client.query(
-        'UPDATE balances SET available = available + $1, locked = locked - $2 WHERE user_address = $3',
-        [lockedAmount, lockedAmount, userAddress]
+        `INSERT INTO balances (user_address, available, locked)
+         VALUES ($1, $2, 0)
+         ON CONFLICT (user_address) DO UPDATE SET
+           available = balances.available + EXCLUDED.available,
+           locked = GREATEST(balances.locked - EXCLUDED.available, 0)`,
+        [userAddress, lockedAmount]
       );
     } else {
       // Return shares to position
-      await updatePosition(client, userAddress, order.market_id, order.side, remaining, order.price);
+      const restoreCostBasis = Number(order.cost_basis ?? order.price) || 0;
+      await updatePosition(client, userAddress, order.market_id, order.side, remaining, restoreCostBasis);
     }
 
     await client.query('COMMIT');
@@ -551,23 +557,32 @@ async function updatePosition(
   shares: number,
   price: number
 ): Promise<void> {
-  const existingRes = await client.query(
-    'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
-    [userAddress, marketId, side]
-  );
-  const existing = existingRes.rows[0];
+  const posId = randomUUID();
+  const now = Date.now();
+  await client.query(`
+    INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (user_address, market_id, side)
+    DO UPDATE SET
+      avg_cost = CASE
+        WHEN positions.shares + EXCLUDED.shares > 0
+        THEN ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
+             / (positions.shares + EXCLUDED.shares)
+        ELSE positions.avg_cost
+      END,
+      shares = positions.shares + EXCLUDED.shares
+  `, [posId, userAddress, marketId, side, shares, price, now]);
+}
 
-  if (existing) {
-    const newShares = existing.shares + shares;
-    const newAvgCost = (existing.shares * existing.avg_cost + shares * price) / newShares;
-    await client.query('UPDATE positions SET shares = $1, avg_cost = $2 WHERE id = $3', [newShares, newAvgCost, existing.id]);
-  } else {
-    const posId = randomUUID();
-    await client.query(`
-      INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `, [posId, userAddress, marketId, side, shares, price, Date.now()]);
-  }
+async function creditAvailableBalance(client: PoolClient, userAddress: string, amount: number): Promise<void> {
+  if (!Number.isFinite(amount) || amount <= 0) return;
+  await client.query(
+    `INSERT INTO balances (user_address, available, locked)
+     VALUES ($1, $2, 0)
+     ON CONFLICT (user_address) DO UPDATE
+     SET available = balances.available + EXCLUDED.available`,
+    [userAddress, amount]
+  );
 }
 
 /**
@@ -581,7 +596,7 @@ async function reducePosition(
   shares: number
 ): Promise<void> {
   const posRes = await client.query(
-    'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+    'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3 FOR UPDATE',
     [userAddress, marketId, side]
   );
   const position = posRes.rows[0];

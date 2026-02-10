@@ -13,21 +13,41 @@ const VALID_CATEGORIES = [
   'on-chain', 'rug-alert', 'btc-weather', 'fun', 'daily'
 ];
 
+function parseAddressArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((addr) => String(addr).toLowerCase());
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map((addr) => String(addr).toLowerCase());
+      }
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // POST /api/markets/create — create user market
 router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
     const { title, description, category, endTime } = req.body;
     const userAddress = req.userAddress!;
+    const normalizedTitle = typeof title === 'string' ? title.trim() : '';
+    const normalizedDescription = typeof description === 'string' ? description.trim() : '';
+    const normalizedCategory = typeof category === 'string' ? category.trim() : '';
 
     // Validate title
-    if (!title || title.length < 10 || title.length > 200) {
+    if (!normalizedTitle || normalizedTitle.length < 10 || normalizedTitle.length > 200) {
       res.status(400).json({ error: '标题长度需在 10-200 字之间' });
       return;
     }
 
     // Validate category
-    if (category && !VALID_CATEGORIES.includes(category)) {
+    if (normalizedCategory && !VALID_CATEGORIES.includes(normalizedCategory)) {
       res.status(400).json({ error: '无效分类' });
       return;
     }
@@ -35,6 +55,10 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
     // Validate endTime
     const endTimeMs = Number(endTime);
     const now = Date.now();
+    if (!Number.isFinite(endTimeMs)) {
+      res.status(400).json({ error: '结束时间格式无效' });
+      return;
+    }
     if (endTimeMs <= now + 3600000) {
       res.status(400).json({ error: '结束时间至少需要1小时后' });
       return;
@@ -49,6 +73,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
     // Use a single transaction for rate limit check + balance check + creation
     // to prevent race conditions where concurrent requests bypass the rate limit
     const client = await db.connect();
+    let committed = false;
     try {
       await client.query('BEGIN');
 
@@ -97,7 +122,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       await client.query(`
         INSERT INTO markets (id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at)
         VALUES ($1, $2, $3, $4, $5, 'active', 0.5, 0.5, 0, 10000, 10000, 10000, $6)
-      `, [marketId, title, description || '', category || 'daily', endTimeMs, now]);
+      `, [marketId, normalizedTitle, normalizedDescription, normalizedCategory || 'daily', Math.floor(endTimeMs), now]);
 
       // Track in user_created_markets
       await client.query(`
@@ -112,11 +137,14 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       );
 
       await client.query('COMMIT');
+      committed = true;
 
       const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [marketId]);
       res.json({ market: marketResult.rows[0], fee: creationFee });
     } catch (txErr) {
-      await client.query('ROLLBACK');
+      if (!committed) {
+        await client.query('ROLLBACK');
+      }
       throw txErr;
     } finally {
       client.release();
@@ -166,22 +194,21 @@ router.post('/:id/flag', authMiddleware, async (req: AuthRequest, res: Response)
       }
 
       // Check if already flagged by this user
-      const flaggedBy: string[] = Array.isArray(ucm.flagged_by)
-        ? ucm.flagged_by
-        : JSON.parse(ucm.flagged_by || '[]');
-      if (flaggedBy.includes(req.userAddress!)) {
+      const normalizedFlagged = parseAddressArray(ucm.flagged_by);
+      const currentUser = req.userAddress!.toLowerCase();
+      if (normalizedFlagged.includes(currentUser)) {
         await client.query('ROLLBACK');
         res.status(400).json({ error: '你已经举报过了' });
         return;
       }
 
-      flaggedBy.push(req.userAddress!);
+      normalizedFlagged.push(currentUser);
       const newFlagCount = ucm.flag_count + 1;
       const newStatus = newFlagCount >= 5 ? 'flagged' : ucm.status;
 
       await client.query(
         'UPDATE user_created_markets SET flag_count = $1, flagged_by = $2, status = $3 WHERE market_id = $4',
-        [newFlagCount, JSON.stringify(flaggedBy), newStatus, req.params.id]
+        [newFlagCount, JSON.stringify(normalizedFlagged), newStatus, req.params.id]
       );
 
       await client.query('COMMIT');

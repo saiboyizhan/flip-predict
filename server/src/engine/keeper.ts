@@ -23,6 +23,7 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
     const expiredMarkets = expiredRes.rows;
 
     for (const market of expiredMarkets) {
+      await client.query('SAVEPOINT market_resolution_sp');
       try {
         if (market.resolution_type && market.oracle_pair && SUPPORTED_PAIRS.includes(market.oracle_pair)) {
           await resolveByOracleInTx(client, market);
@@ -30,7 +31,10 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
           await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
           console.log(`Market ${market.id} marked as pending_resolution (manual)`);
         }
+        await client.query('RELEASE SAVEPOINT market_resolution_sp');
       } catch (err: any) {
+        await client.query('ROLLBACK TO SAVEPOINT market_resolution_sp');
+        await client.query('RELEASE SAVEPOINT market_resolution_sp');
         console.error(`Failed to resolve market ${market.id}:`, err.message);
       }
     }
@@ -87,6 +91,10 @@ async function resolveByOracleInTx(client: any, market: any): Promise<void> {
 }
 
 export async function settleMarketPositions(client: any, marketId: string, winningSide: string): Promise<void> {
+  if (winningSide !== 'yes' && winningSide !== 'no') {
+    throw new Error(`Invalid winning side: ${winningSide}`);
+  }
+
   const now = Date.now();
 
   // ============================================================
@@ -95,7 +103,7 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   // shares deducted from the user's position. Return them all.
   // ============================================================
   const openOrdersRes = await client.query(
-    "SELECT * FROM open_orders WHERE market_id = $1 AND status = 'open'",
+    "SELECT * FROM open_orders WHERE market_id = $1 AND status IN ('open', 'partial') FOR UPDATE",
     [marketId]
   );
   const openOrders = openOrdersRes.rows;
@@ -104,17 +112,36 @@ export async function settleMarketPositions(client: any, marketId: string, winni
     const remainingAmount = order.amount - order.filled;
     if (remainingAmount <= 0) continue;
 
+    let loggedAmount = remainingAmount;
     if (order.order_side === 'buy') {
+      const lockedAmount = remainingAmount * order.price;
+      loggedAmount = lockedAmount;
       // Return locked funds to user's available balance
       await client.query(
-        `UPDATE balances SET available = available + $1, locked = locked - $1 WHERE user_address = $2`,
-        [remainingAmount, order.user_address]
+        `INSERT INTO balances (user_address, available, locked)
+         VALUES ($1, $2, 0)
+         ON CONFLICT (user_address) DO UPDATE SET
+           available = balances.available + EXCLUDED.available,
+           locked = GREATEST(balances.locked - EXCLUDED.available, 0)`,
+        [order.user_address, lockedAmount]
       );
     } else if (order.order_side === 'sell') {
-      // Return shares back to user's position (shares were deducted when sell order was placed)
+      const restoreCostBasis = Number(order.cost_basis ?? order.price) || 0;
+      // Return shares back to user's position. The row might not exist anymore because
+      // shares were reduced at order placement time and may have reached 0.
       await client.query(
-        `UPDATE positions SET shares = shares + $1 WHERE user_address = $2 AND market_id = $3 AND side = $4`,
-        [remainingAmount, order.user_address, marketId, order.side]
+        `INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (user_address, market_id, side)
+         DO UPDATE SET
+           avg_cost = CASE
+             WHEN positions.shares + EXCLUDED.shares > 0
+             THEN ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
+                  / (positions.shares + EXCLUDED.shares)
+             ELSE positions.avg_cost
+           END,
+           shares = positions.shares + EXCLUDED.shares`,
+        [randomUUID(), order.user_address, marketId, order.side, remainingAmount, restoreCostBasis, now]
       );
     }
 
@@ -122,15 +149,15 @@ export async function settleMarketPositions(client: any, marketId: string, winni
       INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
       VALUES ($1, $2, 'cancel_open_order', $3, $4, $5, $6)
     `, [
-      randomUUID(), marketId, order.user_address, remainingAmount,
-      JSON.stringify({ order_id: order.id, order_side: order.order_side, side: order.side }),
+      randomUUID(), marketId, order.user_address, loggedAmount,
+      JSON.stringify({ order_id: order.id, order_side: order.order_side, side: order.side, remaining_amount: remainingAmount }),
       now
     ]);
   }
 
-  // Mark all open orders as canceled
+  // Mark all open orders as cancelled
   await client.query(
-    "UPDATE open_orders SET status = 'canceled' WHERE market_id = $1 AND status = 'open'",
+    "UPDATE open_orders SET status = 'cancelled' WHERE market_id = $1 AND status IN ('open', 'partial')",
     [marketId]
   );
 
@@ -229,10 +256,22 @@ export async function settleMarketPositions(client: any, marketId: string, winni
 
 export function startKeeper(db: Pool, intervalMs: number = 30000): NodeJS.Timeout {
   console.log(`Keeper started (${intervalMs / 1000}s interval)`);
+  let isRunning = false;
 
-  checkAndResolveMarkets(db).catch(err => console.error('Keeper error:', err));
+  const run = async () => {
+    if (isRunning) return;
+    isRunning = true;
+    try {
+      await checkAndResolveMarkets(db);
+    } catch (err) {
+      console.error('Keeper error:', err);
+    } finally {
+      isRunning = false;
+    }
+  };
 
+  void run();
   return setInterval(() => {
-    checkAndResolveMarkets(db).catch(err => console.error('Keeper error:', err));
+    void run();
   }, intervalMs);
 }

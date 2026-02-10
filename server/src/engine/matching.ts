@@ -25,6 +25,10 @@ export async function executeBuy(
   side: 'yes' | 'no',
   amount: number
 ): Promise<OrderResult> {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Amount must be a positive finite number');
+  }
+
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -67,24 +71,20 @@ export async function executeBuy(
       VALUES ($1, $2, $3, $4, 'buy', $5, $6, $7, 'filled', $8)
     `, [orderId, userAddress, marketId, side, amount, result.sharesOut, result.pricePerShare, now]);
 
-    // Update or insert position
-    const existingRes = await client.query(
-      'SELECT * FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
-      [userAddress, marketId, side]
-    );
-    const existing = existingRes.rows[0];
-
-    if (existing) {
-      const newShares = existing.shares + result.sharesOut;
-      const newAvgCost = (existing.shares * existing.avg_cost + amount) / newShares;
-      await client.query('UPDATE positions SET shares = $1, avg_cost = $2 WHERE id = $3', [newShares, newAvgCost, existing.id]);
-    } else {
-      const posId = randomUUID();
-      await client.query(`
-        INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [posId, userAddress, marketId, side, result.sharesOut, result.pricePerShare, now]);
-    }
+    // Atomic upsert avoids concurrent lost updates on positions.
+    await client.query(`
+      INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (user_address, market_id, side)
+      DO UPDATE SET
+        avg_cost = CASE
+          WHEN positions.shares + EXCLUDED.shares > 0
+          THEN ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
+               / (positions.shares + EXCLUDED.shares)
+          ELSE positions.avg_cost
+        END,
+        shares = positions.shares + EXCLUDED.shares
+    `, [randomUUID(), userAddress, marketId, side, result.sharesOut, result.pricePerShare, now]);
 
     await client.query('COMMIT');
 
@@ -110,6 +110,10 @@ export async function executeSell(
   side: 'yes' | 'no',
   shares: number
 ): Promise<SellOrderResult> {
+  if (!Number.isFinite(shares) || shares <= 0) {
+    throw new Error('Shares must be a positive finite number');
+  }
+
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -133,8 +137,13 @@ export async function executeSell(
     const orderId = randomUUID();
     const now = Date.now();
 
-    // Credit balance
-    await client.query('UPDATE balances SET available = available + $1 WHERE user_address = $2', [result.amountOut, userAddress]);
+    // Credit balance (safe even if balance row is missing due to legacy data inconsistency)
+    await client.query(
+      `INSERT INTO balances (user_address, available, locked)
+       VALUES ($1, $2, 0)
+       ON CONFLICT (user_address) DO UPDATE SET available = balances.available + EXCLUDED.available`,
+      [userAddress, result.amountOut]
+    );
 
     // Update market reserves and prices
     await client.query(`

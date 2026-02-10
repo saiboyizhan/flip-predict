@@ -48,29 +48,44 @@ export async function recordPrediction(db: Pool, input: PredictionInput): Promis
   if (!['yes', 'no'].includes(prediction)) throw new Error('Prediction must be yes or no');
   if (confidence < 0 || confidence > 1) throw new Error('Confidence must be between 0 and 1');
 
-  // Check agent exists
-  const agent = (await db.query('SELECT id FROM agents WHERE id = $1', [agentId])).rows[0];
-  if (!agent) throw new Error('Agent not found');
-
-  // Check market exists and is active
-  const market = (await db.query('SELECT id, category, status FROM markets WHERE id = $1', [marketId])).rows[0] as any;
-  if (!market) throw new Error('Market not found');
-  if (market.status !== 'active') throw new Error('Market is not active');
-
-  // Check for duplicate prediction
-  const existing = (await db.query(
-    'SELECT id FROM agent_predictions WHERE agent_id = $1 AND market_id = $2',
-    [agentId, marketId]
-  )).rows[0];
-  if (existing) throw new Error('Agent already has a prediction for this market');
-
   const id = generateId();
   const now = Date.now();
+  let marketCategory: string | null = null;
 
-  await db.query(`
-    INSERT INTO agent_predictions (id, agent_id, market_id, prediction, confidence, reasoning, category, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-  `, [id, agentId, marketId, prediction, confidence, reasoning || null, market.category || null, now]);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Serialize writes for the same (agent, market) pair to avoid duplicate predictions
+    // under concurrent requests.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [agentId, marketId]);
+
+    const agent = (await client.query('SELECT id FROM agents WHERE id = $1', [agentId])).rows[0];
+    if (!agent) throw new Error('Agent not found');
+
+    const market = (await client.query('SELECT id, category, status FROM markets WHERE id = $1', [marketId])).rows[0] as any;
+    if (!market) throw new Error('Market not found');
+    if (market.status !== 'active') throw new Error('Market is not active');
+    marketCategory = market.category || null;
+
+    const existing = (await client.query(
+      'SELECT id FROM agent_predictions WHERE agent_id = $1 AND market_id = $2',
+      [agentId, marketId]
+    )).rows[0];
+    if (existing) throw new Error('Agent already has a prediction for this market');
+
+    await client.query(`
+      INSERT INTO agent_predictions (id, agent_id, market_id, prediction, confidence, reasoning, category, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [id, agentId, marketId, prediction, confidence, reasoning || null, marketCategory, now]);
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
   // Update style profile
   await updateStyleProfile(db, agentId);
@@ -82,7 +97,7 @@ export async function recordPrediction(db: Pool, input: PredictionInput): Promis
     prediction,
     confidence,
     reasoning: reasoning || null,
-    category: market.category || null,
+    category: marketCategory,
     createdAt: now,
   };
 }
@@ -133,7 +148,11 @@ export async function resolvePredictions(db: Pool, marketId: string, outcome: st
  */
 export async function analyzeStyle(db: Pool, agentId: string): Promise<PredictionStyleReport> {
   const predictions = (await db.query(
-    'SELECT * FROM agent_predictions WHERE agent_id = $1 ORDER BY created_at DESC',
+    `SELECT p.*, m.yes_price, m.no_price
+     FROM agent_predictions p
+     LEFT JOIN markets m ON p.market_id = m.id
+     WHERE p.agent_id = $1
+     ORDER BY p.created_at DESC`,
     [agentId]
   )).rows as any[];
 
@@ -167,10 +186,17 @@ export async function analyzeStyle(db: Pool, agentId: string): Promise<Predictio
     : 0;
 
   // Contrarian tendency: how often does agent bet against majority?
-  // (simplified: check if prediction differs from market price direction)
   const contrarianCount = predictions.filter((p: any) => {
-    // If yes_price > 0.5 and agent predicts 'no', that's contrarian
-    return false; // simplified
+    const yesPrice = Number(p.yes_price);
+    const noPrice = Number(p.no_price);
+    const pred = String(p.prediction ?? '').toLowerCase();
+
+    if (!Number.isFinite(yesPrice) || !Number.isFinite(noPrice)) return false;
+    if (Math.abs(yesPrice - noPrice) < 0.05) return false; // treat near-50/50 as neutral
+    if (pred !== 'yes' && pred !== 'no') return false;
+
+    const consensus = yesPrice > noPrice ? 'yes' : 'no';
+    return pred !== consensus;
   }).length;
   const contrarianTendency = predictions.length > 0 ? contrarianCount / predictions.length : 0;
 

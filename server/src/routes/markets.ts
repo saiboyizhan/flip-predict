@@ -3,6 +3,15 @@ import { getDb } from '../db';
 
 const router = Router();
 
+function parseTimestampFilter(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const asString = String(value).trim();
+  if (!asString) return null;
+  const date = new Date(asString);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
 // GET /api/markets
 router.get('/', async (req: Request, res: Response) => {
   const { category, search, sort } = req.query;
@@ -67,7 +76,8 @@ router.get('/stats', async (req: Request, res: Response) => {
       todayTrades: parseInt(todayTradesRes.rows[0].count),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Market stats error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -75,6 +85,8 @@ router.get('/stats', async (req: Request, res: Response) => {
 router.get('/search', async (req: Request, res: Response) => {
   try {
     const { q, category, limit = '50' } = req.query;
+    const rawLimit = Number.parseInt(String(limit), 10);
+    const parsedLimit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 100));
     const db = getDb();
 
     if (!q || !(q as string).trim()) {
@@ -93,12 +105,13 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     sql += ` ORDER BY volume DESC LIMIT $${paramIndex}`;
-    params.push(Math.min(parseInt(limit as string) || 50, 100));
+    params.push(parsedLimit);
 
     const { rows: markets } = await db.query(sql, params);
     res.json({ markets });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Market search error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -107,9 +120,20 @@ router.get('/:id/history', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const interval = (req.query.interval as string) || '1h';
-    const from = req.query.from as string | undefined;
-    const to = req.query.to as string | undefined;
+    const rawFrom = req.query.from as string | undefined;
+    const rawTo = req.query.to as string | undefined;
+    const from = parseTimestampFilter(rawFrom);
+    const to = parseTimestampFilter(rawTo);
     const db = getDb();
+
+    if (rawFrom != null && from === null) {
+      res.status(400).json({ error: 'Invalid "from" timestamp' });
+      return;
+    }
+    if (rawTo != null && to === null) {
+      res.status(400).json({ error: 'Invalid "to" timestamp' });
+      return;
+    }
 
     const marketResult = await db.query('SELECT id FROM markets WHERE id = $1', [id]);
     if (marketResult.rows.length === 0) {
@@ -191,7 +215,8 @@ router.get('/:id/history', async (req: Request, res: Response) => {
 
     res.json({ history: rows });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('Market history error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

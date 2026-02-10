@@ -11,7 +11,7 @@ import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdraw
 
 interface Transaction {
   id: string;
-  type: "bet" | "win" | "deposit" | "withdraw";
+  type: "bet" | "win" | "deposit" | "withdraw" | "buy" | "sell";
   amount: number;
   market?: string;
   timestamp: string;
@@ -90,7 +90,22 @@ export function WalletPage() {
     fetchTradeHistory(address)
       .then((data) => {
         const trades = data.trades ?? [];
-        setTransactions(trades);
+        const normalized: Transaction[] = trades.map((tx: any) => {
+          const type = tx.type as Transaction["type"];
+          const rawAmount = Number(tx.amount) || 0;
+          return {
+            id: String(tx.id),
+            type,
+            amount: type === "buy" ? -Math.abs(rawAmount) : rawAmount,
+            market: tx.market ?? tx.market_title ?? undefined,
+            timestamp: tx.timestamp
+              ? String(tx.timestamp)
+              : new Date(Number(tx.created_at) || Date.now()).toLocaleString(),
+            status: tx.status === "pending" ? "pending" : "completed",
+            txHash: tx.txHash ?? tx.tx_hash ?? "",
+          };
+        });
+        setTransactions(normalized);
       })
       .catch(() => setTransactions([]))
       .finally(() => setLoadingHistory(false));
@@ -186,8 +201,10 @@ export function WalletPage() {
       case "deposit":
         return <ArrowDownRight className="w-5 h-5 text-blue-400" />;
       case "bet":
+      case "buy":
         return <ArrowUpRight className="w-5 h-5 text-amber-400" />;
       case "withdraw":
+      case "sell":
         return <ArrowUpRight className="w-5 h-5 text-zinc-400" />;
     }
   };
@@ -199,8 +216,10 @@ export function WalletPage() {
       case "deposit":
         return t('wallet.txDeposit');
       case "bet":
+      case "buy":
         return t('wallet.txBet');
       case "withdraw":
+      case "sell":
         return t('wallet.txWithdraw');
     }
   };
@@ -337,7 +356,7 @@ export function WalletPage() {
                     ${userStats ? userStats.totalProfit.toLocaleString() : "0"}
                   </div>
                   <div className="text-zinc-500 text-sm">
-                    {userStats ? t('wallet.winsAndRate', { wins: userStats.totalWins, rate: userStats.winRate.toFixed(1) }) : t('common.noData')}
+                    {userStats ? t('wallet.winsAndRate', { wins: userStats.totalWins, rate: (userStats.winRate * 100).toFixed(1) }) : t('common.noData')}
                   </div>
                 </motion.div>
               )}

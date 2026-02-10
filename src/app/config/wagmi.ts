@@ -28,6 +28,6 @@ const bscTestnet = defineChain({
 
 export const config = getDefaultConfig({
   appName: "链上预测",
-  projectId: "YOUR_WALLETCONNECT_PROJECT_ID",
+  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
   chains: [bsc, bscTestnet],
 });

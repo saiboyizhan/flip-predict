@@ -10,6 +10,22 @@ function generateId(): string {
   return 'agent-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
 }
 
+function parsePositiveNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
 // ========== Public Routes ==========
 
 // GET /api/agents — list agents
@@ -17,6 +33,8 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const { sort = 'roi', strategy, limit = '50' } = req.query;
+    const rawLimit = Number.parseInt(String(limit), 10);
+    const parsedLimit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 100));
 
     let orderBy = 'roi DESC';
     switch (sort) {
@@ -37,7 +55,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     sql += ` ORDER BY ${orderBy} LIMIT $${paramIndex}`;
-    params.push(Math.min(parseInt(limit as string) || 50, 100));
+    params.push(parsedLimit);
 
     const agents = (await db.query(sql, params)).rows;
     res.json({ agents });
@@ -120,7 +138,7 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
     const db = getDb();
     const { name, strategy, description, persona, avatar } = req.body;
 
-    if (!name || !name.trim()) {
+    if (typeof name !== 'string' || !name.trim()) {
       res.status(400).json({ error: 'Name is required' });
       return;
     }
@@ -190,10 +208,10 @@ router.post('/:id/list-sale', authMiddleware, async (req: AuthRequest, res: Resp
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
 
-    const { price } = req.body;
-    if (!price || price <= 0) { res.status(400).json({ error: 'Valid price required' }); return; }
+    const parsedPrice = parsePositiveNumber(req.body?.price);
+    if (parsedPrice === null) { res.status(400).json({ error: 'Valid price required' }); return; }
 
-    await db.query('UPDATE agents SET is_for_sale = 1, sale_price = $1 WHERE id = $2', [price, req.params.id]);
+    await db.query('UPDATE agents SET is_for_sale = 1, sale_price = $1 WHERE id = $2', [parsedPrice, req.params.id]);
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
@@ -210,10 +228,10 @@ router.post('/:id/list-rent', authMiddleware, async (req: AuthRequest, res: Resp
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
 
-    const { pricePerDay } = req.body;
-    if (!pricePerDay || pricePerDay <= 0) { res.status(400).json({ error: 'Valid pricePerDay required' }); return; }
+    const parsedPricePerDay = parsePositiveNumber(req.body?.pricePerDay);
+    if (parsedPricePerDay === null) { res.status(400).json({ error: 'Valid pricePerDay required' }); return; }
 
-    await db.query('UPDATE agents SET is_for_rent = 1, rent_price = $1 WHERE id = $2', [pricePerDay, req.params.id]);
+    await db.query('UPDATE agents SET is_for_rent = 1, rent_price = $1 WHERE id = $2', [parsedPricePerDay, req.params.id]);
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
@@ -226,6 +244,7 @@ router.post('/:id/list-rent', authMiddleware, async (req: AuthRequest, res: Resp
 router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) => {
   const db = getDb();
   const client = await db.connect();
+  let committed = false;
   try {
     await client.query('BEGIN');
 
@@ -267,11 +286,14 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
     `, [req.userAddress, req.params.id]);
 
     await client.query('COMMIT');
+    committed = true;
 
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    if (!committed) {
+      await client.query('ROLLBACK');
+    }
     console.error('Agents error:', err);
     res.status(500).json({ error: 'Internal server error' });
   } finally {
@@ -283,6 +305,7 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
 router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response) => {
   const db = getDb();
   const client = await db.connect();
+  let committed = false;
   try {
     await client.query('BEGIN');
 
@@ -292,10 +315,10 @@ router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response)
     if (agent.rented_by) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is already rented' }); return; }
     if (agent.owner_address === req.userAddress) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Cannot rent your own agent' }); return; }
 
-    const { days } = req.body;
-    if (!days || days < 1) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Valid days required' }); return; }
+    const parsedDays = parsePositiveInteger(req.body?.days);
+    if (parsedDays === null) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Valid days required' }); return; }
 
-    const totalRentCost = agent.rent_price * days;
+    const totalRentCost = agent.rent_price * parsedDays;
 
     // Check renter has sufficient balance
     const renterBalance = (await client.query(
@@ -323,16 +346,19 @@ router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response)
     `, [agent.owner_address, totalRentCost]);
 
     // Set rental info
-    const rentExpires = Date.now() + days * 86400000;
+    const rentExpires = Date.now() + parsedDays * 86400000;
     await client.query('UPDATE agents SET rented_by = $1, rent_expires = $2 WHERE id = $3',
       [req.userAddress, rentExpires, req.params.id]);
 
     await client.query('COMMIT');
+    committed = true;
 
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    if (!committed) {
+      await client.query('ROLLBACK');
+    }
     console.error('Agents error:', err);
     res.status(500).json({ error: 'Internal server error' });
   } finally {
@@ -390,11 +416,25 @@ router.post('/:id/predict', authMiddleware, async (req: AuthRequest, res: Respon
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
 
     const { marketId, prediction, confidence, reasoning } = req.body;
+    const parsedConfidence = Number(confidence);
+    if (typeof marketId !== 'string' || !marketId.trim()) {
+      res.status(400).json({ error: 'marketId is required' });
+      return;
+    }
+    if (prediction !== 'yes' && prediction !== 'no') {
+      res.status(400).json({ error: 'prediction must be "yes" or "no"' });
+      return;
+    }
+    if (!Number.isFinite(parsedConfidence) || parsedConfidence < 0 || parsedConfidence > 1) {
+      res.status(400).json({ error: 'confidence must be between 0 and 1' });
+      return;
+    }
+
     const result = await recordPrediction(db, {
       agentId: req.params.id,
       marketId,
       prediction,
-      confidence: Number(confidence),
+      confidence: parsedConfidence,
       reasoning,
     });
     res.json({ prediction: result });
@@ -407,7 +447,8 @@ router.post('/:id/predict', authMiddleware, async (req: AuthRequest, res: Respon
 router.get('/:id/predictions', async (req: Request, res: Response) => {
   try {
     const db = getDb();
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const rawLimit = Number.parseInt(String(req.query.limit ?? ''), 10);
+    const limit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 100));
     const predictions = (await db.query(
       'SELECT * FROM agent_predictions WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2',
       [req.params.id, limit]
@@ -486,12 +527,18 @@ router.post('/:id/authorize-trade', authMiddleware, async (req: AuthRequest, res
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
 
-    const { maxPerTrade, maxDailyAmount, durationHours } = req.body;
-    if (!maxPerTrade || maxPerTrade <= 0) { res.status(400).json({ error: 'Invalid maxPerTrade' }); return; }
-    if (!maxDailyAmount || maxDailyAmount <= 0) { res.status(400).json({ error: 'Invalid maxDailyAmount' }); return; }
-    if (!durationHours || durationHours < 1 || durationHours > 720) { res.status(400).json({ error: 'Duration must be 1-720 hours' }); return; }
+    const parsedMaxPerTrade = parsePositiveNumber(req.body?.maxPerTrade);
+    const parsedMaxDailyAmount = parsePositiveNumber(req.body?.maxDailyAmount);
+    const parsedDurationHours = parsePositiveInteger(req.body?.durationHours);
 
-    const expiresAt = Date.now() + durationHours * 3600000;
+    if (parsedMaxPerTrade === null) { res.status(400).json({ error: 'Invalid maxPerTrade' }); return; }
+    if (parsedMaxDailyAmount === null) { res.status(400).json({ error: 'Invalid maxDailyAmount' }); return; }
+    if (parsedDurationHours === null || parsedDurationHours < 1 || parsedDurationHours > 720) {
+      res.status(400).json({ error: 'Duration must be 1-720 hours' });
+      return;
+    }
+
+    const expiresAt = Date.now() + parsedDurationHours * 3600000;
 
     await db.query(`
       UPDATE agents SET
@@ -502,7 +549,7 @@ router.post('/:id/authorize-trade', authMiddleware, async (req: AuthRequest, res
         daily_trade_used = 0,
         auto_trade_expires = $3
       WHERE id = $4
-    `, [maxPerTrade, maxDailyAmount, expiresAt, req.params.id]);
+    `, [parsedMaxPerTrade, parsedMaxDailyAmount, expiresAt, req.params.id]);
 
     const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     res.json({ agent: updated });

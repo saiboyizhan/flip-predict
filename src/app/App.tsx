@@ -1,9 +1,10 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Toaster } from "sonner";
 import { AppHeader } from "./components/layout/AppHeader";
 import PageSkeleton from "./components/PageSkeleton";
+import { useMarketStore } from "./stores/useMarketStore";
 
 // Lazy load pages
 const HomePage = React.lazy(() => import("./pages/HomePage"));
@@ -58,6 +59,10 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
+  useEffect(() => {
+    void useMarketStore.getState().fetchFromAPI();
+  }, []);
+
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden">
       <Toaster theme="dark" position="top-right" />

@@ -11,13 +11,17 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
     const { limit = '50', offset = '0' } = req.query;
+    const rawLimit = Number.parseInt(String(limit), 10);
+    const rawOffset = Number.parseInt(String(offset), 10);
+    const parsedLimit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 200));
+    const parsedOffset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
 
     const { rows: notifications } = await db.query(`
       SELECT * FROM notifications
       WHERE user_address = $1
       ORDER BY created_at DESC
       LIMIT $2 OFFSET $3
-    `, [req.userAddress, Math.min(parseInt(limit as string) || 50, 200), parseInt(offset as string) || 0]);
+    `, [req.userAddress, parsedLimit, parsedOffset]);
 
     // Map is_read integer to boolean for API response
     const mapped = notifications.map((n: any) => ({

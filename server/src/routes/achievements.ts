@@ -137,25 +137,23 @@ async function calculateUserProgress(address: string): Promise<Record<string, nu
   );
   const tradeVolume = parseFloat(tradeVolumeRes.rows[0]?.volume) || 0;
 
-  // Win count (from resolved markets)
+  // Win count from settlement history (positions are deleted after settlement).
   const winCountRes = await db.query(`
     SELECT COUNT(*) as count
-    FROM positions p
-    JOIN market_resolution mr ON p.market_id = mr.market_id
-    WHERE p.user_address = $1 AND mr.outcome IS NOT NULL AND p.side = mr.outcome
+    FROM settlement_log
+    WHERE user_address = $1 AND action = 'settle_winner'
   `, [address]);
   const winCount = parseInt(winCountRes.rows[0]?.count) || 0;
 
-  // Win streak - calculate from ordered resolved trades
+  // Win streak from ordered settlement records
   let winStreak = 0;
   try {
     const streakRes = await db.query(`
       SELECT
-        CASE WHEN p.side = mr.outcome THEN 1 ELSE 0 END as is_win
-      FROM positions p
-      JOIN market_resolution mr ON p.market_id = mr.market_id
-      WHERE p.user_address = $1 AND mr.outcome IS NOT NULL
-      ORDER BY COALESCE(mr.resolved_at, p.created_at) DESC
+        CASE WHEN action = 'settle_winner' THEN 1 ELSE 0 END as is_win
+      FROM settlement_log
+      WHERE user_address = $1 AND action IN ('settle_winner', 'settle_loser')
+      ORDER BY created_at DESC
     `, [address]);
 
     let currentStreak = 0;

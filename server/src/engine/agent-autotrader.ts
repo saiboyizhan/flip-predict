@@ -26,6 +26,7 @@ interface AutoTradeAgent {
   max_daily_amount: number;
   daily_trade_used: number;
   auto_trade_expires: number | null;
+  last_trade_at: number | null;
 }
 
 /**
@@ -46,9 +47,16 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 
   // Check daily limit
   let dailyUsed = agent.daily_trade_used || 0;
+  const now = Date.now();
+  const todayDay = Math.floor(now / 86400000);
+  const lastTradeDay = agent.last_trade_at != null ? Math.floor(agent.last_trade_at / 86400000) : null;
 
-  // Reset daily counter if new day (simplified check)
-  // In production, we'd track the day number
+  // Reset daily usage when date changes (or if stale usage exists without a last trade timestamp).
+  if (dailyUsed > 0 && (lastTradeDay === null || lastTradeDay !== todayDay)) {
+    dailyUsed = 0;
+    await db.query('UPDATE agents SET daily_trade_used = 0 WHERE id = $1', [agentId]);
+  }
+
   const maxDaily = agent.max_daily_amount || 500;
 
   if (dailyUsed >= maxDaily) {
@@ -65,6 +73,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 
   let { wallet_balance, total_trades, winning_trades, total_profit, experience, level } = agent;
   let totalDailyUsed = dailyUsed;
+  let executedTrades = 0;
 
   const client = await db.connect();
   try {
@@ -93,6 +102,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       wallet_balance -= tradeAmount;
       total_trades += 1;
       totalDailyUsed += tradeAmount;
+      executedTrades += 1;
 
       const price = Math.max(0.1, Math.min(0.9, d.confidence));
       const shares = tradeAmount / price;
@@ -160,7 +170,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       experience,
       level,
       totalDailyUsed,
-      Date.now(),
+      executedTrades > 0 ? now : agent.last_trade_at,
       agentId
     ]);
 
@@ -175,22 +185,34 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 
 export function startAutoTrader(db: Pool, intervalMs: number = 60000): NodeJS.Timeout {
   console.log(`Auto Trader started (${intervalMs / 1000}s interval)`);
+  let isRunning = false;
 
   const run = async () => {
-    // Only run for agents with auto_trade mode
-    const agents = (await db.query(
-      "SELECT id FROM agents WHERE status = 'active' AND prediction_mode = 'auto_trade' AND auto_trade_enabled = 1"
-    )).rows as { id: string }[];
+    if (isRunning) {
+      return;
+    }
 
-    for (const agent of agents) {
-      try {
-        await runAutoTradeCycle(db, agent.id);
-      } catch (err: any) {
-        console.error(`AutoTrader ${agent.id} cycle error:`, err.message);
+    isRunning = true;
+    try {
+      // Only run for agents with auto_trade mode
+      const agents = (await db.query(
+        "SELECT id FROM agents WHERE status = 'active' AND prediction_mode = 'auto_trade' AND auto_trade_enabled = 1"
+      )).rows as { id: string }[];
+
+      for (const agent of agents) {
+        try {
+          await runAutoTradeCycle(db, agent.id);
+        } catch (err: any) {
+          console.error(`AutoTrader ${agent.id} cycle error:`, err.message);
+        }
       }
+    } catch (err: any) {
+      console.error('AutoTrader run error:', err.message);
+    } finally {
+      isRunning = false;
     }
   };
 
-  setTimeout(() => run(), 15000);
-  return setInterval(() => run(), intervalMs);
+  setTimeout(() => { void run(); }, 15000);
+  return setInterval(() => { void run(); }, intervalMs);
 }

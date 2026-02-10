@@ -223,4 +223,4 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 }))
 
 // Re-export AMM functions for use in components
-export { calculateBuy, getEstimatedReturn, getPrice }
+export { calculateBuy, calculateSell, getEstimatedReturn, getPrice }

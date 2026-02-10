@@ -6,6 +6,7 @@ import { Heart, Send, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { fetchComments, postComment, toggleCommentLike } from "@/app/services/api";
 import { useAuthStore } from "@/app/stores/useAuthStore";
+import { useAccount } from "wagmi";
 
 interface Comment {
   id: string;
@@ -22,8 +23,52 @@ interface CommentSectionProps {
   marketId: string;
 }
 
+function colorFromAddress(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 65%, 45%)`;
+}
+
+function parseLikedBy(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeComment(raw: any, walletAddress?: string): Comment {
+  const author = String(raw.author ?? raw.user_address ?? raw.userAddress ?? "0x");
+  const likedBy = parseLikedBy(raw.liked_by ?? raw.likedBy);
+  const lowerAddress = walletAddress?.toLowerCase();
+  const liked =
+    typeof raw.liked === "boolean"
+      ? raw.liked
+      : (lowerAddress ? likedBy.map((a) => a.toLowerCase()).includes(lowerAddress) : false);
+
+  return {
+    id: String(raw.id ?? ""),
+    marketId: String(raw.marketId ?? raw.market_id ?? ""),
+    author,
+    avatar: String(raw.avatar ?? colorFromAddress(author)),
+    content: String(raw.content ?? ""),
+    timestamp: Number(raw.timestamp ?? raw.created_at ?? Date.now()) || Date.now(),
+    likes: Number(raw.likes ?? likedBy.length) || 0,
+    liked,
+  };
+}
+
 export function CommentSection({ marketId }: CommentSectionProps) {
   const { t } = useTranslation();
+  const { address } = useAccount();
   const [input, setInput] = useState("");
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,15 +89,14 @@ export function CommentSection({ marketId }: CommentSectionProps) {
 
   const loadComments = useCallback(async () => {
     try {
-      const res = await fetchComments(marketId);
-      const list = Array.isArray(res) ? res : (res.comments ?? []);
-      setComments(list);
+      const list = await fetchComments(marketId);
+      setComments(list.map((item) => normalizeComment(item, address)));
     } catch {
       // silently fail, keep existing comments
     } finally {
       setLoading(false);
     }
-  }, [marketId]);
+  }, [marketId, address]);
 
   useEffect(() => {
     loadComments();
@@ -65,7 +109,7 @@ export function CommentSection({ marketId }: CommentSectionProps) {
     setSubmitting(true);
     try {
       const res = await postComment(marketId, trimmed);
-      const newComment: Comment = res.comment ?? res;
+      const newComment = normalizeComment((res as any) ?? {}, address);
       setComments((prev) => [newComment, ...prev]);
       setInput("");
     } catch {
@@ -78,12 +122,19 @@ export function CommentSection({ marketId }: CommentSectionProps) {
   const handleLike = async (commentId: string) => {
     try {
       const res = await toggleCommentLike(commentId);
+      const updated = normalizeComment((res as any) ?? {}, address);
       setComments((prev) =>
-        prev.map((c) =>
-          c.id === commentId
-            ? { ...c, liked: res.liked ?? !c.liked, likes: res.likes ?? (c.liked ? c.likes - 1 : c.likes + 1) }
-            : c
-        )
+        prev.map((c) => {
+          if (c.id !== commentId) return c;
+          if (!updated.id) {
+            return {
+              ...c,
+              liked: !c.liked,
+              likes: c.liked ? c.likes - 1 : c.likes + 1,
+            };
+          }
+          return { ...c, ...updated };
+        })
       );
     } catch {
       // silently fail

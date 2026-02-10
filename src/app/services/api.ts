@@ -51,6 +51,93 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // --- API methods ---
 
+interface RawMarket {
+  id: string
+  title?: string
+  description?: string
+  category?: string
+  status?: string
+  yesPrice?: number | string
+  yes_price?: number | string
+  noPrice?: number | string
+  no_price?: number | string
+  volume?: number | string
+  totalShares?: number | string
+  total_shares?: number | string
+  participants?: number | string
+  createdAt?: string | number
+  created_at?: string | number
+  endTime?: string | number
+  end_time?: string | number
+  resolvedAt?: string | number
+  resolved_at?: string | number
+  resolvedOutcome?: string
+  resolved_outcome?: string
+  imageUrl?: string
+  image_url?: string
+  tags?: string[]
+  featured?: boolean | number
+  resolutionSource?: string
+  resolution_source?: string
+  resolution_type?: string
+}
+
+function toIsoTime(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString()
+  }
+  if (typeof value === 'string') {
+    const asNum = Number(value)
+    if (Number.isFinite(asNum) && /^\d+$/.test(value)) {
+      return new Date(asNum).toISOString()
+    }
+    const ts = new Date(value).getTime()
+    if (Number.isFinite(ts)) return new Date(ts).toISOString()
+  }
+  return new Date(Date.now()).toISOString()
+}
+
+function normalizeMarketStatus(status: unknown): Market['status'] {
+  const normalized = String(status ?? 'active').toLowerCase()
+  if (normalized === 'active') return 'active'
+  if (normalized === 'resolved') return 'resolved'
+  if (normalized === 'closed') return 'closed'
+  if (normalized === 'disputed') return 'disputed'
+  if (normalized === 'pending' || normalized === 'pending_resolution') return 'pending'
+  return 'active'
+}
+
+function normalizeMarket(raw: RawMarket): Market {
+  const yesPrice = Number(raw.yesPrice ?? raw.yes_price ?? 0.5) || 0.5
+  const noPriceRaw = Number(raw.noPrice ?? raw.no_price)
+  const noPrice = Number.isFinite(noPriceRaw) ? noPriceRaw : 1 - yesPrice
+
+  const resolvedOutcome = String(raw.resolvedOutcome ?? raw.resolved_outcome ?? '').toLowerCase()
+  const mappedOutcome = resolvedOutcome === 'yes' ? 'YES' : resolvedOutcome === 'no' ? 'NO' : undefined
+  const tags = Array.isArray(raw.tags) ? raw.tags : []
+
+  return {
+    id: String(raw.id),
+    title: String(raw.title ?? ''),
+    description: String(raw.description ?? ''),
+    category: (raw.category ?? 'daily') as Market['category'],
+    status: normalizeMarketStatus(raw.status),
+    yesPrice,
+    noPrice,
+    volume: Number(raw.volume) || 0,
+    totalShares: Number(raw.totalShares ?? raw.total_shares) || 0,
+    participants: Number(raw.participants) || 0,
+    createdAt: toIsoTime(raw.createdAt ?? raw.created_at),
+    endTime: toIsoTime(raw.endTime ?? raw.end_time),
+    resolvedAt: (raw.resolvedAt ?? raw.resolved_at) == null ? undefined : toIsoTime(raw.resolvedAt ?? raw.resolved_at),
+    resolvedOutcome: mappedOutcome,
+    imageUrl: raw.imageUrl ?? raw.image_url,
+    tags,
+    featured: Boolean(raw.featured),
+    resolutionSource: String(raw.resolutionSource ?? raw.resolution_source ?? raw.resolution_type ?? 'manual'),
+  }
+}
+
 export async function fetchMarkets(params?: {
   category?: string
   search?: string
@@ -62,13 +149,13 @@ export async function fetchMarkets(params?: {
   if (params?.sort) query.set('sort', params.sort)
 
   const qs = query.toString()
-  const data = await request<{ markets: Market[] }>(`/api/markets${qs ? `?${qs}` : ''}`)
-  return data.markets
+  const data = await request<{ markets: RawMarket[] }>(`/api/markets${qs ? `?${qs}` : ''}`)
+  return (data.markets ?? []).map(normalizeMarket)
 }
 
 export async function fetchMarket(id: string): Promise<Market> {
-  const data = await request<{ market: Market; recentOrders: unknown[] }>(`/api/markets/${id}`)
-  return data.market
+  const data = await request<{ market: RawMarket; recentOrders: unknown[] }>(`/api/markets/${id}`)
+  return normalizeMarket(data.market)
 }
 
 export async function createOrder(data: {
@@ -82,10 +169,22 @@ export async function createOrder(data: {
   newYesPrice: number
   newNoPrice: number
 }> {
-  return request('/api/orders', {
+  const res = await request<{
+    order?: {
+      orderId: string
+      shares: number
+      price: number
+      newYesPrice: number
+      newNoPrice: number
+    }
+  }>('/api/orders', {
     method: 'POST',
     body: JSON.stringify(data),
   })
+  if (!res.order) {
+    throw new Error('Invalid order response from server')
+  }
+  return res.order
 }
 
 export async function sellOrder(data: {
@@ -99,10 +198,22 @@ export async function sellOrder(data: {
   newYesPrice: number
   newNoPrice: number
 }> {
-  return request('/api/orders/sell', {
+  const res = await request<{
+    order?: {
+      orderId: string
+      amountOut: number
+      price: number
+      newYesPrice: number
+      newNoPrice: number
+    }
+  }>('/api/orders/sell', {
     method: 'POST',
     body: JSON.stringify(data),
   })
+  if (!res.order) {
+    throw new Error('Invalid sell response from server')
+  }
+  return res.order
 }
 
 export async function getPositions(): Promise<unknown[]> {
@@ -177,6 +288,35 @@ export interface OpenOrder {
   createdAt: string
 }
 
+interface RawOpenOrder {
+  id: string
+  market_id?: string
+  marketId?: string
+  side: string
+  order_side?: string
+  orderSide?: string
+  price: number
+  amount: number
+  filled: number
+  status: string
+  created_at?: string | number
+  createdAt?: string | number
+}
+
+function normalizeOpenOrder(order: RawOpenOrder): OpenOrder {
+  return {
+    id: order.id,
+    marketId: order.marketId ?? order.market_id ?? '',
+    side: order.side,
+    orderSide: order.orderSide ?? order.order_side ?? 'buy',
+    price: Number(order.price) || 0,
+    amount: Number(order.amount) || 0,
+    filled: Number(order.filled) || 0,
+    status: order.status,
+    createdAt: String(order.createdAt ?? order.created_at ?? ''),
+  }
+}
+
 export async function getOrderBook(marketId: string, side: string): Promise<OrderBookData> {
   return request<OrderBookData>(`/api/orderbook/${marketId}/${side}`)
 }
@@ -188,10 +328,14 @@ export async function placeLimitOrder(data: {
   price: number
   amount: number
 }): Promise<{ orderId: string }> {
-  return request('/api/orderbook/limit', {
+  const res = await request<{ order?: { orderId: string } }>('/api/orderbook/limit', {
     method: 'POST',
     body: JSON.stringify(data),
   })
+  if (!res.order?.orderId) {
+    throw new Error('Invalid limit order response from server')
+  }
+  return { orderId: res.order.orderId }
 }
 
 export async function placeMarketOrder(data: {
@@ -200,10 +344,14 @@ export async function placeMarketOrder(data: {
   orderSide: string
   amount: number
 }): Promise<{ orderId: string }> {
-  return request('/api/orderbook/market', {
+  const res = await request<{ order?: { orderId: string } }>('/api/orderbook/market', {
     method: 'POST',
     body: JSON.stringify(data),
   })
+  if (!res.order?.orderId) {
+    throw new Error('Invalid market order response from server')
+  }
+  return { orderId: res.order.orderId }
 }
 
 export async function cancelOrder(orderId: string): Promise<{ success: boolean }> {
@@ -213,7 +361,9 @@ export async function cancelOrder(orderId: string): Promise<{ success: boolean }
 }
 
 export async function getOpenOrders(): Promise<OpenOrder[]> {
-  return request<OpenOrder[]>('/api/orderbook/open')
+  const data = await request<{ orders?: RawOpenOrder[] } | RawOpenOrder[]>('/api/orderbook/open')
+  const orders = Array.isArray(data) ? data : (data.orders ?? [])
+  return orders.map(normalizeOpenOrder)
 }
 
 // --- Settlement API ---
@@ -243,7 +393,8 @@ export async function claimWinnings(marketId: string): Promise<{
 }
 
 export async function getResolvedMarkets(): Promise<unknown[]> {
-  return request('/api/settlement/resolved')
+  const data = await request<{ markets?: unknown[] } | unknown[]>('/api/settlement/resolved')
+  return Array.isArray(data) ? data : (data.markets ?? [])
 }
 
 export async function adminResolve(
@@ -339,10 +490,14 @@ export async function getMyAgents(): Promise<Agent[]> {
 }
 
 export async function updateAgent(id: string, data: { strategy?: string; description?: string }): Promise<Agent> {
-  return request<Agent>(`/api/agents/${id}`, {
+  const res = await request<{ agent?: Agent }>(`/api/agents/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   })
+  if (!res.agent) {
+    throw new Error('Invalid agent response from server')
+  }
+  return res.agent
 }
 
 export async function listAgentForSale(id: string, price: number): Promise<{ success: boolean }> {
@@ -458,7 +613,8 @@ export async function revokeAutoTrade(agentId: string): Promise<any> {
 }
 
 export async function getAutoTradeAuth(agentId: string): Promise<any> {
-  return request(`/api/agents/${agentId}`)
+  const data = await request<{ agent?: any }>(`/api/agents/${agentId}`)
+  return data.agent ?? null
 }
 
 // --- Learning ---
@@ -515,45 +671,128 @@ export async function fetchLeaderboard() {
 // --- Comments API ---
 
 export async function fetchComments(marketId: string) {
-  const data = await request<{ comments: unknown[] }>(`/api/comments/${marketId}`)
-  return data.comments
+  const data = await request<{ comments?: unknown[] }>(`/api/comments/${marketId}`)
+  return data.comments ?? []
 }
 
 export async function postComment(marketId: string, content: string) {
-  return request<{ comment: unknown }>(`/api/comments/${marketId}`, {
+  const data = await request<{ comment?: unknown }>(`/api/comments/${marketId}`, {
     method: 'POST',
     body: JSON.stringify({ content }),
   })
+  return data.comment
 }
 
 export async function toggleCommentLike(commentId: string) {
-  return request<{ comment: unknown }>(`/api/comments/${commentId}/like`, {
+  const data = await request<{ comment?: unknown }>(`/api/comments/${commentId}/like`, {
     method: 'POST',
   })
+  return data.comment
 }
 
 // === Portfolio / Wallet API ===
 
 export async function fetchPortfolio(address: string) {
-  return request<{ positions: any[]; totalValue: number; pnl: number }>(`/api/portfolio/${address}`)
+  const data = await request<{ positions?: any[]; totalValue?: number; pnl?: number }>(`/api/portfolio/${address}`)
+  const positions = data.positions ?? []
+
+  const computedTotalValue = positions.reduce((sum: number, p: any) => {
+    return sum + (Number(p.current_value ?? p.currentValue) || 0)
+  }, 0)
+  const computedPnl = positions.reduce((sum: number, p: any) => {
+    return sum + (Number(p.unrealized_pnl ?? p.unrealizedPnl) || 0)
+  }, 0)
+
+  return {
+    positions,
+    totalValue: Number(data.totalValue ?? computedTotalValue) || 0,
+    pnl: Number(data.pnl ?? computedPnl) || 0,
+  }
 }
 
 export async function fetchTradeHistory(address: string) {
-  return request<{ trades: any[] }>(`/api/portfolio/${address}/history`)
+  const data = await request<{ trades?: any[] }>(`/api/portfolio/${address}/history`)
+  const trades = (data.trades ?? []).map((t: any) => ({
+    ...t,
+    id: t.id,
+    type: t.type,
+    amount: Number(t.amount) || 0,
+    market: t.market ?? t.market_title ?? '',
+    timestamp: t.timestamp
+      ? String(t.timestamp)
+      : new Date(Number(t.created_at) || Date.now()).toLocaleString(),
+    status: t.status === 'pending' ? 'pending' : 'completed',
+    txHash: t.txHash ?? t.tx_hash ?? '',
+  }))
+  return { trades }
 }
 
 export async function fetchBalance(address: string) {
-  return request<{ available: number; locked: number; total: number }>(`/api/portfolio/${address}/balance`)
+  const data = await request<{ available: number; locked: number; total?: number; totalValue?: number }>(`/api/portfolio/${address}/balance`)
+  return {
+    available: Number(data.available) || 0,
+    locked: Number(data.locked) || 0,
+    total: Number(data.total ?? data.totalValue) || 0,
+  }
 }
 
 export async function fetchUserStats(address: string) {
-  return request<{ totalTrades: number; winRate: number; totalProfit: number; totalWins: number }>(`/api/portfolio/${address}/stats`)
+  const data = await request<{ stats?: any } | any>(`/api/portfolio/${address}/stats`)
+  const raw = (data && typeof data === 'object' && 'stats' in data) ? data.stats : data
+  return {
+    totalTrades: Number(raw?.totalTrades) || 0,
+    totalVolume: Number(raw?.totalVolume) || 0,
+    totalBought: Number(raw?.totalBought) || 0,
+    totalSold: Number(raw?.totalSold) || 0,
+    activePositions: Number(raw?.activePositions) || 0,
+    unrealizedPnl: Number(raw?.unrealizedPnl) || 0,
+    portfolioValue: Number(raw?.portfolioValue) || 0,
+    resolvedTrades: Number(raw?.resolvedTrades) || 0,
+    winningTrades: Number(raw?.winningTrades) || 0,
+    winRate: Number(raw?.winRate) || 0,
+    totalProfit: Number(raw?.totalProfit ?? raw?.unrealizedPnl) || 0,
+    totalWins: Number(raw?.totalWins ?? raw?.winningTrades) || 0,
+  }
 }
 
 // === Notification API ===
 
+export interface AppNotification {
+  id: string
+  type: 'trade' | 'market' | 'system'
+  title: string
+  message: string
+  timestamp: number
+  read: boolean
+}
+
+interface RawNotification {
+  id: string
+  type: string
+  title: string
+  message: string
+  created_at?: number | string
+  timestamp?: number | string
+  is_read?: boolean | number
+  read?: boolean
+}
+
+function normalizeNotification(item: RawNotification): AppNotification {
+  const ts = Number(item.timestamp ?? item.created_at) || Date.now()
+  return {
+    id: item.id,
+    type: (item.type === 'trade' || item.type === 'market' || item.type === 'system') ? item.type : 'system',
+    title: item.title,
+    message: item.message,
+    timestamp: ts,
+    read: Boolean(item.read ?? item.is_read),
+  }
+}
+
 export async function fetchNotifications() {
-  return request<{ notifications: Notification[] }>('/api/notifications')
+  const data = await request<{ notifications?: RawNotification[] }>('/api/notifications')
+  const notifications = data.notifications ?? []
+  return { notifications: notifications.map(normalizeNotification) }
 }
 
 export async function markNotificationRead(id: string) {
@@ -571,7 +810,8 @@ export async function fetchUnreadCount() {
 // === Search API ===
 
 export async function searchMarkets(query: string) {
-  return request<{ markets: Market[] }>(`/api/markets/search?q=${encodeURIComponent(query)}`)
+  const data = await request<{ markets: RawMarket[] }>(`/api/markets/search?q=${encodeURIComponent(query)}`)
+  return { markets: (data.markets ?? []).map(normalizeMarket) }
 }
 
 // === Platform Stats API ===
@@ -590,15 +830,32 @@ export async function fetchPlatformStats() {
 // === Rewards API ===
 
 export async function fetchRewards() {
-  return request<{ rewards: any[] }>('/api/rewards')
+  const data = await request<{ rewards?: any[] }>('/api/rewards')
+  const rewards = (data.rewards ?? []).map((r: any) => ({
+    ...r,
+    title: r.title ?? (r.type === 'referral' ? 'Referral Reward' : 'Reward'),
+    description: r.description ?? (r.type === 'referral' ? 'Invite reward pending claim' : 'Available reward'),
+    status: r.status === 'pending' ? 'claimable' : r.status,
+    createdAt: r.createdAt ?? r.created_at,
+  }))
+  return { rewards }
 }
 
 export async function claimReward(id: string) {
-  return request<{ success: boolean; amount: number }>(`/api/rewards/claim/${id}`, { method: 'POST' })
+  const data = await request<{ success: boolean; amount?: number; reward?: { amount?: number } }>(`/api/rewards/claim/${id}`, { method: 'POST' })
+  return {
+    success: data.success,
+    amount: Number(data.amount ?? data.reward?.amount) || 0,
+  }
 }
 
 export async function getReferralCode() {
-  return request<{ code: string; referrals: number; earnings: number }>('/api/rewards/referral-code')
+  const data = await request<{ code?: string; referralCode?: string; referrals?: number; earnings?: number }>('/api/rewards/referral-code')
+  return {
+    code: data.code ?? data.referralCode ?? '',
+    referrals: Number(data.referrals) || 0,
+    earnings: Number(data.earnings) || 0,
+  }
 }
 
 // === Wallet Deposit / Withdraw API ===

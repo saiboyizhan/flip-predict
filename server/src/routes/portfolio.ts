@@ -88,6 +88,10 @@ router.get('/portfolio/:address/history', authMiddleware, async (req: AuthReques
       return;
     }
     const { limit = '50', offset = '0' } = req.query;
+    const rawLimit = Number.parseInt(String(limit), 10);
+    const rawOffset = Number.parseInt(String(offset), 10);
+    const parsedLimit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 200));
+    const parsedOffset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
     const db = getDb();
 
     const { rows: orders } = await db.query(`
@@ -97,7 +101,7 @@ router.get('/portfolio/:address/history', authMiddleware, async (req: AuthReques
       WHERE o.user_address = $1
       ORDER BY o.created_at DESC
       LIMIT $2 OFFSET $3
-    `, [address, Math.min(parseInt(limit as string) || 50, 200), parseInt(offset as string) || 0]);
+    `, [address, parsedLimit, parsedOffset]);
 
     const countResult = await db.query(
       'SELECT COUNT(*) as total FROM orders WHERE user_address = $1',
@@ -192,16 +196,13 @@ router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest,
       WHERE p.user_address = $1
     `, [address]);
 
-    // Win rate from resolved positions (positions in resolved markets)
+    // Win rate from settlement logs (positions are cleaned up after settlement).
     const winStats = await db.query(`
       SELECT
-        COUNT(*) as resolved_trades,
-        COALESCE(SUM(CASE
-          WHEN (p.side = mr.outcome) THEN 1 ELSE 0
-        END), 0) as winning_trades
-      FROM positions p
-      JOIN market_resolution mr ON p.market_id = mr.market_id
-      WHERE p.user_address = $1 AND mr.outcome IS NOT NULL
+        COUNT(*) FILTER (WHERE action IN ('settle_winner', 'settle_loser')) as resolved_trades,
+        COUNT(*) FILTER (WHERE action = 'settle_winner') as winning_trades
+      FROM settlement_log
+      WHERE user_address = $1
     `, [address]);
 
     const stats = tradeStats.rows[0] as any;

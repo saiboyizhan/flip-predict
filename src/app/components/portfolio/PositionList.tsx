@@ -22,6 +22,29 @@ interface PositionListProps {
   history?: HistoryRecord[];
 }
 
+const STAT_COLOR_CLASS: Record<string, { badge: string; icon: string }> = {
+  amber: {
+    badge: "bg-amber-500/10 border-amber-500/30",
+    icon: "text-amber-400",
+  },
+  blue: {
+    badge: "bg-blue-500/10 border-blue-500/30",
+    icon: "text-blue-400",
+  },
+  emerald: {
+    badge: "bg-emerald-500/10 border-emerald-500/30",
+    icon: "text-emerald-400",
+  },
+  red: {
+    badge: "bg-red-500/10 border-red-500/30",
+    icon: "text-red-400",
+  },
+  purple: {
+    badge: "bg-purple-500/10 border-purple-500/30",
+    icon: "text-purple-400",
+  },
+};
+
 export function PositionList({ history = [] }: PositionListProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -76,23 +99,26 @@ export function PositionList({ history = [] }: PositionListProps) {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="bg-zinc-900 border border-zinc-800 p-6"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-8 h-8 bg-${stat.color}-500/10 border border-${stat.color}-500/30 flex items-center justify-center`}>
-                <stat.icon className={`w-4 h-4 text-${stat.color}-400`} />
+        {stats.map((stat, index) => {
+          const color = STAT_COLOR_CLASS[stat.color] ?? STAT_COLOR_CLASS.amber;
+          return (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              className="bg-zinc-900 border border-zinc-800 p-6"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`w-8 h-8 border flex items-center justify-center ${color.badge}`}>
+                  <stat.icon className={`w-4 h-4 ${color.icon}`} />
+                </div>
+                <span className="text-xs text-zinc-500 tracking-wider uppercase">{stat.label}</span>
               </div>
-              <span className="text-xs text-zinc-500 tracking-wider uppercase">{stat.label}</span>
-            </div>
-            <div className="text-2xl font-bold text-white font-mono">{stat.value}</div>
-          </motion.div>
-        ))}
+              <div className="text-2xl font-bold text-white font-mono">{stat.value}</div>
+            </motion.div>
+          );
+        })}
       </div>
 
       {/* Tabs */}
