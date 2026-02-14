@@ -1,4 +1,4 @@
-import type { Market } from '@/app/types/market.types'
+import type { Market, MarketOption } from '@/app/types/market.types'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
@@ -80,6 +80,9 @@ interface RawMarket {
   resolutionSource?: string
   resolution_source?: string
   resolution_type?: string
+  market_type?: string
+  marketType?: string
+  options?: any[]
 }
 
 function toIsoTime(value: unknown): string {
@@ -116,6 +119,20 @@ function normalizeMarket(raw: RawMarket): Market {
   const mappedOutcome = resolvedOutcome === 'yes' ? 'YES' : resolvedOutcome === 'no' ? 'NO' : undefined
   const tags = Array.isArray(raw.tags) ? raw.tags : []
 
+  const rawMarketType = raw.marketType ?? raw.market_type ?? 'binary'
+  const marketType = (rawMarketType === 'multi' ? 'multi' : 'binary') as Market['marketType']
+
+  const options: MarketOption[] | undefined = Array.isArray(raw.options)
+    ? raw.options.map((o: any) => ({
+        id: String(o.id),
+        optionIndex: Number(o.option_index ?? o.optionIndex) || 0,
+        label: String(o.label ?? ''),
+        color: String(o.color ?? '#3b82f6'),
+        price: Number(o.price) || 0,
+        reserve: Number(o.reserve) || 0,
+      }))
+    : undefined
+
   return {
     id: String(raw.id),
     title: String(raw.title ?? ''),
@@ -134,7 +151,9 @@ function normalizeMarket(raw: RawMarket): Market {
     imageUrl: raw.imageUrl ?? raw.image_url,
     tags,
     featured: Boolean(raw.featured),
-    resolutionSource: String(raw.resolutionSource ?? raw.resolution_source ?? raw.resolution_type ?? 'manual'),
+    resolutionSource: String(raw.resolutionSource ?? raw.resolution_source ?? raw.resolution_type ?? 'auto'),
+    marketType,
+    options,
   }
 }
 
@@ -154,20 +173,23 @@ export async function fetchMarkets(params?: {
 }
 
 export async function fetchMarket(id: string): Promise<Market> {
-  const data = await request<{ market: RawMarket; recentOrders: unknown[] }>(`/api/markets/${id}`)
-  return normalizeMarket(data.market)
+  const data = await request<{ market: RawMarket; recentOrders: unknown[]; options?: any[] }>(`/api/markets/${id}`)
+  const rawMarket = { ...data.market, options: data.options ?? data.market.options }
+  return normalizeMarket(rawMarket)
 }
 
 export async function createOrder(data: {
   marketId: string
-  side: string
+  side?: string
   amount: number
+  optionId?: string
 }): Promise<{
   orderId: string
   shares: number
   price: number
   newYesPrice: number
   newNoPrice: number
+  newPrices?: { optionId: string; price: number }[]
 }> {
   const res = await request<{
     order?: {
@@ -176,6 +198,7 @@ export async function createOrder(data: {
       price: number
       newYesPrice: number
       newNoPrice: number
+      newPrices?: { optionId: string; price: number }[]
     }
   }>('/api/orders', {
     method: 'POST',
@@ -189,14 +212,16 @@ export async function createOrder(data: {
 
 export async function sellOrder(data: {
   marketId: string
-  side: string
+  side?: string
   shares: number
+  optionId?: string
 }): Promise<{
   orderId: string
   amountOut: number
   price: number
   newYesPrice: number
   newNoPrice: number
+  newPrices?: { optionId: string; price: number }[]
 }> {
   const res = await request<{
     order?: {
@@ -205,6 +230,7 @@ export async function sellOrder(data: {
       price: number
       newYesPrice: number
       newNoPrice: number
+      newPrices?: { optionId: string; price: number }[]
     }
   }>('/api/orders/sell', {
     method: 'POST',
@@ -633,10 +659,25 @@ export async function createUserMarket(data: {
   description?: string
   category: string
   endTime: number
+  marketType?: string
+  options?: { label: string; color?: string }[]
 }): Promise<any> {
   return request('/api/markets/create', {
     method: 'POST',
     body: JSON.stringify(data),
+  })
+}
+
+export async function createMultiMarket(data: {
+  title: string
+  description?: string
+  category: string
+  endTime: number
+  options: { label: string; color?: string }[]
+}): Promise<any> {
+  return createUserMarket({
+    ...data,
+    marketType: 'multi',
   })
 }
 
@@ -901,4 +942,193 @@ export async function fetchAchievements(address: string) {
 
 export async function fetchAllAchievementDefs() {
   return request<{ achievements: AchievementData[] }>('/api/achievements')
+}
+
+// === Social API ===
+
+export async function followUser(address: string) {
+  return request<{ success: boolean }>('/api/social/follow', {
+    method: 'POST',
+    body: JSON.stringify({ followedAddress: address }),
+  })
+}
+
+export async function unfollowUser(address: string) {
+  return request<{ success: boolean }>('/api/social/unfollow', {
+    method: 'DELETE',
+    body: JSON.stringify({ followedAddress: address }),
+  })
+}
+
+export async function getFollowing(address: string) {
+  return request<{ following: { address: string; display_name: string | null }[] }>(`/api/social/following/${address}`)
+}
+
+export async function getFollowers(address: string) {
+  return request<{ followers: { address: string; display_name: string | null }[] }>(`/api/social/followers/${address}`)
+}
+
+export async function getTradingFeed(before?: number) {
+  const params = before ? `?before=${before}` : ''
+  return request<{ feed: any[] }>(`/api/social/feed${params}`)
+}
+
+export async function getPublicProfile(address: string) {
+  return request<{ profile: any }>(`/api/profile/${address}`)
+}
+
+export async function updateProfile(data: { displayName?: string; bio?: string; avatarUrl?: string }) {
+  return request<{ profile: any }>('/api/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+// === Copy Trading API ===
+
+export async function startCopyTrading(data: {
+  agentId: string
+  copyPercentage: number
+  maxPerTrade: number
+  dailyLimit: number
+}) {
+  return request<{ follower: any }>('/api/copy-trading/start', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function stopCopyTrading(agentId: string) {
+  return request<{ follower: any }>('/api/copy-trading/stop', {
+    method: 'POST',
+    body: JSON.stringify({ agentId }),
+  })
+}
+
+export async function updateCopySettings(data: {
+  agentId: string
+  copyPercentage?: number
+  maxPerTrade?: number
+  dailyLimit?: number
+}) {
+  return request<{ follower: any }>('/api/copy-trading/settings', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getCopyStatus(agentId: string) {
+  return request<{ follower: any }>(`/api/copy-trading/status/${agentId}`)
+}
+
+export async function getCopyTrades(limit?: number, offset?: number) {
+  const params = new URLSearchParams()
+  if (limit) params.set('limit', String(limit))
+  if (offset) params.set('offset', String(offset))
+  const qs = params.toString()
+  return request<{ trades: any[]; total: number }>(`/api/copy-trading/trades${qs ? `?${qs}` : ''}`)
+}
+
+export async function getAgentEarnings(agentId: string) {
+  return request<{ earnings: any[]; totalEarnings: number; unclaimed: number }>(
+    `/api/copy-trading/earnings/${agentId}`
+  )
+}
+
+export async function claimEarnings(agentId: string) {
+  return request<{ success: boolean; amount: number }>('/api/copy-trading/claim', {
+    method: 'POST',
+    body: JSON.stringify({ agentId }),
+  })
+}
+
+export async function setComboStrategy(agentId: string, weights: Record<string, number>) {
+  return request<{ success: boolean; weights: Record<string, number> }>(
+    '/api/copy-trading/combo-strategy',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ agentId, weights }),
+    }
+  )
+}
+
+// ============================================
+// Swarm History & Evolution API
+// ============================================
+
+export interface SwarmHistoryItem {
+  id: number
+  token_name: string
+  chain: string | null
+  category: string | null
+  team_agents: string[]
+  team_weights: number[]
+  initial_consensus: number
+  final_consensus: number
+  price_at_analysis: number | null
+  price_after_24h: number | null
+  price_change_pct: number | null
+  direction_correct: boolean | null
+  verified_at: string | null
+  created_at: string
+}
+
+export interface SwarmAnalysisDetail extends SwarmHistoryItem {
+  token_address: string | null
+  initial_scores: Record<string, number>
+  revised_scores: Record<string, number>
+  discussion_messages: any[]
+}
+
+export interface SwarmAgentScoreDetail {
+  id: number
+  analysis_id: number
+  agent_id: string
+  initial_score: number
+  revised_score: number
+  findings: string | null
+  direction_correct: boolean | null
+}
+
+export interface SwarmAccuracy {
+  total: number
+  correct: number
+  accuracy: number
+  avgConsensus: number
+  avgPriceChange: number
+}
+
+export interface SwarmAgentStat {
+  agent_id: string
+  total_analyses: number
+  correct_predictions: number
+  accuracy: number
+  avg_initial_score: number
+  avg_revised_score: number
+  avg_score_shift: number
+  category_accuracy: Record<string, number>
+  updated_at: string
+}
+
+export async function fetchSwarmHistory(params?: { tokenName?: string; limit?: number; offset?: number }): Promise<SwarmHistoryItem[]> {
+  const query = new URLSearchParams()
+  if (params?.tokenName) query.set('tokenName', params.tokenName)
+  if (params?.limit) query.set('limit', String(params.limit))
+  if (params?.offset) query.set('offset', String(params.offset))
+  const qs = query.toString()
+  const data = await request<{ analyses: SwarmHistoryItem[] }>(`/api/swarm/history${qs ? `?${qs}` : ''}`)
+  return data.analyses ?? []
+}
+
+export async function fetchSwarmDetail(id: number): Promise<{ analysis: SwarmAnalysisDetail; agentScores: SwarmAgentScoreDetail[] }> {
+  return request(`/api/swarm/history/${id}`)
+}
+
+export async function fetchSwarmAccuracy(): Promise<SwarmAccuracy> {
+  return request('/api/swarm/accuracy')
+}
+
+export async function fetchSwarmAgentStats(): Promise<SwarmAgentStat[]> {
+  const data = await request<{ agents: SwarmAgentStat[] }>('/api/swarm/agents/stats')
+  return data.agents ?? []
 }

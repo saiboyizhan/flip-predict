@@ -330,7 +330,10 @@ CREATE INDEX IF NOT EXISTS idx_user_achievements ON user_achievements(user_addre
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_address);
 CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+-- Bug D30 Fix: Composite index for portfolio history queries (ORDER BY created_at DESC LIMIT/OFFSET).
+CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_address, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id);
+CREATE INDEX IF NOT EXISTS idx_positions_user ON positions(user_address);
 CREATE INDEX IF NOT EXISTS idx_markets_status_endtime ON markets(status, end_time);
 CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
 CREATE INDEX IF NOT EXISTS idx_settlement_log_market_user ON settlement_log(market_id, user_address, action);
@@ -338,6 +341,12 @@ CREATE INDEX IF NOT EXISTS idx_deposits_txhash ON deposits(tx_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_txhash_unique ON deposits ((LOWER(tx_hash))) WHERE tx_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_referrals_referee ON referrals(referee_address);
 CREATE INDEX IF NOT EXISTS idx_open_orders_market ON open_orders(market_id, status);
+
+-- Bug D14 Fix: Composite index for orderbook matching queries which filter on
+-- (market_id, side, order_side, status) and ORDER BY price. Without this, the
+-- matching engine performs sequential scans on large open_orders tables.
+CREATE INDEX IF NOT EXISTS idx_open_orders_matching
+  ON open_orders(market_id, side, order_side, status, price);
 
 DO $$ BEGIN
   CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_referee_unique
@@ -409,3 +418,159 @@ DO $$ BEGIN
   ALTER TABLE withdrawals ADD CONSTRAINT fk_withdrawals_user FOREIGN KEY (user_address) REFERENCES users(address);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ============================================
+-- Phase 12A: 多选项市场
+-- ============================================
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS market_type TEXT DEFAULT 'binary';
+
+CREATE TABLE IF NOT EXISTS market_options (
+  id TEXT PRIMARY KEY,
+  market_id TEXT NOT NULL REFERENCES markets(id),
+  option_index INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  color TEXT,
+  reserve DOUBLE PRECISION DEFAULT 10000,
+  price DOUBLE PRECISION DEFAULT 0.5,
+  UNIQUE(market_id, option_index)
+);
+CREATE INDEX IF NOT EXISTS idx_market_options_market ON market_options(market_id);
+
+CREATE TABLE IF NOT EXISTS option_price_history (
+  id SERIAL PRIMARY KEY,
+  market_id TEXT NOT NULL,
+  option_id TEXT NOT NULL,
+  price DOUBLE PRECISION NOT NULL,
+  volume DOUBLE PRECISION DEFAULT 0,
+  timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_option_price_history_market ON option_price_history(market_id, timestamp);
+
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS option_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS option_id TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS winning_option_id TEXT;
+ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS option_id TEXT;
+
+-- ============================================
+-- Phase 12B: 社交系统
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_profiles (
+  address TEXT PRIMARY KEY,
+  display_name TEXT,
+  bio TEXT,
+  avatar_url TEXT,
+  updated_at BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS user_follows (
+  id TEXT PRIMARY KEY,
+  follower_address TEXT NOT NULL,
+  followed_address TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  UNIQUE(follower_address, followed_address),
+  CHECK (follower_address != followed_address)
+);
+CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_address);
+CREATE INDEX IF NOT EXISTS idx_user_follows_followed ON user_follows(followed_address);
+
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_id TEXT;
+
+-- ============================================
+-- Phase 12C: Agent 跟单 + 组合策略 + 收益分成
+-- ============================================
+CREATE TABLE IF NOT EXISTS agent_followers (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  follower_address TEXT NOT NULL,
+  copy_percentage DOUBLE PRECISION DEFAULT 100,
+  max_per_trade DOUBLE PRECISION DEFAULT 100,
+  daily_limit DOUBLE PRECISION DEFAULT 500,
+  daily_used DOUBLE PRECISION DEFAULT 0,
+  revenue_share_pct DOUBLE PRECISION DEFAULT 10,
+  status TEXT DEFAULT 'active',
+  created_at BIGINT NOT NULL,
+  UNIQUE(agent_id, follower_address)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_followers_agent ON agent_followers(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_followers_follower ON agent_followers(follower_address);
+
+CREATE TABLE IF NOT EXISTS copy_trades (
+  id TEXT PRIMARY KEY,
+  follower_address TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  agent_trade_id TEXT NOT NULL,
+  market_id TEXT NOT NULL,
+  side TEXT NOT NULL,
+  option_id TEXT,
+  amount DOUBLE PRECISION NOT NULL,
+  shares DOUBLE PRECISION,
+  outcome TEXT,
+  profit DOUBLE PRECISION,
+  revenue_share DOUBLE PRECISION DEFAULT 0,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_copy_trades_follower ON copy_trades(follower_address);
+CREATE INDEX IF NOT EXISTS idx_copy_trades_agent ON copy_trades(agent_id);
+
+CREATE TABLE IF NOT EXISTS agent_earnings (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  amount DOUBLE PRECISION NOT NULL,
+  follower_address TEXT,
+  claimed INTEGER DEFAULT 0,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_earnings_agent ON agent_earnings(agent_id);
+
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS combo_weights JSONB DEFAULT NULL;
+
+-- ============================================
+-- Swarm Intelligence: History + Verification + Evolution
+-- ============================================
+CREATE TABLE IF NOT EXISTS swarm_analyses (
+  id SERIAL PRIMARY KEY,
+  token_name TEXT NOT NULL,
+  token_address TEXT,
+  chain TEXT,
+  category TEXT,
+  team_agents TEXT[] NOT NULL,
+  team_weights INT[] NOT NULL,
+  initial_scores JSONB NOT NULL DEFAULT '{}',
+  revised_scores JSONB NOT NULL DEFAULT '{}',
+  discussion_messages JSONB NOT NULL DEFAULT '[]',
+  initial_consensus INT NOT NULL,
+  final_consensus INT NOT NULL,
+  price_at_analysis NUMERIC,
+  price_after_24h NUMERIC,
+  price_change_pct NUMERIC,
+  direction_correct BOOLEAN,
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_swarm_analyses_token ON swarm_analyses(token_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swarm_analyses_unverified ON swarm_analyses(verified_at) WHERE verified_at IS NULL AND price_at_analysis IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS swarm_agent_scores (
+  id SERIAL PRIMARY KEY,
+  analysis_id INT NOT NULL REFERENCES swarm_analyses(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  initial_score INT NOT NULL,
+  revised_score INT NOT NULL,
+  findings TEXT,
+  direction_correct BOOLEAN
+);
+CREATE INDEX IF NOT EXISTS idx_swarm_agent_scores_analysis ON swarm_agent_scores(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_swarm_agent_scores_agent ON swarm_agent_scores(agent_id);
+
+CREATE TABLE IF NOT EXISTS swarm_agent_stats (
+  agent_id TEXT PRIMARY KEY,
+  total_analyses INT NOT NULL DEFAULT 0,
+  correct_predictions INT NOT NULL DEFAULT 0,
+  accuracy NUMERIC NOT NULL DEFAULT 0,
+  avg_initial_score NUMERIC DEFAULT 50,
+  avg_revised_score NUMERIC DEFAULT 50,
+  avg_score_shift NUMERIC DEFAULT 0,
+  category_accuracy JSONB NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

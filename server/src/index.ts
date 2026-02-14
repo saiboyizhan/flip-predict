@@ -18,6 +18,7 @@ import settlementRoutes from './routes/settlement';
 import agentRoutes from './routes/agents';
 import { startKeeper } from './engine/keeper';
 import { startAutoTrader } from './engine/agent-autotrader';
+import { startSwarmVerifier } from './engine/swarm-verifier';
 import marketCreationRoutes from './routes/market-creation';
 import leaderboardRoutes from './routes/leaderboard';
 import commentsRoutes from './routes/comments';
@@ -26,6 +27,10 @@ import rewardRoutes from './routes/rewards';
 import feeRoutes from './routes/fees';
 import walletRoutes from './routes/wallet';
 import achievementRoutes from './routes/achievements';
+import socialRoutes from './routes/social';
+import profileRoutes from './routes/profile';
+import copyTradingRoutes from './routes/copy-trading';
+import swarmRoutes from './routes/swarm';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -64,15 +69,20 @@ async function main() {
   // Create Express app
   const app = express();
 
-  // JWT secret warning
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'prediction-market-dev-secret') {
-    console.warn('⚠️  WARNING: Using default JWT_SECRET. Set JWT_SECRET env var in production!');
+  // JWT secret check - refuse to start with insecure secret
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret || jwtSecret === 'prediction-market-dev-secret') {
+    console.error('FATAL: JWT_SECRET is not set or uses the default value. Set a secure JWT_SECRET in .env');
+    process.exit(1);
   }
 
   // Middleware
-  app.use(cors());
+  app.use(cors({
+    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    credentials: true,
+  }));
   app.use(helmet());
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.use(generalLimiter);
 
   // Routes
@@ -91,6 +101,10 @@ async function main() {
   app.use('/api/fees', feeRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/achievements', achievementRoutes);
+  app.use('/api/social', socialRoutes);
+  app.use('/api/profile', profileRoutes);
+  app.use('/api/copy-trading', copyTradingRoutes);
+  app.use('/api/swarm', swarmRoutes);
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -107,10 +121,43 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`WebSocket available on ws://localhost:${PORT}`);
-    startKeeper(pool, 30000);
-    startAutoTrader(pool, 60000);
+    const keeperInterval = startKeeper(pool, 30000);
+    const autoTraderInterval = startAutoTrader(pool, 60000);
+    const swarmVerifierInterval = startSwarmVerifier(pool, 300000);
+
+    // Graceful shutdown handler
+    const shutdown = () => {
+      console.log('Shutting down gracefully...');
+      clearInterval(keeperInterval);
+      clearInterval(autoTraderInterval);
+      clearInterval(swarmVerifierInterval);
+      server.close(() => {
+        pool.end().then(() => {
+          console.log('Server shut down.');
+          process.exit(0);
+        }).catch(() => {
+          process.exit(1);
+        });
+      });
+      // Force exit after 10 seconds if graceful shutdown stalls
+      setTimeout(() => {
+        console.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   });
 }
+
+// Global handlers for uncaught errors to prevent silent crashes
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
 
 main().catch(err => {
   console.error('Failed to start server:', err);
