@@ -480,7 +480,9 @@ export const useSwarmStore = create<SwarmState>((set, get) => ({
 
     const controller = activeAbortController
 
-    fetch('/api/swarm/analyze', {
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
+    fetch(`${API_BASE}/api/swarm/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tokenName, tokenAddress, chain, category }),

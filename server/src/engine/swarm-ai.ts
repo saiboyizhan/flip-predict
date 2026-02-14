@@ -355,6 +355,18 @@ export async function runSwarmAnalysis(req: Request, res: Response): Promise<voi
       finalScoresArr.reduce((sum, s, i) => sum + s * weights[i], 0) / totalWeight,
     );
 
+    const direction = finalScore > 50 ? 'BULLISH' : finalScore < 50 ? 'BEARISH' : 'NEUTRAL';
+    const shift = finalScore - initialScore;
+    const shiftText = shift > 0 ? `+${shift}` : `${shift}`;
+
+    sendSSE('message', {
+      fromAgentId: 'leader',
+      toAgentId: 'all',
+      content: `Consensus reached: ${finalScore}/100 (${direction}). Initial ${initialScore} → Final ${finalScore} (${shiftText}). ${tokenName.toUpperCase()} outlook: ${direction.toLowerCase()}.`,
+      type: 'consensus',
+      phase: 4,
+    });
+
     sendSSE('consensus', { initialScore, finalScore, isDynamic, weights });
     sendSSE('phase', { phase: 'complete' });
 
