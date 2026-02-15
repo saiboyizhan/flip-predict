@@ -1,11 +1,57 @@
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { getOraclePrice, SUPPORTED_PAIRS } from './oracle';
+import { fetchTokenPrice } from './dexscreener';
+import { broadcastMarketResolved } from '../ws';
+import { resolvePredictions } from './agent-prediction';
+
+/**
+ * Check if an oracle_pair value is a BSC token address (0x...) rather than
+ * a traditional pair like "BTC/USD". Token addresses are resolved via DexScreener.
+ */
+function isTokenAddress(pair: string): boolean {
+  return pair.startsWith('0x') && pair.length === 42;
+}
 
 export async function checkAndResolveMarkets(db: Pool): Promise<void> {
   const now = Date.now();
 
-  // Use a transaction with FOR UPDATE SKIP LOCKED to prevent race conditions
+  // Track resolved markets for post-commit actions (WS broadcast & prediction resolution)
+  const resolvedMarkets: Array<{ marketId: string; outcome: string; resolvedPrice: number }> = [];
+
+  // Phase 1: Identify expired markets that need oracle resolution and pre-fetch prices
+  // outside the transaction to avoid holding DB locks during external RPC calls (Bug 4 fix).
+  const candidateRes = await db.query(
+    `SELECT m.id, mr.oracle_pair, mr.resolution_type, mr.target_price
+     FROM markets m
+     LEFT JOIN market_resolution mr ON m.id = mr.market_id
+     WHERE m.status = 'active' AND m.end_time <= $1`,
+    [now]
+  );
+
+  const oraclePriceCache = new Map<string, { price: number; updatedAt: number }>();
+  for (const row of candidateRes.rows) {
+    if (!row.oracle_pair || oraclePriceCache.has(row.oracle_pair)) continue;
+
+    try {
+      if (SUPPORTED_PAIRS.includes(row.oracle_pair)) {
+        // Traditional on-chain oracle (BTC/USD, BNB/USD, ETH/USD)
+        const priceData = await getOraclePrice(row.oracle_pair);
+        oraclePriceCache.set(row.oracle_pair, priceData);
+      } else if (isTokenAddress(row.oracle_pair)) {
+        // BSC token address — resolve via DexScreener
+        const dexData = await fetchTokenPrice(row.oracle_pair);
+        oraclePriceCache.set(row.oracle_pair, {
+          price: dexData.price,
+          updatedAt: Math.floor(dexData.fetchedAt / 1000),
+        });
+      }
+    } catch (err: any) {
+      console.error(`Failed to fetch price for ${row.oracle_pair}:`, err.message);
+    }
+  }
+
+  // Phase 2: Use a transaction with FOR UPDATE SKIP LOCKED to prevent race conditions
   // when multiple keeper instances run concurrently
   const client = await db.connect();
   try {
@@ -25,8 +71,20 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
     for (const market of expiredMarkets) {
       await client.query('SAVEPOINT market_resolution_sp');
       try {
-        if (market.resolution_type && market.oracle_pair && SUPPORTED_PAIRS.includes(market.oracle_pair)) {
-          await resolveByOracleInTx(client, market);
+        const canResolve = market.resolution_type && market.oracle_pair &&
+          (SUPPORTED_PAIRS.includes(market.oracle_pair) || isTokenAddress(market.oracle_pair));
+
+        if (canResolve) {
+          const priceData = oraclePriceCache.get(market.oracle_pair);
+          if (!priceData) {
+            console.error(`No cached price for ${market.oracle_pair}, skipping market ${market.id}`);
+            await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
+          } else {
+            const result = await resolveByOracleInTx(client, market, priceData);
+            if (result) {
+              resolvedMarkets.push(result);
+            }
+          }
         } else {
           await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
           console.log(`Market ${market.id} marked as pending_resolution (manual)`);
@@ -46,22 +104,43 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
   } finally {
     client.release();
   }
+
+  // Phase 3: Post-commit actions — broadcast WS events and resolve agent predictions
+  for (const resolved of resolvedMarkets) {
+    try {
+      broadcastMarketResolved(resolved.marketId, resolved.outcome, resolved.resolvedPrice);
+    } catch (err: any) {
+      console.error(`Failed to broadcast market_resolved for ${resolved.marketId}:`, err.message);
+    }
+    try {
+      await resolvePredictions(db, resolved.marketId, resolved.outcome);
+    } catch (err: any) {
+      console.error(`Failed to resolve predictions for ${resolved.marketId}:`, err.message);
+    }
+  }
 }
 
 /**
  * Resolve a market by oracle within an existing transaction.
  * The caller is responsible for BEGIN/COMMIT/ROLLBACK.
+ * Price data is pre-fetched outside the transaction to avoid holding DB locks during RPC calls.
+ * Returns resolution info for post-commit actions, or null if no resolution was made.
  */
-async function resolveByOracleInTx(client: any, market: any): Promise<void> {
-  const priceData = await getOraclePrice(market.oracle_pair);
-
+async function resolveByOracleInTx(
+  client: any,
+  market: any,
+  priceData: { price: number; updatedAt: number }
+): Promise<{ marketId: string; outcome: string; resolvedPrice: number } | null> {
+  // Keep oracle resolution semantics aligned with on-chain PredictionMarket:
+  // price_above: YES if price >= target
+  // price_below: YES if price <= target
   let outcome: boolean;
   if (market.resolution_type === 'price_above') {
-    outcome = priceData.price >= market.target_price;
+    outcome = priceData.price >= Number(market.target_price);
   } else if (market.resolution_type === 'price_below') {
-    outcome = priceData.price <= market.target_price;
+    outcome = priceData.price <= Number(market.target_price);
   } else {
-    return;
+    return null;
   }
 
   const outcomeSide = outcome ? 'yes' : 'no';
@@ -88,10 +167,12 @@ async function resolveByOracleInTx(client: any, market: any): Promise<void> {
   }), now]);
 
   console.log(`Market ${market.id} resolved by oracle: ${market.oracle_pair} = $${priceData.price.toFixed(2)}, outcome = ${outcomeSide}`);
+
+  return { marketId: market.id, outcome: outcomeSide, resolvedPrice: priceData.price };
 }
 
 export async function settleMarketPositions(client: any, marketId: string, winningSide: string): Promise<void> {
-  if (winningSide !== 'yes' && winningSide !== 'no') {
+  if (winningSide !== 'yes' && winningSide !== 'no' && !winningSide.startsWith('option_')) {
     throw new Error(`Invalid winning side: ${winningSide}`);
   }
 
@@ -164,7 +245,10 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   // ============================================================
   // Settle positions
   // ============================================================
-  const posRes = await client.query('SELECT * FROM positions WHERE market_id = $1', [marketId]);
+  // Bug D3 Fix: Lock position rows to prevent concurrent trades from modifying
+  // them while settlement is in progress. Without FOR UPDATE, a trade could insert
+  // or update a position row between our SELECT and the final DELETE.
+  const posRes = await client.query('SELECT * FROM positions WHERE market_id = $1 FOR UPDATE', [marketId]);
   const positions = posRes.rows;
 
   if (positions.length === 0) {
@@ -180,19 +264,17 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   const winners = positions.filter((p: any) => p.side === winningSide);
   const losers = positions.filter((p: any) => p.side !== winningSide);
 
-  const totalWinnerShares = winners.reduce((sum: number, p: any) => sum + p.shares, 0);
-  const totalLoserValue = losers.reduce((sum: number, p: any) => sum + p.shares * p.avg_cost, 0);
+  const totalWinnerShares = winners.reduce((sum: number, p: any) => sum + Number(p.shares), 0);
 
   if (totalWinnerShares === 0) {
     // No winners but there are positions - still zero out reserves and clean positions
-    // AMM reserves are consumed during settlement to fund winner payouts
     await client.query(
       'UPDATE markets SET yes_reserve = 0, no_reserve = 0 WHERE id = $1',
       [marketId]
     );
     // Log losers
     for (const loser of losers) {
-      const lost = loser.shares * loser.avg_cost;
+      const lost = Number(loser.shares) * Number(loser.avg_cost);
       await client.query(`
         INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
         VALUES ($1, $2, 'settle_loser', $3, $4, $5, $6)
@@ -207,10 +289,22 @@ export async function settleMarketPositions(client: any, marketId: string, winni
     return;
   }
 
+  // Bug SETTLE-1 Fix: Calculate actual net deposits from filled orders instead of
+  // using shares * avg_cost. The old formula (principal + bonus) can overpay when
+  // users have done intermediate sells at profit — the AMM already paid out money
+  // that the position-based accounting doesn't track.
+  // net_deposits = total buy amounts - total sell payouts = actual money in pool.
+  const netDepositRes = await client.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type = 'buy' THEN amount ELSE 0 END), 0) -
+      COALESCE(SUM(CASE WHEN type = 'sell' THEN amount ELSE 0 END), 0) as net_deposits
+    FROM orders
+    WHERE market_id = $1 AND status = 'filled'
+  `, [marketId]);
+  const netDeposits = Math.max(0, Number(netDepositRes.rows[0].net_deposits));
+
   for (const winner of winners) {
-    const principal = winner.shares * winner.avg_cost;
-    const bonus = (winner.shares / totalWinnerShares) * totalLoserValue;
-    const reward = principal + bonus;
+    const reward = (Number(winner.shares) / totalWinnerShares) * netDeposits;
 
     // Bug C7 Fix: Use UPSERT to handle users who may not have a balance row yet
     await client.query(
@@ -224,13 +318,13 @@ export async function settleMarketPositions(client: any, marketId: string, winni
       VALUES ($1, $2, 'settle_winner', $3, $4, $5, $6)
     `, [
       randomUUID(), marketId, winner.user_address, reward,
-      JSON.stringify({ shares: winner.shares, principal, bonus, side: winningSide }),
+      JSON.stringify({ shares: Number(winner.shares), reward, pool: netDeposits, side: winningSide }),
       now
     ]);
   }
 
   for (const loser of losers) {
-    const lost = loser.shares * loser.avg_cost;
+    const lost = Number(loser.shares) * Number(loser.avg_cost);
     await client.query(`
       INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
       VALUES ($1, $2, 'settle_loser', $3, $4, $5, $6)

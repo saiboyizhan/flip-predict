@@ -7,10 +7,10 @@ const SIZE_CLASSES = {
 } as const
 
 const LEVEL_COLORS: Record<number, string> = {
-  1: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+  1: 'bg-muted text-muted-foreground border-border',
   2: 'bg-emerald-950/50 text-emerald-400 border-emerald-800/60',
   3: 'bg-purple-950/50 text-purple-400 border-purple-800/60',
-  4: 'bg-amber-950/50 text-amber-400 border-amber-700/60',
+  4: 'bg-blue-950/50 text-blue-400 border-blue-700/60',
   5: 'bg-sky-950/50 text-sky-300 border-sky-600/60',
 }
 

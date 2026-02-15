@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS markets (
   id TEXT PRIMARY KEY,
+  on_chain_market_id BIGINT,
   title TEXT NOT NULL,
   description TEXT,
   category TEXT NOT NULL,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS markets (
   no_reserve DOUBLE PRECISION DEFAULT 10000,
   created_at BIGINT NOT NULL
 );
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS on_chain_market_id BIGINT;
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
@@ -75,7 +77,19 @@ CREATE TABLE IF NOT EXISTS market_resolution (
   resolved_price DOUBLE PRECISION,
   outcome TEXT,
   resolved_at BIGINT,
-  resolved_by TEXT
+  resolved_by TEXT,
+  winning_option_id TEXT,
+  rule_text TEXT,
+  data_source_url TEXT,
+  resolution_time_utc BIGINT,
+  evidence_url TEXT,
+  evidence_hash TEXT,
+  resolve_tx_hash TEXT,
+  proposer_address TEXT,
+  proposed_outcome TEXT,
+  proposed_winning_option_id TEXT,
+  proposed_at BIGINT,
+  challenge_window_ends_at BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS settlement_log (
@@ -87,6 +101,41 @@ CREATE TABLE IF NOT EXISTS settlement_log (
   details JSONB,
   created_at BIGINT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS resolution_proposals (
+  id TEXT PRIMARY KEY,
+  market_id TEXT NOT NULL REFERENCES markets(id),
+  proposed_by TEXT NOT NULL,
+  proposed_outcome TEXT,
+  proposed_winning_option_id TEXT,
+  notes TEXT,
+  evidence_url TEXT,
+  evidence_hash TEXT,
+  source_url TEXT,
+  resolve_tx_hash TEXT,
+  status TEXT NOT NULL DEFAULT 'proposed',
+  challenge_window_ends_at BIGINT NOT NULL,
+  created_at BIGINT NOT NULL,
+  finalized_at BIGINT,
+  finalized_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_resolution_proposals_market ON resolution_proposals(market_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_resolution_proposals_status ON resolution_proposals(status, challenge_window_ends_at);
+
+CREATE TABLE IF NOT EXISTS resolution_challenges (
+  id TEXT PRIMARY KEY,
+  market_id TEXT NOT NULL REFERENCES markets(id),
+  proposal_id TEXT NOT NULL REFERENCES resolution_proposals(id),
+  challenger_address TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  evidence_url TEXT,
+  evidence_hash TEXT,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_resolution_challenges_market ON resolution_challenges(market_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_resolution_challenges_proposal ON resolution_challenges(proposal_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resolution_challenges_unique_per_address
+  ON resolution_challenges(proposal_id, LOWER(challenger_address));
 
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
@@ -110,7 +159,8 @@ CREATE TABLE IF NOT EXISTS agents (
   rent_price DOUBLE PRECISION,
   rented_by TEXT,
   rent_expires BIGINT,
-  token_id INTEGER,
+  token_id BIGINT,
+  mint_tx_hash TEXT,
   persona TEXT,
   voice_hash TEXT,
   animation_uri TEXT,
@@ -127,6 +177,12 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at BIGINT NOT NULL,
   last_trade_at BIGINT
 );
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS token_id BIGINT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS mint_tx_hash TEXT;
+DO $$ BEGIN
+  ALTER TABLE agents ALTER COLUMN token_id TYPE BIGINT USING token_id::bigint;
+EXCEPTION WHEN undefined_column THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS agent_trades (
   id TEXT PRIMARY KEY,
@@ -143,6 +199,12 @@ CREATE TABLE IF NOT EXISTS agent_trades (
 
 CREATE INDEX IF NOT EXISTS idx_agent_trades_agent ON agent_trades(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_address);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_token_id_unique
+  ON agents(token_id)
+  WHERE token_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_mint_tx_hash_unique
+  ON agents ((LOWER(mint_tx_hash)))
+  WHERE mint_tx_hash IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS price_history (
   id SERIAL PRIMARY KEY,
@@ -211,12 +273,17 @@ CREATE TABLE IF NOT EXISTS user_created_markets (
   market_id TEXT NOT NULL UNIQUE,
   creator_address TEXT NOT NULL,
   creation_fee DOUBLE PRECISION NOT NULL DEFAULT 10,
+  create_tx_hash TEXT,
   flag_count INTEGER DEFAULT 0,
   flagged_by JSONB DEFAULT '[]',
   status TEXT DEFAULT 'active',
   created_at BIGINT NOT NULL
 );
+ALTER TABLE user_created_markets ADD COLUMN IF NOT EXISTS create_tx_hash TEXT;
 CREATE INDEX IF NOT EXISTS idx_user_markets_creator ON user_created_markets(creator_address);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_created_markets_create_tx_hash
+  ON user_created_markets ((LOWER(create_tx_hash)))
+  WHERE create_tx_hash IS NOT NULL;
 
 -- Market creation ratelimit 创建频率限制
 CREATE TABLE IF NOT EXISTS market_creation_ratelimit (
@@ -336,6 +403,9 @@ CREATE INDEX IF NOT EXISTS idx_positions_market ON positions(market_id);
 CREATE INDEX IF NOT EXISTS idx_positions_user ON positions(user_address);
 CREATE INDEX IF NOT EXISTS idx_markets_status_endtime ON markets(status, end_time);
 CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_markets_on_chain_market_id
+  ON markets(on_chain_market_id)
+  WHERE on_chain_market_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_settlement_log_market_user ON settlement_log(market_id, user_address, action);
 CREATE INDEX IF NOT EXISTS idx_deposits_txhash ON deposits(tx_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_txhash_unique ON deposits ((LOWER(tx_hash))) WHERE tx_hash IS NOT NULL;
@@ -449,6 +519,17 @@ CREATE INDEX IF NOT EXISTS idx_option_price_history_market ON option_price_histo
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS option_id TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS option_id TEXT;
 ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS winning_option_id TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS rule_text TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS data_source_url TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS resolution_time_utc BIGINT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS evidence_url TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS evidence_hash TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS resolve_tx_hash TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS proposer_address TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS proposed_outcome TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS proposed_winning_option_id TEXT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS proposed_at BIGINT;
+ALTER TABLE market_resolution ADD COLUMN IF NOT EXISTS challenge_window_ends_at BIGINT;
 ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS option_id TEXT;
 
 -- ============================================
@@ -504,6 +585,8 @@ CREATE TABLE IF NOT EXISTS copy_trades (
   option_id TEXT,
   amount DOUBLE PRECISION NOT NULL,
   shares DOUBLE PRECISION,
+  price DOUBLE PRECISION,
+  status TEXT DEFAULT 'open',
   outcome TEXT,
   profit DOUBLE PRECISION,
   revenue_share DOUBLE PRECISION DEFAULT 0,
@@ -573,4 +656,51 @@ CREATE TABLE IF NOT EXISTS swarm_agent_stats (
   avg_score_shift NUMERIC DEFAULT 0,
   category_accuracy JSONB NOT NULL DEFAULT '{}',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Migration: add missing columns to copy_trades for existing databases
+ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS price DOUBLE PRECISION;
+ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open';
+
+-- Migration: prevent negative balances via CHECK constraints
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_available_nonneg') THEN
+    ALTER TABLE balances ADD CONSTRAINT chk_available_nonneg CHECK (available >= -0.0001);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_locked_nonneg') THEN
+    ALTER TABLE balances ADD CONSTRAINT chk_locked_nonneg CHECK (locked >= -0.0001);
+  END IF;
+END $$;
+
+-- ============================================
+-- 市场收藏/关注系统
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_favorites (
+  id TEXT PRIMARY KEY,
+  user_address TEXT NOT NULL,
+  market_id TEXT NOT NULL REFERENCES markets(id),
+  created_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+  UNIQUE(user_address, market_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_favorites_user ON user_favorites(user_address, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_favorites_market ON user_favorites(market_id);
+
+-- ============================================
+-- NFA Agent LLM Configuration
+-- ============================================
+CREATE TABLE IF NOT EXISTS agent_llm_config (
+  agent_id TEXT PRIMARY KEY REFERENCES agents(id),
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  api_key_encrypted TEXT NOT NULL,
+  base_url TEXT,
+  system_prompt TEXT,
+  temperature DOUBLE PRECISION DEFAULT 0.7,
+  max_tokens INTEGER DEFAULT 1024,
+  enabled INTEGER DEFAULT 1,
+  last_used_at BIGINT,
+  total_calls INTEGER DEFAULT 0,
+  total_errors INTEGER DEFAULT 0,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
 );

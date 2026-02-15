@@ -91,13 +91,13 @@ export function getPrice(pool: Pool, side: 'yes' | 'no'): number {
 /**
  * Calculate the result of buying shares on a given side.
  *
- * When buying YES shares with `amount` USDT:
+ * When buying YES shares with `amount` BNB:
  *   1. The amount is added to the NO reserve (the opposite side)
  *   2. YES reserve adjusts to maintain k: newYesReserve = k / newNoReserve
  *   3. Shares received = old YES reserve - new YES reserve
  *
  * This follows the standard CPMM swap model:
- *   - Buying YES = swapping USDT into the opposite side of the pool
+ *   - Buying YES = swapping BNB into the opposite side of the pool
  *   - The pool gives back shares from the target side's reserve decrease
  */
 export function calculateBuy(

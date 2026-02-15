@@ -5,31 +5,17 @@ async function main() {
   console.log("Deploying contracts with account:", deployer.address);
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 
-  // BSC Mainnet USDT: 0x55d398326f99059fF775485246999027B3197955
-  // BSC Testnet USDT: 0x337610d27c682E347C9cD60BD4b3b107C9d34dDd
-  // For local testing, deploy mock contracts
-
   const { chainId } = await ethers.provider.getNetwork();
-  let usdtAddress: string;
+
   let oracleAddress: string | undefined;
 
   if (chainId === 56n) {
-    // BSC Mainnet - use real USDT
-    usdtAddress = "0x55d398326f99059fF775485246999027B3197955";
-    console.log("Using BSC Mainnet USDT:", usdtAddress);
+    console.log("Deploying on BSC Mainnet");
   } else if (chainId === 97n) {
-    // BSC Testnet - use testnet USDT
-    usdtAddress = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd";
-    console.log("Using BSC Testnet USDT:", usdtAddress);
+    console.log("Deploying on BSC Testnet");
   } else {
-    // Local or other network - deploy MockUSDT and MockOracle
+    // Local or other network - deploy MockOracle for testing
     console.log("Local/test network detected. Deploying mock contracts...");
-
-    const MockUSDT = await ethers.getContractFactory("MockUSDT");
-    const mockUsdt = await MockUSDT.deploy();
-    await mockUsdt.waitForDeployment();
-    usdtAddress = await mockUsdt.getAddress();
-    console.log("MockUSDT deployed to:", usdtAddress);
 
     // Deploy MockOracle (BTC price at $100,000 with 8 decimals)
     const MockOracle = await ethers.getContractFactory("MockOracle");
@@ -39,13 +25,16 @@ async function main() {
     console.log("MockOracle deployed to:", oracleAddress);
   }
 
-  // Deploy PredictionMarket
+  // Deploy PredictionMarket (uses native BNB, no constructor arguments)
   console.log("\nDeploying PredictionMarket...");
   const PredictionMarket = await ethers.getContractFactory("PredictionMarket");
-  const predictionMarket = await PredictionMarket.deploy(usdtAddress);
+  const predictionMarket = await PredictionMarket.deploy();
   await predictionMarket.waitForDeployment();
   const predictionMarketAddress = await predictionMarket.getAddress();
   console.log("PredictionMarket deployed to:", predictionMarketAddress);
+  const strictModeTx = await predictionMarket.setStrictArbitrationMode(true);
+  await strictModeTx.wait();
+  console.log("PredictionMarket.setStrictArbitrationMode -> true");
 
   // Deploy NFA contract
   console.log("\nDeploying NFA...");
@@ -65,19 +54,66 @@ async function main() {
   await tx2.wait();
   console.log("NFA.setPredictionMarket ->", predictionMarketAddress);
 
+  // Deploy SwarmConsensus
+  console.log("\nDeploying SwarmConsensus...");
+  const SwarmConsensus = await ethers.getContractFactory("SwarmConsensus");
+  const swarmConsensus = await SwarmConsensus.deploy(nfaAddress, predictionMarketAddress);
+  await swarmConsensus.waitForDeployment();
+  const swarmConsensusAddress = await swarmConsensus.getAddress();
+  console.log("SwarmConsensus deployed to:", swarmConsensusAddress);
+
   // Summary
   console.log("\n========================================");
   console.log("Deployment Summary");
   console.log("========================================");
   console.log("Network Chain ID:", chainId.toString());
   console.log("Deployer:", deployer.address);
-  console.log("USDT:", usdtAddress);
   if (oracleAddress) {
     console.log("MockOracle:", oracleAddress);
   }
   console.log("PredictionMarket:", predictionMarketAddress);
   console.log("NFA:", nfaAddress);
+  console.log("SwarmConsensus:", swarmConsensusAddress);
   console.log("========================================");
+
+  // Output .env format for frontend integration (Vite uses VITE_ prefix)
+  console.log("\n# Copy the following to your frontend .env file:");
+  console.log("# ─── Frontend .env ───────────────────────");
+  console.log(`VITE_CHAIN_ID=${chainId.toString()}`);
+  console.log(`VITE_PREDICTION_MARKET_ADDRESS=${predictionMarketAddress}`);
+  console.log(`VITE_NFA_CONTRACT_ADDRESS=${nfaAddress}`);
+  console.log(`VITE_NFA_ADDRESS=${nfaAddress}`);
+  console.log(`VITE_SWARM_CONSENSUS_ADDRESS=${swarmConsensusAddress}`);
+  if (oracleAddress) {
+    console.log(`VITE_MOCK_ORACLE_ADDRESS=${oracleAddress}`);
+  }
+  console.log("# ─────────────────────────────────────────");
+
+  // Write .env.contracts file
+  const fs = await import("fs");
+  const envContent = [
+    `VITE_CHAIN_ID=${chainId.toString()}`,
+    `VITE_PREDICTION_MARKET_ADDRESS=${predictionMarketAddress}`,
+    `VITE_NFA_CONTRACT_ADDRESS=${nfaAddress}`,
+    `VITE_NFA_ADDRESS=${nfaAddress}`,
+    `VITE_SWARM_CONSENSUS_ADDRESS=${swarmConsensusAddress}`,
+    oracleAddress ? `VITE_MOCK_ORACLE_ADDRESS=${oracleAddress}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  fs.writeFileSync(".env.contracts", envContent + "\n");
+  console.log("\nAddresses written to .env.contracts");
+
+  // Verification instructions
+  if (chainId === 97n || chainId === 56n) {
+    console.log("\n# ─── Contract Verification ────────────────");
+    console.log("# Run the following commands to verify on BscScan:");
+    console.log(`npx hardhat verify --network ${chainId === 97n ? 'bscTestnet' : 'bsc'} ${predictionMarketAddress}`);
+    console.log(`npx hardhat verify --network ${chainId === 97n ? 'bscTestnet' : 'bsc'} ${nfaAddress}`);
+    console.log(`npx hardhat verify --network ${chainId === 97n ? 'bscTestnet' : 'bsc'} ${swarmConsensusAddress} ${nfaAddress} ${predictionMarketAddress}`);
+    console.log("# ──────────────────────────────────────────");
+  }
 }
 
 main()

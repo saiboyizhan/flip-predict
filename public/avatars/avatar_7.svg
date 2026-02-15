@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="8" fill="#1a1a2e"/>
+  <!-- Orbital agent -->
+  <circle cx="32" cy="32" r="5" fill="#f97316"/>
+  <!-- Orbit ring 1 (tilted) -->
+  <ellipse cx="32" cy="32" rx="22" ry="10" fill="none" stroke="#f97316" stroke-width="1.5" opacity="0.5" transform="rotate(-30 32 32)"/>
+  <!-- Orbit ring 2 (tilted other way) -->
+  <ellipse cx="32" cy="32" rx="22" ry="10" fill="none" stroke="#f97316" stroke-width="1.5" opacity="0.5" transform="rotate(30 32 32)"/>
+  <!-- Orbiting particles -->
+  <circle cx="14" cy="22" r="2.5" fill="#f97316" opacity="0.8"/>
+  <circle cx="50" cy="42" r="2.5" fill="#f97316" opacity="0.8"/>
+  <circle cx="46" cy="18" r="2" fill="#f97316" opacity="0.6"/>
+</svg>

@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-import "@openzeppelin/contracts/utils/Strings.sol";
-import "./interfaces/IBAP578.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import "./BAP578Base.sol";
 import "./interfaces/ILearningModule.sol";
 import "./interfaces/IMemoryModuleRegistry.sol";
 import "./interfaces/IVaultPermissionManager.sol";
 
-contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, ILearningModule, IMemoryModuleRegistry, IVaultPermissionManager {
-
-    // ─── Constants ──────────────────────────────────────────────
-    uint256 public constant MINT_PRICE = 0.01 ether;
+/// @title NFA - Non-Fungible Agent for BSC Prediction Market
+/// @notice ERC721 agent NFT built on BAP-578 standard with prediction profiles,
+///         auto-trade, learning, memory, and vault permission features.
+/// @dev Inherits BAP578Base for core agent lifecycle, metadata, funding, and logic execution.
+///      Implements IERC1155Receiver to receive CTF position tokens from PredictionMarket.
+contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermissionManager, IERC1155Receiver {
 
     // ─── Prediction Profile ─────────────────────────────────────
     struct PredictionProfile {
@@ -28,6 +26,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
     // ─── Auto Trade Auth ────────────────────────────────────────
     struct AutoTradeAuth {
         bool authorized;
+        address authorizedCaller;
         uint256 maxAmountPerTrade;
         uint256 maxDailyAmount;
         uint256 dailyUsed;
@@ -36,15 +35,9 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
     }
 
     // ─── State ──────────────────────────────────────────────────
-    uint256 private _nextTokenId;
     address public predictionMarket;
-    string private _baseTokenURI;
-
-    // BAP-578 state
-    mapping(uint256 => AgentState) private _agentStates;
-    mapping(uint256 => AgentMetadata) private _agentMetadata;
-    mapping(uint256 => address) private _logicAddresses;
-    mapping(uint256 => uint256) private _agentBalances;
+    mapping(uint256 => uint256) public predictionMarketBalances;
+    uint256 public totalAllocatedPredictionMarketBalance;
 
     // Prediction profile
     mapping(uint256 => PredictionProfile) private _profiles;
@@ -66,119 +59,15 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
     event AutoTradeRevoked(uint256 indexed tokenId);
     event AgentTradeExecuted(uint256 indexed tokenId, address target, uint256 value);
     event ProfileUpdated(uint256 indexed tokenId);
-    event VaultUpdated(uint256 indexed tokenId, string vaultURI, bytes32 vaultHash);
 
     // ─── Constructor ────────────────────────────────────────────
-    constructor() ERC721("NFA Prediction Agent", "NFA") Ownable(msg.sender) {}
+    constructor() BAP578Base("NFA Prediction Agent", "NFA") {}
 
-    // ─── Modifiers ──────────────────────────────────────────────
-    modifier onlyTokenOwner(uint256 tokenId) {
-        require(ownerOf(tokenId) == msg.sender, "Not token owner");
-        _;
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // PREDICTION PROFILE
+    // ═══════════════════════════════════════════════════════════════
 
-    modifier onlyActiveAgent(uint256 tokenId) {
-        require(_agentStates[tokenId] == AgentState.ACTIVE, "Agent not active");
-        _;
-    }
-
-    // ─── Minting ────────────────────────────────────────────────
-    function mint(AgentMetadata calldata metadata) external payable whenNotPaused nonReentrant returns (uint256) {
-        require(msg.value >= MINT_PRICE, "Insufficient mint fee");
-        uint256 tokenId = _nextTokenId++;
-
-        _safeMint(msg.sender, tokenId);
-        _agentMetadata[tokenId] = metadata;
-        _agentStates[tokenId] = AgentState.ACTIVE;
-
-        return tokenId;
-    }
-
-    // ─── IBAP578: Execute Action ────────────────────────────────
-    function executeAction(uint256 tokenId, bytes calldata data)
-        external
-        onlyTokenOwner(tokenId)
-        onlyActiveAgent(tokenId)
-        nonReentrant
-        returns (bytes memory)
-    {
-        address logic = _logicAddresses[tokenId];
-        require(logic != address(0), "No logic address set");
-
-        (bool success, bytes memory result) = logic.call(data);
-        require(success, "Action execution failed");
-
-        emit ActionExecuted(tokenId, result);
-        return result;
-    }
-
-    // ─── IBAP578: Fund / Withdraw ───────────────────────────────
-    function fundAgent(uint256 tokenId) external payable onlyActiveAgent(tokenId) {
-        require(msg.value > 0, "Must send BNB");
-        _agentBalances[tokenId] += msg.value;
-        emit AgentFunded(tokenId, msg.value);
-    }
-
-    function withdrawFromAgent(uint256 tokenId, uint256 amount)
-        external
-        onlyTokenOwner(tokenId)
-        nonReentrant
-    {
-        require(_agentBalances[tokenId] >= amount, "Insufficient agent balance");
-        _agentBalances[tokenId] -= amount;
-        (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Transfer failed");
-        emit AgentWithdrawn(tokenId, amount);
-    }
-
-    // ─── IBAP578: State Management ──────────────────────────────
-    function pauseAgent(uint256 tokenId) external onlyTokenOwner(tokenId) {
-        require(_agentStates[tokenId] == AgentState.ACTIVE, "Agent not active");
-        _agentStates[tokenId] = AgentState.PAUSED;
-        emit AgentPaused(tokenId);
-    }
-
-    function unpauseAgent(uint256 tokenId) external onlyTokenOwner(tokenId) {
-        require(_agentStates[tokenId] == AgentState.PAUSED, "Agent not paused");
-        _agentStates[tokenId] = AgentState.ACTIVE;
-        emit AgentUnpaused(tokenId);
-    }
-
-    function terminateAgent(uint256 tokenId) external onlyTokenOwner(tokenId) {
-        require(_agentStates[tokenId] != AgentState.TERMINATED, "Already terminated");
-        _agentStates[tokenId] = AgentState.TERMINATED;
-        emit AgentTerminated(tokenId);
-    }
-
-    function getState(uint256 tokenId) external view returns (AgentState) {
-        _requireOwned(tokenId);
-        return _agentStates[tokenId];
-    }
-
-    // ─── IBAP578: Metadata ──────────────────────────────────────
-    function getAgentMetadata(uint256 tokenId) external view returns (AgentMetadata memory) {
-        _requireOwned(tokenId);
-        return _agentMetadata[tokenId];
-    }
-
-    function updateAgentMetadata(uint256 tokenId, AgentMetadata calldata metadata)
-        external
-        onlyTokenOwner(tokenId)
-    {
-        _agentMetadata[tokenId] = metadata;
-        emit MetadataUpdated(tokenId);
-    }
-
-    // ─── IBAP578: Logic Address ─────────────────────────────────
-    function setLogicAddress(uint256 tokenId, address logic)
-        external
-        onlyTokenOwner(tokenId)
-    {
-        _logicAddresses[tokenId] = logic;
-        emit LogicAddressUpdated(tokenId, logic);
-    }
-
-    // ─── Prediction Profile ─────────────────────────────────────
+    /// @notice Update the agent's prediction profile stats (token owner only)
     function updateProfile(
         uint256 tokenId,
         bytes32 newStyleRoot,
@@ -195,20 +84,31 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit ProfileUpdated(tokenId);
     }
 
+    /// @notice Get the agent's prediction profile
     function getProfile(uint256 tokenId) external view returns (PredictionProfile memory) {
         _requireOwned(tokenId);
         return _profiles[tokenId];
     }
 
-    // ─── Auto Trade Authorization ───────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // AUTO TRADE AUTHORIZATION
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @notice Authorize a third-party caller to execute trades for this agent
     function authorizeAutoTrade(
         uint256 tokenId,
+        address caller,
         uint256 maxPerTrade,
         uint256 maxDaily,
         uint256 duration
     ) external onlyTokenOwner(tokenId) {
+        require(caller != address(0), "Invalid caller address");
+        require(duration > 0, "Duration must be > 0");
+        require(maxPerTrade > 0, "Max per trade must be > 0");
+        require(maxDaily >= maxPerTrade, "Max daily must be >= max per trade");
         _autoTradeAuth[tokenId] = AutoTradeAuth({
             authorized: true,
+            authorizedCaller: caller,
             maxAmountPerTrade: maxPerTrade,
             maxDailyAmount: maxDaily,
             dailyUsed: 0,
@@ -218,23 +118,29 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit AutoTradeAuthorized(tokenId, maxPerTrade, maxDaily, block.timestamp + duration);
     }
 
+    /// @notice Revoke auto-trade authorization (token owner only)
     function revokeAutoTrade(uint256 tokenId) external onlyTokenOwner(tokenId) {
         _autoTradeAuth[tokenId].authorized = false;
         emit AutoTradeRevoked(tokenId);
     }
 
+    /// @notice Execute a trade from agent's balance (owner or authorized caller)
     function executeAgentTrade(
         uint256 tokenId,
         address target,
         bytes calldata data,
         uint256 value
     ) external onlyActiveAgent(tokenId) nonReentrant returns (bytes memory) {
+        require(target != address(0), "Invalid target address");
+        require(target != address(this), "Cannot call self");
+        require(target != predictionMarket, "Cannot call prediction market directly");
         address tokenOwner = ownerOf(tokenId);
         AutoTradeAuth storage auth = _autoTradeAuth[tokenId];
 
         // Owner can always execute; others need authorization
         if (msg.sender != tokenOwner) {
             require(auth.authorized, "Not authorized");
+            require(msg.sender == auth.authorizedCaller, "Not authorized caller");
             require(block.timestamp < auth.expiresAt, "Authorization expired");
             require(value <= auth.maxAmountPerTrade, "Exceeds per-trade limit");
 
@@ -251,6 +157,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
 
         require(_agentBalances[tokenId] >= value, "Insufficient agent balance");
         _agentBalances[tokenId] -= value;
+        totalAgentBalances -= value;
 
         (bool success, bytes memory result) = target.call{value: value}(data);
         require(success, "Trade execution failed");
@@ -259,12 +166,17 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         return result;
     }
 
+    /// @notice Get the current auto-trade authorization for an agent
     function getAutoTradeAuth(uint256 tokenId) external view returns (AutoTradeAuth memory) {
         _requireOwned(tokenId);
         return _autoTradeAuth[tokenId];
     }
 
-    // ─── ILearningModule ────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // LEARNING MODULE (ILearningModule)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @notice Update the agent's learning data Merkle root (token owner only)
     function updateLearning(uint256 tokenId, bytes32 newRoot, bytes calldata /* proof */)
         external
         onlyTokenOwner(tokenId)
@@ -275,6 +187,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit LearningUpdated(tokenId, newRoot);
     }
 
+    /// @notice Verify a learning claim against the agent's Merkle root
     function verifyLearning(uint256 tokenId, bytes32 claim, bytes32[] calldata proof)
         external
         view
@@ -286,11 +199,13 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         return MerkleProof.verify(proof, root, claim);
     }
 
+    /// @notice Get the agent's learning metrics
     function getLearningMetrics(uint256 tokenId) external view returns (LearningMetrics memory) {
         _requireOwned(tokenId);
         return _learningMetrics[tokenId];
     }
 
+    /// @notice Record a prediction interaction outcome (token owner only)
     function recordInteraction(uint256 tokenId, bool success) external onlyTokenOwner(tokenId) {
         LearningMetrics storage metrics = _learningMetrics[tokenId];
         metrics.totalInteractions++;
@@ -301,45 +216,11 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit InteractionRecorded(tokenId, metrics.totalInteractions);
     }
 
-    // ─── Token URI ────────────────────────────────────────────────
-    function setBaseURI(string memory baseURI) external onlyOwner {
-        _baseTokenURI = baseURI;
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // MEMORY MODULE REGISTRY (IMemoryModuleRegistry)
+    // ═══════════════════════════════════════════════════════════════
 
-    function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        _requireOwned(tokenId);
-        return string(abi.encodePacked(_baseTokenURI, Strings.toString(tokenId), ".json"));
-    }
-
-    // ─── Admin ──────────────────────────────────────────────────
-    function setPredictionMarket(address _predictionMarket) external onlyOwner {
-        predictionMarket = _predictionMarket;
-    }
-
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    function getAgentBalance(uint256 tokenId) external view returns (uint256) {
-        _requireOwned(tokenId);
-        return _agentBalances[tokenId];
-    }
-
-    // ─── Vault Management ────────────────────────────────────────
-    function updateVault(uint256 tokenId, string calldata newVaultURI, bytes32 newVaultHash)
-        external
-        onlyTokenOwner(tokenId)
-    {
-        _agentMetadata[tokenId].vaultURI = newVaultURI;
-        _agentMetadata[tokenId].vaultHash = newVaultHash;
-        emit VaultUpdated(tokenId, newVaultURI, newVaultHash);
-    }
-
-    // ─── IMemoryModuleRegistry ───────────────────────────────────
+    /// @notice Register a memory module for the agent (token owner only)
     function registerModule(uint256 tokenId, address moduleAddress, string memory metadata)
         external
         onlyTokenOwner(tokenId)
@@ -354,6 +235,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit ModuleRegistered(tokenId, moduleAddress);
     }
 
+    /// @notice Deactivate a memory module (token owner only)
     function deactivateModule(uint256 tokenId, address moduleAddress)
         external
         onlyTokenOwner(tokenId)
@@ -362,6 +244,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit ModuleDeactivated(tokenId, moduleAddress);
     }
 
+    /// @notice Verify a module's metadata hash matches the expected hash
     function verifyModule(uint256 tokenId, address moduleAddress, bytes32 expectedHash)
         external
         view
@@ -370,6 +253,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         return _memoryModules[tokenId][moduleAddress].metadataHash == expectedHash;
     }
 
+    /// @notice Get a registered memory module's data
     function getModule(uint256 tokenId, address moduleAddress)
         external
         view
@@ -378,7 +262,11 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         return _memoryModules[tokenId][moduleAddress];
     }
 
-    // ─── IVaultPermissionManager ─────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // VAULT PERMISSION MANAGER (IVaultPermissionManager)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @notice Delegate vault access to another address (token owner only)
     function delegateAccess(uint256 tokenId, address delegate, PermissionLevel level, uint256 expiryTime)
         external
         onlyTokenOwner(tokenId)
@@ -392,6 +280,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit AccessDelegated(tokenId, delegate, level, expiryTime);
     }
 
+    /// @notice Revoke a delegate's vault access (token owner only)
     function revokeAccess(uint256 tokenId, address delegate)
         external
         onlyTokenOwner(tokenId)
@@ -400,6 +289,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         emit AccessRevoked(tokenId, delegate);
     }
 
+    /// @notice Verify if an address has sufficient vault access level
     function verifyAccess(uint256 tokenId, address accessor, PermissionLevel requiredLevel)
         external
         view
@@ -412,6 +302,7 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         return true;
     }
 
+    /// @notice Get the permission details for a delegate
     function getPermission(uint256 tokenId, address delegate)
         external
         view
@@ -420,6 +311,193 @@ contract NFA is ERC721Enumerable, ReentrancyGuard, Pausable, Ownable, IBAP578, I
         return _vaultPermissions[tokenId][delegate];
     }
 
-    // ─── Receive BNB ────────────────────────────────────────────
-    receive() external payable {}
+    function _getPredictionMarketBalance() internal view returns (uint256) {
+        (bool success, bytes memory data) = predictionMarket.staticcall(
+            abi.encodeWithSignature("balances(address)", address(this))
+        );
+        require(success && data.length >= 32, "Failed to read PM balance");
+        return abi.decode(data, (uint256));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ADMIN (Prediction Market Integration)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @notice Set the PredictionMarket contract address (owner only)
+    function setPredictionMarket(address _predictionMarket) external onlyOwner {
+        require(_predictionMarket != address(0), "Invalid address");
+        predictionMarket = _predictionMarket;
+    }
+
+    /// @notice Withdraw NFA's balance from PredictionMarket back to this contract
+    function withdrawFromPredictionMarket(uint256 amount) external onlyOwner nonReentrant {
+        require(predictionMarket != address(0), "Prediction market not set");
+        require(amount > 0, "Amount must be > 0");
+        uint256 pmBalance = _getPredictionMarketBalance();
+        require(pmBalance >= totalAllocatedPredictionMarketBalance, "PM balance bookkeeping mismatch");
+        uint256 unallocated = pmBalance - totalAllocatedPredictionMarketBalance;
+        require(amount <= unallocated, "Amount exceeds unallocated PM balance");
+
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("withdraw(uint256)", amount)
+        );
+        require(success, "Withdraw from prediction market failed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PREDICTION MARKET BRIDGE
+    // ═══════════════════════════════════════════════════════════════
+
+    event AgentDepositedToPM(uint256 indexed tokenId, uint256 amount);
+    event AgentPositionViaPM(uint256 indexed tokenId, uint256 indexed marketId, bool isYes, uint256 amount);
+    event AgentSplitViaPM(uint256 indexed tokenId, uint256 indexed marketId, uint256 amount);
+    event AgentClaimedViaPM(uint256 indexed tokenId, uint256 indexed marketId);
+    event AgentRefundViaPM(uint256 indexed tokenId, uint256 indexed marketId);
+    event AgentWithdrewFromPM(uint256 indexed tokenId, uint256 amount);
+
+    /// @notice Deposit agent's BNB into PredictionMarket balance (so agent can trade)
+    function depositToPredictionMarket(uint256 tokenId, uint256 amount)
+        external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
+    {
+        require(predictionMarket != address(0), "Prediction market not set");
+        require(amount > 0, "Amount must be > 0");
+        require(_agentBalances[tokenId] >= amount, "Insufficient agent balance");
+        _agentBalances[tokenId] -= amount;
+        totalAgentBalances -= amount;
+        (bool success, ) = predictionMarket.call{value: amount}(
+            abi.encodeWithSignature("deposit()")
+        );
+        require(success, "Deposit failed");
+        predictionMarketBalances[tokenId] += amount;
+        totalAllocatedPredictionMarketBalance += amount;
+        emit AgentDepositedToPM(tokenId, amount);
+    }
+
+    /// @notice Withdraw this agent's PredictionMarket balance back into local agent balance
+    function withdrawFromPredictionMarketToAgent(uint256 tokenId, uint256 amount)
+        external onlyTokenOwner(tokenId) nonReentrant
+    {
+        require(predictionMarket != address(0), "Prediction market not set");
+        require(amount > 0, "Amount must be > 0");
+        require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
+
+        uint256 beforeBalance = address(this).balance;
+        predictionMarketBalances[tokenId] -= amount;
+        totalAllocatedPredictionMarketBalance -= amount;
+
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("withdraw(uint256)", amount)
+        );
+        require(success, "Withdraw failed");
+        require(address(this).balance >= beforeBalance + amount, "Withdraw amount mismatch");
+
+        _agentBalances[tokenId] += amount;
+        totalAgentBalances += amount;
+        emit AgentWithdrewFromPM(tokenId, amount);
+    }
+
+    /// @notice Take a YES/NO position on a market via PredictionMarket
+    function agentPredictionTakePosition(uint256 tokenId, uint256 marketId, bool isYes, uint256 amount)
+        external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
+    {
+        require(predictionMarket != address(0), "Prediction market not set");
+        require(amount > 0, "Amount must be > 0");
+        require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
+        predictionMarketBalances[tokenId] -= amount;
+        totalAllocatedPredictionMarketBalance -= amount;
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("agentTakePosition(uint256,uint256,bool,uint256)", tokenId, marketId, isYes, amount)
+        );
+        require(success, "Take position failed");
+        emit AgentPositionViaPM(tokenId, marketId, isYes, amount);
+    }
+
+    /// @notice Split collateral into YES+NO tokens via PredictionMarket (CTF)
+    function agentPredictionSplitPosition(uint256 tokenId, uint256 marketId, uint256 amount)
+        external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
+    {
+        require(predictionMarket != address(0), "Prediction market not set");
+        require(amount > 0, "Amount must be > 0");
+        require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
+        predictionMarketBalances[tokenId] -= amount;
+        totalAllocatedPredictionMarketBalance -= amount;
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("agentSplitPosition(uint256,uint256,uint256)", tokenId, marketId, amount)
+        );
+        require(success, "Split position failed");
+        emit AgentSplitViaPM(tokenId, marketId, amount);
+    }
+
+    /// @notice Claim agent winnings from a resolved market via PredictionMarket
+    function agentPredictionClaimWinnings(uint256 tokenId, uint256 marketId)
+        external onlyTokenOwner(tokenId) nonReentrant
+    {
+        require(predictionMarket != address(0), "Prediction market not set");
+        uint256 pmBalanceBefore = _getPredictionMarketBalance();
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("agentClaimWinnings(uint256,uint256)", tokenId, marketId)
+        );
+        require(success, "Claim winnings failed");
+        uint256 pmBalanceAfter = _getPredictionMarketBalance();
+        require(pmBalanceAfter >= pmBalanceBefore, "Invalid PM balance delta");
+        uint256 claimedAmount = pmBalanceAfter - pmBalanceBefore;
+        if (claimedAmount > 0) {
+            predictionMarketBalances[tokenId] += claimedAmount;
+            totalAllocatedPredictionMarketBalance += claimedAmount;
+        }
+        emit AgentClaimedViaPM(tokenId, marketId);
+    }
+
+    /// @notice Claim agent refund from a cancelled market via PredictionMarket
+    function agentPredictionClaimRefund(uint256 tokenId, uint256 marketId)
+        external onlyTokenOwner(tokenId) nonReentrant
+    {
+        require(predictionMarket != address(0), "Prediction market not set");
+        uint256 pmBalanceBefore = _getPredictionMarketBalance();
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("agentClaimRefund(uint256,uint256)", tokenId, marketId)
+        );
+        require(success, "Claim refund failed");
+        uint256 pmBalanceAfter = _getPredictionMarketBalance();
+        require(pmBalanceAfter >= pmBalanceBefore, "Invalid PM balance delta");
+        uint256 claimedAmount = pmBalanceAfter - pmBalanceBefore;
+        if (claimedAmount > 0) {
+            predictionMarketBalances[tokenId] += claimedAmount;
+            totalAllocatedPredictionMarketBalance += claimedAmount;
+        }
+        emit AgentRefundViaPM(tokenId, marketId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ERC1155 RECEIVER (for CTF position tokens)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @notice Handle receipt of a single ERC1155 token
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    /// @notice Handle receipt of multiple ERC1155 tokens
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    /// @notice ERC165 interface support including ERC1155Receiver
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721Enumerable, IERC165) returns (bool) {
+        return
+            interfaceId == type(IERC1155Receiver).interfaceId ||
+            super.supportsInterface(interfaceId);
+    }
 }

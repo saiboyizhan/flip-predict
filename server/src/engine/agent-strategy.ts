@@ -150,3 +150,58 @@ function shuffle<T>(arr: T[]): T[] {
 function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
+
+export type ComboWeights = Record<string, number>;
+
+export async function comboStrategy(
+  db: Pool,
+  weights: ComboWeights,
+  walletBalance: number
+): Promise<AgentDecision[]> {
+  const strategies: StrategyType[] = ['conservative', 'aggressive', 'contrarian', 'momentum', 'random'];
+  const allDecisions: AgentDecision[] = [];
+
+  // Collect decisions from each strategy weighted > 0
+  for (const strat of strategies) {
+    const weight = weights[strat] || 0;
+    if (weight <= 0) continue;
+
+    const decisions = await generateDecisions(db, strat, walletBalance);
+    // Tag each decision proportionally
+    for (const d of decisions) {
+      allDecisions.push({ ...d, reasoning: `[Combo:${strat}:${weight}%] ${d.reasoning}` });
+    }
+  }
+
+  if (allDecisions.length === 0) return [];
+
+  // Weighted random selection: pick decisions proportionally to their strategy weight
+  const weightedDecisions: AgentDecision[] = [];
+  const maxPicks = Math.min(allDecisions.length, randInt(1, 3));
+
+  // Build weighted pool
+  const pool: { decision: AgentDecision; weight: number }[] = allDecisions.map(d => {
+    // Extract strategy from reasoning tag
+    const match = d.reasoning.match(/\[Combo:(\w+):(\d+)%\]/);
+    const w = match ? Number(match[2]) : 1;
+    return { decision: d, weight: w };
+  });
+
+  const totalWeight = pool.reduce((sum, p) => sum + p.weight, 0);
+  const picked = new Set<number>();
+
+  for (let i = 0; i < maxPicks; i++) {
+    let rand = Math.random() * totalWeight;
+    for (let j = 0; j < pool.length; j++) {
+      if (picked.has(j)) continue;
+      rand -= pool[j].weight;
+      if (rand <= 0) {
+        weightedDecisions.push(pool[j].decision);
+        picked.add(j);
+        break;
+      }
+    }
+  }
+
+  return weightedDecisions.length > 0 ? weightedDecisions : [allDecisions[0]];
+}

@@ -9,14 +9,21 @@ let pool: Pool;
 export async function initDatabase(): Promise<Pool> {
   const connectionString = process.env.DATABASE_URL;
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
   const poolConfig = {
-    max: 20,
+    max: isProduction ? 20 : 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   };
 
+  // Enable SSL for production database connections (e.g. cloud-hosted PostgreSQL)
+  const sslConfig = isProduction && process.env.DATABASE_SSL !== 'false'
+    ? { ssl: { rejectUnauthorized: false } }
+    : {};
+
   if (connectionString) {
-    pool = new Pool({ connectionString, ...poolConfig });
+    pool = new Pool({ connectionString, ...poolConfig, ...sslConfig });
   } else {
     pool = new Pool({
       host: process.env.PG_HOST || 'localhost',
@@ -25,6 +32,7 @@ export async function initDatabase(): Promise<Pool> {
       password: process.env.PG_PASSWORD || 'postgres',
       database: process.env.PG_DB || 'prediction',
       ...poolConfig,
+      ...sslConfig,
     });
   }
 

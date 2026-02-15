@@ -11,6 +11,7 @@ interface IBAP578 {
         string animationURI;
         string vaultURI;
         bytes32 vaultHash;
+        uint8 avatarId;
     }
 
     event ActionExecuted(uint256 indexed tokenId, bytes result);

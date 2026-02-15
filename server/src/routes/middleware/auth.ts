@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'prediction-market-dev-secret';
+import { JWT_SECRET } from '../../config';
 
 export interface AuthRequest extends Request {
   userAddress?: string;

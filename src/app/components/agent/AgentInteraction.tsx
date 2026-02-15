@@ -167,7 +167,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
 
   const RISK_COLORS: Record<string, string> = {
     low: 'text-emerald-400 bg-emerald-500/20',
-    medium: 'text-amber-400 bg-amber-500/20',
+    medium: 'text-blue-400 bg-blue-500/20',
     high: 'text-orange-400 bg-orange-500/20',
     extreme: 'text-red-400 bg-red-500/20',
   };
@@ -176,18 +176,18 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-zinc-950 border border-zinc-800"
+      className="bg-secondary border border-border"
     >
       {/* Tab Header */}
-      <div className="flex border-b border-zinc-800">
+      <div className="flex border-b border-border">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
               activeTab === tab.id
-                ? 'text-amber-400 border-b-2 border-amber-500 bg-amber-500/5'
-                : 'text-zinc-500 hover:text-zinc-300'
+                ? 'text-blue-400 border-b-2 border-blue-500 bg-blue-500/5'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <tab.icon className="w-4 h-4" />
@@ -202,11 +202,11 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.selectMarket')}</label>
+                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.selectMarket')}</label>
                 <select
                   value={selectedMarket}
                   onChange={(e) => setSelectedMarket(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2.5 px-3 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
                 >
                   <option value="">{t('agentInteraction.selectMarketPlaceholder')}</option>
                   {activeMarkets.map((m) => (
@@ -215,14 +215,14 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.predDirection')}</label>
+                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.predDirection')}</label>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setPrediction('yes')}
                     className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
                       prediction === 'yes'
                         ? 'bg-emerald-500 text-white'
-                        : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400'
+                        : 'bg-card border border-border text-muted-foreground hover:text-emerald-400'
                     }`}
                   >
                     YES
@@ -232,7 +232,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
                     className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
                       prediction === 'no'
                         ? 'bg-red-500 text-white'
-                        : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400'
+                        : 'bg-card border border-border text-muted-foreground hover:text-red-400'
                     }`}
                   >
                     NO
@@ -242,7 +242,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
             </div>
 
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">
+              <label className="block text-sm text-muted-foreground mb-2">
                 {t('agentInteraction.confidence', { pct: (confidence * 100).toFixed(0) })}
               </label>
               <input
@@ -252,25 +252,25 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
                 step="0.05"
                 value={confidence}
                 onChange={(e) => setConfidence(Number(e.target.value))}
-                className="w-full accent-amber-500"
+                className="w-full accent-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.reason')}</label>
+              <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.reason')}</label>
               <textarea
                 value={reasoning}
                 onChange={(e) => setReasoning(e.target.value)}
                 placeholder={t('agentInteraction.reasonPlaceholder')}
                 rows={2}
-                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2 px-3 focus:outline-none focus:border-amber-500/50 resize-none placeholder:text-zinc-600"
+                className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 resize-none placeholder:text-muted-foreground"
               />
             </div>
 
             <button
               onClick={handlePredict}
               disabled={predLoading || !selectedMarket}
-              className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
             >
               <Target className="w-4 h-4" />
               {predLoading ? t('agentInteraction.recording') : t('agentInteraction.recordPrediction')}
@@ -279,23 +279,23 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
             {/* Prediction History */}
             {predictions.length > 0 && (
               <div className="mt-6">
-                <h4 className="text-sm text-zinc-400 mb-3">{t('agentInteraction.recentPredictions')}</h4>
+                <h4 className="text-sm text-muted-foreground mb-3">{t('agentInteraction.recentPredictions')}</h4>
                 <div className="space-y-2">
                   {predictions.slice(0, 10).map((p: any) => (
-                    <div key={p.id} className="flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 text-sm">
+                    <div key={p.id} className="flex items-center justify-between p-3 bg-muted/50 border border-border text-sm">
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-0.5 text-xs font-bold ${
                           p.prediction === 'yes' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
                         }`}>
                           {p.prediction.toUpperCase()}
                         </span>
-                        <span className="text-zinc-300 truncate max-w-[200px]">#{p.market_id.slice(0, 8)}</span>
+                        <span className="text-muted-foreground truncate max-w-[200px]">#{p.market_id.slice(0, 8)}</span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-zinc-500 font-mono">{(p.confidence * 100).toFixed(0)}%</span>
+                        <span className="text-muted-foreground font-mono">{(p.confidence * 100).toFixed(0)}%</span>
                         {p.is_correct === 1 && <span className="text-emerald-400 text-xs font-bold">&#10003;</span>}
                         {p.is_correct === 0 && <span className="text-red-400 text-xs font-bold">&#10007;</span>}
-                        {p.is_correct === null && <span className="text-zinc-600 text-xs">{t('agentInteraction.pending')}</span>}
+                        {p.is_correct === null && <span className="text-muted-foreground text-xs">{t('agentInteraction.pending')}</span>}
                       </div>
                     </div>
                   ))}
@@ -309,12 +309,12 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
         {activeTab === 'suggest' && (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.getAgentAdvice')}</label>
+              <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.getAgentAdvice')}</label>
               <div className="flex gap-2">
                 <select
                   value={sugMarket}
                   onChange={(e) => setSugMarket(e.target.value)}
-                  className="flex-1 bg-zinc-900 border border-zinc-800 text-white text-sm py-2.5 px-3 focus:outline-none focus:border-amber-500/50"
+                  className="flex-1 bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
                 >
                   <option value="">{t('agentInteraction.selectMarketPlaceholder')}</option>
                   {activeMarkets.map((m) => (
@@ -324,7 +324,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
                 <button
                   onClick={handleSuggest}
                   disabled={sugLoading || !sugMarket}
-                  className="px-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold text-sm transition-colors"
+                  className="px-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors"
                 >
                   {sugLoading ? '...' : t('agentInteraction.getAdvice')}
                 </button>
@@ -335,12 +335,12 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-zinc-900 border border-zinc-800 p-4 space-y-3"
+                className="bg-card border border-border p-4 space-y-3"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Lightbulb className="w-5 h-5 text-amber-400" />
-                    <span className="text-white font-semibold">{t('agentInteraction.agentAdvice')}</span>
+                    <Lightbulb className="w-5 h-5 text-blue-400" />
+                    <span className="text-foreground font-semibold">{t('agentInteraction.agentAdvice')}</span>
                   </div>
                   <span className={`px-2 py-1 text-xs font-bold ${RISK_COLORS[suggestion.riskLevel] || RISK_COLORS.medium}`}>
                     {suggestion.riskLevel.toUpperCase()}
@@ -349,26 +349,26 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
 
                 <div className="flex gap-4">
                   <div>
-                    <div className="text-zinc-500 text-xs">{t('agentInteraction.sugDirection')}</div>
+                    <div className="text-muted-foreground text-xs">{t('agentInteraction.sugDirection')}</div>
                     <div className={`text-lg font-bold ${suggestion.suggestedSide === 'yes' ? 'text-emerald-400' : 'text-red-400'}`}>
                       {suggestion.suggestedSide.toUpperCase()}
                     </div>
                   </div>
                   <div>
-                    <div className="text-zinc-500 text-xs">{t('agentInteraction.sugConfidence')}</div>
-                    <div className="text-lg font-bold text-amber-400 font-mono">{(suggestion.confidence * 100).toFixed(0)}%</div>
+                    <div className="text-muted-foreground text-xs">{t('agentInteraction.sugConfidence')}</div>
+                    <div className="text-lg font-bold text-blue-400 font-mono">{(suggestion.confidence * 100).toFixed(0)}%</div>
                   </div>
                   <div>
-                    <div className="text-zinc-500 text-xs">{t('agentInteraction.sugPotentialGain')}</div>
+                    <div className="text-muted-foreground text-xs">{t('agentInteraction.sugPotentialGain')}</div>
                     <div className="text-lg font-bold text-emerald-400 font-mono">+${suggestion.potentialProfit}</div>
                   </div>
                   <div>
-                    <div className="text-zinc-500 text-xs">{t('agentInteraction.sugMaxLoss')}</div>
+                    <div className="text-muted-foreground text-xs">{t('agentInteraction.sugMaxLoss')}</div>
                     <div className="text-lg font-bold text-red-400 font-mono">-${suggestion.potentialLoss}</div>
                   </div>
                 </div>
 
-                <p className="text-zinc-400 text-sm">{suggestion.reasoning}</p>
+                <p className="text-muted-foreground text-sm">{suggestion.reasoning}</p>
 
                 <div className="flex gap-2">
                   <button
@@ -379,7 +379,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
                   </button>
                   <button
                     onClick={() => setSuggestion(null)}
-                    className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-sm transition-colors"
+                    className="flex-1 py-2 bg-muted hover:bg-accent text-muted-foreground font-bold text-sm transition-colors"
                   >
                     {t('agentInteraction.rejectAdvice')}
                   </button>
@@ -392,36 +392,36 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
         {/* Tab 3: 自动交易 */}
         {activeTab === 'auto' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
+            <div className="flex items-center gap-3 p-4 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-sm">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <span>{t('agentInteraction.autoTradeWarning')}</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.maxPerTrade')}</label>
+                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.maxPerTrade')}</label>
                 <input
                   type="number"
                   value={maxPerTrade}
                   onChange={(e) => setMaxPerTrade(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2.5 px-3 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
                 />
               </div>
               <div>
-                <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.dailyLimit')}</label>
+                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.dailyLimit')}</label>
                 <input
                   type="number"
                   value={maxDaily}
                   onChange={(e) => setMaxDaily(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2.5 px-3 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
                 />
               </div>
               <div>
-                <label className="block text-sm text-zinc-400 mb-2">{t('agentInteraction.authDuration')}</label>
+                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.authDuration')}</label>
                 <select
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2.5 px-3 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
                 >
                   <option value="1">{t('agentInteraction.hours1')}</option>
                   <option value="6">{t('agentInteraction.hours6')}</option>
@@ -438,7 +438,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
               <button
                 onClick={handleAuthorize}
                 disabled={autoLoading}
-                className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
               >
                 <Zap className="w-4 h-4" />
                 {autoLoading ? t('agentInteraction.authorizing') : t('agentInteraction.authorizeAuto')}

@@ -75,7 +75,7 @@ router.post('/claim/:id', authMiddleware, async (req: AuthRequest, res: Response
         userAddress: req.userAddress!,
         type: 'system',
         title: 'Reward Claimed',
-        message: `You claimed a ${reward.type} reward of ${reward.amount} USDT`,
+        message: `You claimed a ${reward.type} reward of ${reward.amount} BNB`,
         metadata: { rewardId: reward.id, amount: reward.amount, type: reward.type },
       });
     } catch (notifyErr) {
@@ -141,20 +141,28 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
       return;
     }
 
+    // Bug D17 Fix: Move BEGIN before the user lookup query so the referrer
+    // lookup and the subsequent duplicate check are in the same transaction.
+    // Without this, a race between two concurrent referral submissions could
+    // both find the referrer, then both pass the duplicate check.
+    await client.query('BEGIN');
+
     const { rows: users } = await client.query(
       `SELECT address
        FROM users
-       WHERE SUBSTRING(md5(LOWER(address)) FROM 1 FOR ${REFERRAL_CODE_LENGTH}) = $1
+       WHERE SUBSTRING(md5(LOWER(address)) FROM 1 FOR $2) = $1
        LIMIT 2`,
-      [trimmedCode]
+      [trimmedCode, REFERRAL_CODE_LENGTH]
     );
 
     if (users.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Invalid referral code' });
       return;
     }
 
     if (users.length > 1) {
+      await client.query('ROLLBACK');
       res.status(409).json({ error: 'Referral code is ambiguous, please request a new one' });
       return;
     }
@@ -163,11 +171,10 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
 
     // Cannot refer yourself
     if (referrerAddress.toLowerCase() === refereeAddress.toLowerCase()) {
+      await client.query('ROLLBACK');
       res.status(400).json({ error: 'Cannot use your own referral code' });
       return;
     }
-
-    await client.query('BEGIN');
     // Serialize referral usage per referee address to prevent concurrent double-use.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1)::bigint)', [refereeAddress.toLowerCase()]);
 
@@ -183,7 +190,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
     }
 
     const referralId = crypto.randomUUID();
-    const rewardAmount = 10; // 10 USDT referral bonus
+    const rewardAmount = 10; // 10 BNB referral bonus
     const now = Date.now();
 
     // Create referral record
@@ -201,7 +208,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
 
     // Create reward for referee (sign-up bonus)
     const refereeRewardId = crypto.randomUUID();
-    const refereeBonus = 5; // 5 USDT sign-up bonus
+    const refereeBonus = 5; // 5 BNB sign-up bonus
     await client.query(`
       INSERT INTO rewards (id, user_address, type, amount, status, created_at)
       VALUES ($1, $2, 'referral', $3, 'pending', $4)
@@ -216,7 +223,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
         userAddress: referrerAddress,
         type: 'system',
         title: 'New Referral',
-        message: `Someone used your referral code! You earned ${rewardAmount} USDT reward.`,
+        message: `Someone used your referral code! You earned ${rewardAmount} BNB reward.`,
         metadata: { referralId, refereeAddress },
       });
     } catch (notifyErr) {

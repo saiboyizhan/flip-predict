@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { ethers } from 'ethers';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
 
@@ -6,71 +7,106 @@ const router = Router();
 
 // GET /api/positions
 router.get('/positions', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const userAddress = req.userAddress!;
-  const db = getDb();
+  try {
+    const userAddress = req.userAddress!;
+    const db = getDb();
 
-  const { rows: positions } = await db.query(`
-    SELECT p.*, m.title as market_title, m.yes_price, m.no_price, m.status as market_status
-    FROM positions p
-    JOIN markets m ON p.market_id = m.id
-    WHERE p.user_address = $1
-    ORDER BY p.created_at DESC
-  `, [userAddress]);
+    const { rows: positions } = await db.query(`
+      SELECT p.*, m.title as market_title, m.yes_price, m.no_price, m.status as market_status
+      FROM positions p
+      JOIN markets m ON p.market_id = m.id
+      WHERE p.user_address = $1
+      ORDER BY p.created_at DESC
+    `, [userAddress]);
 
-  res.json({ positions });
+    res.json({ positions });
+  } catch (err: any) {
+    console.error('Positions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // GET /api/balances
 router.get('/balances', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const userAddress = req.userAddress!;
-  const db = getDb();
+  try {
+    const userAddress = req.userAddress!;
+    const db = getDb();
 
-  const balanceResult = await db.query('SELECT * FROM balances WHERE user_address = $1', [userAddress]);
-  const balance = balanceResult.rows[0] as any;
+    const balanceResult = await db.query('SELECT * FROM balances WHERE user_address = $1', [userAddress]);
+    const balance = balanceResult.rows[0] as any;
 
-  if (!balance) {
-    res.json({ available: 0, locked: 0 });
-    return;
+    if (!balance) {
+      res.json({ available: 0, locked: 0 });
+      return;
+    }
+
+    // Calculate portfolio value from positions (supports multi-option markets)
+    const { rows: positions } = await db.query(`
+      SELECT p.shares, p.side, p.avg_cost, p.option_id,
+             m.yes_price, m.no_price, m.market_type,
+             mo.price as option_price
+      FROM positions p
+      JOIN markets m ON p.market_id = m.id
+      LEFT JOIN market_options mo ON p.option_id = mo.id
+      WHERE p.user_address = $1
+    `, [userAddress]);
+
+    let portfolioValue = 0;
+    for (const pos of positions as any[]) {
+      let currentPrice: number;
+      if (pos.market_type === 'multi' && pos.option_price != null) {
+        currentPrice = Number(pos.option_price);
+      } else {
+        currentPrice = pos.side === 'yes' ? Number(pos.yes_price) : Number(pos.no_price);
+      }
+      portfolioValue += Number(pos.shares) * currentPrice;
+    }
+
+    res.json({
+      available: Number(balance.available),
+      locked: Number(balance.locked),
+      portfolioValue,
+      totalValue: Number(balance.available) + Number(balance.locked) + portfolioValue,
+    });
+  } catch (err: any) {
+    console.error('Balances error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  // Calculate portfolio value from positions
-  const { rows: positions } = await db.query(`
-    SELECT p.shares, p.side, p.avg_cost, m.yes_price, m.no_price
-    FROM positions p
-    JOIN markets m ON p.market_id = m.id
-    WHERE p.user_address = $1
-  `, [userAddress]);
-
-  let portfolioValue = 0;
-  for (const pos of positions as any[]) {
-    const currentPrice = pos.side === 'yes' ? pos.yes_price : pos.no_price;
-    portfolioValue += pos.shares * currentPrice;
-  }
-
-  res.json({
-    available: balance.available,
-    locked: balance.locked,
-    portfolioValue,
-    totalValue: balance.available + balance.locked + portfolioValue,
-  });
 });
 
 // GET /api/portfolio/:address — user positions (public)
 router.get('/portfolio/:address', async (req: Request, res: Response) => {
   try {
-    const address = (req.params.address as string).toLowerCase();
+    const rawAddress = req.params.address as string;
+    if (!ethers.isAddress(rawAddress)) {
+      res.status(400).json({ error: 'Invalid address' });
+      return;
+    }
+    const address = rawAddress.toLowerCase();
     const db = getDb();
 
-    const { rows: positions } = await db.query(`
-      SELECT p.*, m.title as market_title, m.yes_price, m.no_price, m.status as market_status,
-        CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END as current_price,
-        (CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) * p.shares as current_value,
-        ((CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) - p.avg_cost) * p.shares as unrealized_pnl
+    const { rows: rawPositions } = await db.query(`
+      SELECT p.*, m.title as market_title, m.yes_price, m.no_price, m.status as market_status, m.market_type,
+        COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) as current_price,
+        COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) * p.shares as current_value,
+        (COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) - p.avg_cost) * p.shares as unrealized_pnl
       FROM positions p
       JOIN markets m ON p.market_id = m.id
+      LEFT JOIN market_options mo ON p.option_id = mo.id
       WHERE p.user_address = $1
       ORDER BY p.created_at DESC
     `, [address]);
+
+    const positions = (rawPositions as any[]).map(p => ({
+      ...p,
+      shares: Number(p.shares),
+      avg_cost: Number(p.avg_cost),
+      yes_price: Number(p.yes_price),
+      no_price: Number(p.no_price),
+      current_price: Number(p.current_price),
+      current_value: Number(p.current_value),
+      unrealized_pnl: Number(p.unrealized_pnl),
+    }));
 
     res.json({ positions });
   } catch (err: any) {
@@ -134,25 +170,32 @@ router.get('/portfolio/:address/balance', authMiddleware, async (req: AuthReques
       return;
     }
 
-    // Calculate portfolio value from positions
+    // Calculate portfolio value from positions (supports multi-option markets)
     const { rows: positions } = await db.query(`
-      SELECT p.shares, p.side, m.yes_price, m.no_price
+      SELECT p.shares, p.side, p.option_id, m.yes_price, m.no_price, m.market_type,
+             mo.price as option_price
       FROM positions p
       JOIN markets m ON p.market_id = m.id
+      LEFT JOIN market_options mo ON p.option_id = mo.id
       WHERE p.user_address = $1
     `, [address]);
 
     let portfolioValue = 0;
     for (const pos of positions as any[]) {
-      const currentPrice = pos.side === 'yes' ? pos.yes_price : pos.no_price;
-      portfolioValue += pos.shares * currentPrice;
+      let currentPrice: number;
+      if (pos.market_type === 'multi' && pos.option_price != null) {
+        currentPrice = Number(pos.option_price);
+      } else {
+        currentPrice = pos.side === 'yes' ? Number(pos.yes_price) : Number(pos.no_price);
+      }
+      portfolioValue += Number(pos.shares) * currentPrice;
     }
 
     res.json({
-      available: balance.available,
-      locked: balance.locked,
+      available: Number(balance.available),
+      locked: Number(balance.locked),
       portfolioValue,
-      totalValue: balance.available + balance.locked + portfolioValue,
+      totalValue: Number(balance.available) + Number(balance.locked) + portfolioValue,
     });
   } catch (err: any) {
     console.error('Portfolio balance error:', err);
@@ -181,18 +224,19 @@ router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest,
       WHERE user_address = $1
     `, [address]);
 
-    // Positions stats (unrealized PnL)
+    // Positions stats (unrealized PnL) — supports multi-option markets
     const positionStats = await db.query(`
       SELECT
         COUNT(*) as active_positions,
         COALESCE(SUM(
-          ((CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) - p.avg_cost) * p.shares
+          (COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) - p.avg_cost) * p.shares
         ), 0) as unrealized_pnl,
         COALESCE(SUM(
-          (CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) * p.shares
+          COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) * p.shares
         ), 0) as portfolio_value
       FROM positions p
       JOIN markets m ON p.market_id = m.id
+      LEFT JOIN market_options mo ON p.option_id = mo.id
       WHERE p.user_address = $1
     `, [address]);
 

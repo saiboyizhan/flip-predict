@@ -5,6 +5,13 @@ import { Clock, Users, TrendingUp, BarChart3 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ShareButton } from "./ShareButton";
 
+interface MarketOptionDisplay {
+  id: string;
+  label: string;
+  color: string;
+  price: number;
+}
+
 interface Market {
   id: string;
   title: string;
@@ -18,6 +25,8 @@ interface Market {
   status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved";
   description?: string;
   resolution?: string;
+  marketType?: "binary" | "multi";
+  options?: MarketOptionDisplay[];
 }
 
 interface MarketHeaderProps {
@@ -31,19 +40,19 @@ const STATUS_CONFIG = {
   },
   expiring: {
     labelKey: "market.status.expiring",
-    className: "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse",
+    className: "bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse",
   },
   settled: {
     labelKey: "market.status.settled",
-    className: "bg-zinc-700/50 text-zinc-400 border border-zinc-600",
+    className: "bg-muted/50 text-muted-foreground border border-border",
   },
   pending_resolution: {
     labelKey: "market.status.pending",
-    className: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+    className: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
   },
   resolved: {
     labelKey: "market.status.resolved",
-    className: "bg-zinc-700/50 text-zinc-400 border border-zinc-600",
+    className: "bg-muted/50 text-muted-foreground border border-border",
   },
 };
 
@@ -74,12 +83,15 @@ export function MarketHeader({ market }: MarketHeaderProps) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-zinc-900 border border-zinc-800 p-8"
+      className="bg-card border border-border p-8 relative overflow-hidden"
     >
+      {/* Decorative blur */}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl pointer-events-none" />
+
       {/* Top Labels */}
       <div className="flex items-center gap-3 mb-4">
-        <span className="px-3 py-1 bg-zinc-800 text-zinc-400 text-xs font-medium">
-          {market.categoryEmoji} {market.category}
+        <span className="px-3 py-1 bg-muted text-muted-foreground text-xs font-medium">
+          {market.categoryEmoji} {t(`category.${market.category}`, market.category)}
         </span>
         <span className={`px-3 py-1 text-xs font-semibold ${statusConfig.className}`}>
           {t(statusConfig.labelKey)}
@@ -88,7 +100,7 @@ export function MarketHeader({ market }: MarketHeaderProps) {
 
       {/* Title */}
       <div className="flex items-start justify-between gap-4 mb-6">
-        <h1 className="text-3xl font-bold text-white leading-tight">
+        <h1 className="text-3xl font-bold text-foreground leading-tight">
           {market.title}
         </h1>
         <ShareButton
@@ -100,46 +112,59 @@ export function MarketHeader({ market }: MarketHeaderProps) {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-zinc-950/50 border border-zinc-800/50 p-4">
+        <div className="bg-secondary/50 border border-border/50 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Clock className="w-4 h-4 text-amber-400" />
-            <span className="text-xs text-zinc-500 tracking-wider uppercase">{t('market.countdown')}</span>
+            <Clock className="w-4 h-4 text-blue-400" />
+            <span className="text-xs text-muted-foreground tracking-wider uppercase">{t('market.countdown')}</span>
           </div>
-          <div className="text-xl font-bold text-amber-400 font-mono">
+          <div className="text-xl font-bold text-blue-400 font-mono">
             {(() => { const r = getTimeRemainingParts(market.endTime); return t(r.key, r.params); })()}
           </div>
         </div>
 
-        <div className="bg-zinc-950/50 border border-zinc-800/50 p-4">
+        <div className="bg-secondary/50 border border-border/50 p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs text-zinc-500 tracking-wider uppercase">{t('market.volume')}</span>
+            <span className="text-xs text-muted-foreground tracking-wider uppercase">{t('market.volume')}</span>
           </div>
-          <div className="text-xl font-bold text-white font-mono">
+          <div className="text-xl font-bold text-foreground font-mono">
             {formatVolume(market.volume)}
           </div>
         </div>
 
-        <div className="bg-zinc-950/50 border border-zinc-800/50 p-4">
+        <div className="bg-secondary/50 border border-border/50 p-4">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-4 h-4 text-purple-400" />
-            <span className="text-xs text-zinc-500 tracking-wider uppercase">{t('market.participants')}</span>
+            <span className="text-xs text-muted-foreground tracking-wider uppercase">{t('market.participants')}</span>
           </div>
-          <div className="text-xl font-bold text-white font-mono">
+          <div className="text-xl font-bold text-foreground font-mono">
             {market.participants.toLocaleString()}
           </div>
         </div>
 
-        <div className="bg-zinc-950/50 border border-zinc-800/50 p-4">
+        <div className="bg-secondary/50 border border-border/50 p-4">
           <div className="flex items-center gap-2 mb-2">
             <BarChart3 className="w-4 h-4 text-blue-400" />
-            <span className="text-xs text-zinc-500 tracking-wider uppercase">{t('market.currentProb')}</span>
+            <span className="text-xs text-muted-foreground tracking-wider uppercase">{t('market.currentProb')}</span>
           </div>
-          <div className="text-xl font-bold font-mono">
-            <span className="text-emerald-400">{Math.round(market.yesPrice * 100)}%</span>
-            <span className="text-zinc-600 mx-1">/</span>
-            <span className="text-red-400">{Math.round(market.noPrice * 100)}%</span>
-          </div>
+          {market.marketType === "multi" && market.options && market.options.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {market.options.map((opt) => (
+                <div key={opt.id} className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: opt.color }} />
+                  <span className="text-xs font-mono font-bold" style={{ color: opt.color }}>
+                    {Math.round(opt.price * 100)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xl font-bold font-mono">
+              <span className="text-emerald-400">{Math.round(market.yesPrice * 100)}%</span>
+              <span className="text-muted-foreground mx-1">/</span>
+              <span className="text-red-400">{100 - Math.round(market.yesPrice * 100)}%</span>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>

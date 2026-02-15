@@ -1,25 +1,81 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Upload, X } from "lucide-react";
+import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { mintAgent } from "@/app/services/api";
+import { useAgentStore } from "@/app/stores/useAgentStore";
+import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
+import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
 import type { Agent } from "@/app/services/api";
 import { AgentCard } from "./AgentCard";
+import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
+import { decodeEventLog, zeroAddress, zeroHash } from "viem";
+import { getBscScanUrl } from "@/app/hooks/useContracts";
+
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+const AVATAR_SIZE = 256;
+
+function resizeImage(file: File, size: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+      resolve(canvas.toDataURL("image/webp", 0.8));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
+    img.src = url;
+  });
+}
 
 export function MintAgent() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const chainId = useChainId();
+  const { address, isConnected } = useAccount();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
+  const { agentCount, addAgent } = useAgentStore();
   const [name, setName] = useState("");
   const [persona, setPersona] = useState("");
-  const [avatar, setAvatar] = useState("");
+  const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
+  const [uploadedAvatar, setUploadedAvatar] = useState<string | null>(null);
   const [strategy, setStrategy] = useState("");
   const [description, setDescription] = useState("");
-  const [vaultURI, setVaultURI] = useState("");
-  const [customAvatar, setCustomAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const avatarSrc = uploadedAvatar ?? (selectedAvatar !== null ? PRESET_AVATARS[selectedAvatar].src : null);
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error(t("agent.invalidImageType", "Please upload an image file"));
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(t("agent.imageTooLarge", "Image must be under 2MB"));
+      return;
+    }
+    try {
+      const dataUrl = await resizeImage(file, AVATAR_SIZE);
+      setUploadedAvatar(dataUrl);
+      setSelectedAvatar(null); // deselect preset
+    } catch {
+      toast.error(t("agent.imageLoadFailed", "Failed to process image"));
+    }
+  }, [t]);
+
+  const remaining = MAX_AGENTS_PER_ADDRESS - agentCount;
 
   const STRATEGIES = [
     { id: "conservative", name: t("agent.strategies.conservative"), desc: t("agent.strategies.conservativeDesc") },
@@ -29,39 +85,11 @@ export function MintAgent() {
     { id: "random", name: t("agent.strategies.random"), desc: t("agent.strategies.randomDesc") },
   ];
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error(t("agent.uploadImageFile"));
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error(t("agent.imageTooLarge"));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setCustomAvatar(dataUrl);
-      setAvatar(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const clearCustomAvatar = () => {
-    setCustomAvatar(null);
-    setAvatar("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
   const previewAgent: Agent = {
     id: "preview",
     name: name || "My Agent",
     owner_address: "0x0000000000000000000000000000000000000000",
-    avatar: avatar || null,
+    avatar: avatarSrc,
     strategy: strategy || "random",
     description: description || null,
     status: "idle",
@@ -77,7 +105,7 @@ export function MintAgent() {
     sale_price: null,
     is_for_rent: false,
     rent_price: null,
-    vault_uri: vaultURI || null,
+    vault_uri: null,
     vault_hash: null,
     created_at: new Date().toISOString(),
     last_trade_at: null,
@@ -88,15 +116,91 @@ export function MintAgent() {
       toast.error(t("agent.enterName"));
       return;
     }
+    if (!avatarSrc) {
+      toast.error(t("agent.selectAvatar"));
+      return;
+    }
     if (!strategy) {
       toast.error(t("agent.selectStrategy"));
+      return;
+    }
+    if (remaining <= 0) {
+      toast.error(t("agent.maxAgentsReached"));
+      return;
+    }
+    if (!isConnected || !address) {
+      toast.error(t("auth.pleaseConnectWallet", "Please connect wallet first"));
+      return;
+    }
+    if (!publicClient) {
+      toast.error("Wallet client unavailable");
+      return;
+    }
+    if (NFA_CONTRACT_ADDRESS === "0x0000000000000000000000000000000000000000") {
+      toast.error("NFA contract address is not configured");
       return;
     }
 
     setLoading(true);
     try {
-      await mintAgent({ name: name.trim(), strategy, description: description.trim(), persona: persona.trim(), avatar: customAvatar || undefined });
-      toast.success(t("agent.mintSuccess"));
+      const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
+      const txHash = await writeContractAsync({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: "mint",
+        args: [{
+          name: name.trim(),
+          persona: persona.trim(),
+          voiceHash: zeroHash,
+          animationURI: "",
+          vaultURI: "",
+          vaultHash: zeroHash,
+          avatarId,
+        }],
+      });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      let tokenId: bigint | null = null;
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== NFA_CONTRACT_ADDRESS.toLowerCase()) continue;
+        try {
+          const decoded = decodeEventLog({
+            abi: NFA_ABI,
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName !== "Transfer") continue;
+          const args = decoded.args as { from?: string; to?: string; tokenId?: bigint };
+          if (
+            typeof args.tokenId === "bigint" &&
+            (args.from || "").toLowerCase() === zeroAddress &&
+            (args.to || "").toLowerCase() === address.toLowerCase()
+          ) {
+            tokenId = args.tokenId;
+            break;
+          }
+        } catch {
+          // Ignore non-matching logs
+        }
+      }
+
+      if (tokenId == null) {
+        throw new Error("Mint succeeded but tokenId was not found in receipt logs");
+      }
+
+      const agent = await mintAgent({
+        name: name.trim(),
+        strategy,
+        description: description.trim(),
+        persona: persona.trim(),
+        avatar: avatarSrc!,
+        tokenId: tokenId.toString(),
+        mintTxHash: txHash,
+      });
+      addAgent(agent);
+      toast.success(`${t("agent.mintSuccess")} #${tokenId.toString()}`);
+      const scanUrl = getBscScanUrl(chainId);
+      window.open(`${scanUrl}/tx/${txHash}`, "_blank");
       navigate("/agents");
     } catch (err: any) {
       toast.error(err.message || t("agent.mintFailed"));
@@ -115,12 +219,22 @@ export function MintAgent() {
           className="mb-6 sm:mb-8"
         >
           <div className="flex items-center gap-3 mb-3">
-            <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-amber-400" />
+            <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold">{t("agent.mintTitle")}</h1>
           </div>
-          <p className="text-zinc-400 text-base sm:text-lg">
+          <p className="text-muted-foreground text-base sm:text-lg">
             {t("agent.mintSubtitle")}
           </p>
+          {remaining <= 0 && (
+            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+              {t("agent.maxAgentsReached")}
+            </div>
+          )}
+          {remaining > 0 && (
+            <div className="mt-3 text-sm text-muted-foreground">
+              {t("agent.remainingSlots", { count: remaining })}
+            </div>
+          )}
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
@@ -133,75 +247,108 @@ export function MintAgent() {
           >
             {/* Name Input */}
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">{t("agent.agentName")}</label>
+              <label className="block text-sm text-muted-foreground mb-2">{t("agent.agentName")}</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t("agent.agentNamePlaceholder")}
                 maxLength={30}
-                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-3 px-4 focus:outline-none focus:border-amber-500/50 transition-colors placeholder:text-zinc-600"
+                className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground"
               />
+              <div className="text-xs text-muted-foreground mt-1">{name.length}/30</div>
             </div>
 
             {/* Persona Input */}
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">{t("agent.persona")}</label>
+              <label className="block text-sm text-muted-foreground mb-2">{t("agent.persona")}</label>
               <textarea
                 value={persona}
                 onChange={(e) => setPersona(e.target.value)}
                 placeholder={t("agent.personaPlaceholder")}
                 rows={2}
-                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-3 px-4 focus:outline-none focus:border-amber-500/50 transition-colors placeholder:text-zinc-600 resize-none"
+                className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground resize-none"
               />
             </div>
 
-            {/* Avatar Upload */}
+            {/* Avatar Selection (Preset + Upload) */}
             <div>
-              <label className="block text-sm text-zinc-400 mb-3">{t("agent.uploadAvatar")}</label>
+              <label className="block text-sm text-muted-foreground mb-3">{t("agent.selectAvatar")}</label>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
-                onChange={handleAvatarUpload}
+                accept="image/png,image/jpeg,image/webp,image/gif"
                 className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFile(file);
+                  e.target.value = "";
+                }}
               />
-
-              {customAvatar ? (
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <div className="w-20 h-20 border border-amber-500 bg-amber-500/10 overflow-hidden">
-                      <img src={customAvatar} alt="avatar" className="w-full h-full object-cover" />
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
+                {/* Upload button as first tile */}
+                {uploadedAvatar ? (
+                  <div className="relative aspect-square border-2 border-blue-500 ring-2 ring-blue-500/30 overflow-hidden group">
+                    <img src={uploadedAvatar} alt="uploaded" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
+                      <Check className="w-5 h-5 text-blue-400" />
                     </div>
-                    <button
-                      onClick={clearCustomAvatar}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-400 transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-1.5 bg-white/10 hover:bg-white/20 transition-colors"
+                        title={t("agent.changeImage", "Change")}
+                      >
+                        <Upload className="w-3.5 h-3.5 text-white" />
+                      </button>
+                      <button
+                        onClick={() => setUploadedAvatar(null)}
+                        className="p-1.5 bg-white/10 hover:bg-red-500/40 transition-colors"
+                        title={t("agent.removeImage", "Remove")}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-white" />
+                      </button>
+                    </div>
                   </div>
+                ) : (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-4 py-2 border border-zinc-700 text-zinc-400 text-sm hover:border-zinc-600 hover:text-white transition-colors"
+                    className="relative aspect-square border-2 border-dashed border-border hover:border-blue-500/50 overflow-hidden transition-all hover:bg-white/[0.02] flex flex-col items-center justify-center gap-1"
                   >
-                    {t("agent.changeImage")}
+                    <ImagePlus className="w-6 h-6 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">{t("agent.uploadAvatar", "Upload")}</span>
                   </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-8 border-2 border-dashed border-zinc-800 bg-zinc-950 hover:border-amber-500/40 hover:bg-amber-500/5 flex flex-col items-center justify-center gap-2 transition-colors group"
-                >
-                  <Upload className="w-8 h-8 text-zinc-600 group-hover:text-amber-400 transition-colors" />
-                  <span className="text-zinc-500 text-sm group-hover:text-zinc-400 transition-colors">{t("agent.clickUploadAvatar")}</span>
-                </button>
-              )}
-              <p className="text-zinc-600 text-xs mt-2">{t("agent.avatarHint")}</p>
+                )}
+
+                {/* Preset avatars */}
+                {PRESET_AVATARS.map((av) => (
+                  <button
+                    key={av.id}
+                    onClick={() => { setSelectedAvatar(av.id); setUploadedAvatar(null); }}
+                    className={`relative aspect-square border-2 overflow-hidden transition-all hover:scale-105 ${
+                      selectedAvatar === av.id && !uploadedAvatar
+                        ? "border-blue-500 ring-2 ring-blue-500/30"
+                        : "border-border hover:border-border"
+                    }`}
+                  >
+                    <img
+                      src={av.src}
+                      alt={av.label}
+                      className="w-full h-full object-cover bg-secondary"
+                    />
+                    {selectedAvatar === av.id && !uploadedAvatar && (
+                      <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
+                        <Check className="w-5 h-5 text-blue-400" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Strategy Selection */}
             <div>
-              <label className="block text-sm text-zinc-400 mb-3">{t("agent.stylePreference")}</label>
+              <label className="block text-sm text-muted-foreground mb-3">{t("agent.stylePreference")}</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {STRATEGIES.map((s) => (
                   <button
@@ -209,12 +356,12 @@ export function MintAgent() {
                     onClick={() => setStrategy(s.id)}
                     className={`text-left p-3 sm:p-4 border transition-colors ${
                       strategy === s.id
-                        ? "border-amber-500 bg-amber-500/10"
-                        : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-border bg-secondary hover:border-border"
                     }`}
                   >
-                    <div className="text-white font-semibold mb-1 text-sm sm:text-base">{s.name}</div>
-                    <div className="text-zinc-500 text-xs">{s.desc}</div>
+                    <div className="text-foreground font-semibold mb-1 text-sm sm:text-base">{s.name}</div>
+                    <div className="text-muted-foreground text-xs">{s.desc}</div>
                   </button>
                 ))}
               </div>
@@ -222,32 +369,19 @@ export function MintAgent() {
 
             {/* Description */}
             <div>
-              <label className="block text-sm text-zinc-400 mb-2">{t("agent.description")}</label>
+              <label className="block text-sm text-muted-foreground mb-2">{t("agent.description")}</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t("agent.descriptionPlaceholder")}
                 rows={3}
-                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-3 px-4 focus:outline-none focus:border-amber-500/50 transition-colors placeholder:text-zinc-600 resize-none"
+                className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground resize-none"
               />
-            </div>
-
-            {/* Vault URI */}
-            <div>
-              <label className="block text-sm text-zinc-400 mb-2">{t("agent.vaultUri")}</label>
-              <input
-                type="text"
-                value={vaultURI}
-                onChange={(e) => setVaultURI(e.target.value)}
-                placeholder={t("agent.vaultUriPlaceholder")}
-                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-3 px-4 focus:outline-none focus:border-amber-500/50 transition-colors placeholder:text-zinc-600"
-              />
-              <p className="text-zinc-600 text-xs mt-1">{t("agent.vaultUriHint")}</p>
             </div>
 
             {/* Mint Fee */}
             <div className="flex items-center justify-end text-sm px-1">
-              <span className="text-amber-400 font-semibold">
+              <span className="text-emerald-400 font-semibold">
                 {t("agent.mintFee")}
               </span>
             </div>
@@ -255,14 +389,23 @@ export function MintAgent() {
             {/* Mint Button */}
             <button
               onClick={handleMint}
-              disabled={loading}
-              className="w-full py-3 sm:py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold text-base sm:text-lg transition-colors flex items-center justify-center gap-2"
+              disabled={loading || remaining <= 0}
+              className="w-full py-3 sm:py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-base sm:text-lg transition-colors flex items-center justify-center gap-2"
             >
-              <Sparkles className="w-5 h-5" />
-              {loading ? t("agent.minting") : t("agent.mintAgent")}
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  {t("agent.minting")}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-5 h-5" />
+                  {t("agent.mintFree")}
+                </>
+              )}
             </button>
 
-            <p className="text-zinc-600 text-xs sm:text-sm text-center">
+            <p className="text-muted-foreground text-xs sm:text-sm text-center">
               {t("agent.initialInfo")}
             </p>
           </motion.div>
@@ -273,7 +416,7 @@ export function MintAgent() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <div className="text-sm text-zinc-400 mb-3">{t("agent.preview")}</div>
+            <div className="text-sm text-muted-foreground mb-3">{t("agent.preview")}</div>
             <AgentCard agent={previewAgent} />
           </motion.div>
         </div>

@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import type { Market, MarketCategory } from '@/app/types/market.types'
-import { MOCK_MARKETS } from '@/app/data/markets'
 import { fetchMarkets } from '@/app/services/api'
+import { MOCK_MARKETS } from '@/app/data/mockMarkets'
 
 type SortBy = 'volume' | 'newest' | 'ending-soon' | 'popular'
+export type TimeWindow = 'all' | 'today' | 'week' | 'month' | 'quarter'
 
 interface MarketState {
   markets: Market[]
@@ -11,14 +12,43 @@ interface MarketState {
   selectedCategory: MarketCategory | 'all'
   searchQuery: string
   sortBy: SortBy
+  timeWindow: TimeWindow
   apiMode: boolean
+  error: boolean
 
   setCategory: (category: MarketCategory | 'all') => void
   setSearch: (query: string) => void
   setSortBy: (sortBy: SortBy) => void
+  setTimeWindow: (tw: TimeWindow) => void
   getMarketById: (id: string) => Market | undefined
   updateMarketPrices: (id: string, yesPrice: number, noPrice: number, volume: number) => void
+  updateMultiOptionPrices: (id: string, prices: { optionId: string; price: number }[]) => void
   fetchFromAPI: () => Promise<void>
+}
+
+function getTimeWindowEnd(tw: TimeWindow): number | null {
+  if (tw === 'all') return null
+  const now = new Date()
+  switch (tw) {
+    case 'today': {
+      const end = new Date(now)
+      end.setHours(23, 59, 59, 999)
+      return end.getTime()
+    }
+    case 'week': {
+      const end = new Date(now)
+      end.setDate(end.getDate() + (7 - end.getDay()))
+      end.setHours(23, 59, 59, 999)
+      return end.getTime()
+    }
+    case 'month': {
+      return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime()
+    }
+    case 'quarter': {
+      const qMonth = Math.ceil((now.getMonth() + 1) / 3) * 3
+      return new Date(now.getFullYear(), qMonth, 0, 23, 59, 59, 999).getTime()
+    }
+  }
 }
 
 function applyFilters(
@@ -26,12 +56,23 @@ function applyFilters(
   category: MarketCategory | 'all',
   searchQuery: string,
   sortBy: SortBy,
+  timeWindow: TimeWindow,
 ): Market[] {
   let result = [...markets]
 
   // Filter by category
   if (category !== 'all') {
     result = result.filter(m => m.category === category)
+  }
+
+  // Filter by time window (endTime falls within the window)
+  const windowEnd = getTimeWindowEnd(timeWindow)
+  if (windowEnd !== null) {
+    const now = Date.now()
+    result = result.filter(m => {
+      const end = new Date(m.endTime).getTime()
+      return end >= now && end <= windowEnd
+    })
   }
 
   // Filter by search query
@@ -65,34 +106,44 @@ function applyFilters(
 }
 
 export const useMarketStore = create<MarketState>((set, get) => ({
-  markets: MOCK_MARKETS,
-  filteredMarkets: applyFilters(MOCK_MARKETS, 'all', '', 'volume'),
+  markets: [],
+  filteredMarkets: [],
   selectedCategory: 'all',
   searchQuery: '',
   sortBy: 'volume',
+  timeWindow: 'all',
   apiMode: false,
+  error: false,
 
   setCategory: (category) => {
-    const { markets, searchQuery, sortBy } = get()
+    const { markets, searchQuery, sortBy, timeWindow } = get()
     set({
       selectedCategory: category,
-      filteredMarkets: applyFilters(markets, category, searchQuery, sortBy),
+      filteredMarkets: applyFilters(markets, category, searchQuery, sortBy, timeWindow),
     })
   },
 
   setSearch: (query) => {
-    const { markets, selectedCategory, sortBy } = get()
+    const { markets, selectedCategory, sortBy, timeWindow } = get()
     set({
       searchQuery: query,
-      filteredMarkets: applyFilters(markets, selectedCategory, query, sortBy),
+      filteredMarkets: applyFilters(markets, selectedCategory, query, sortBy, timeWindow),
     })
   },
 
   setSortBy: (sortBy) => {
-    const { markets, selectedCategory, searchQuery } = get()
+    const { markets, selectedCategory, searchQuery, timeWindow } = get()
     set({
       sortBy,
-      filteredMarkets: applyFilters(markets, selectedCategory, searchQuery, sortBy),
+      filteredMarkets: applyFilters(markets, selectedCategory, searchQuery, sortBy, timeWindow),
+    })
+  },
+
+  setTimeWindow: (timeWindow) => {
+    const { markets, selectedCategory, searchQuery, sortBy } = get()
+    set({
+      timeWindow,
+      filteredMarkets: applyFilters(markets, selectedCategory, searchQuery, sortBy, timeWindow),
     })
   },
 
@@ -101,28 +152,51 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   updateMarketPrices: (id, yesPrice, noPrice, volume) => {
-    const { markets, selectedCategory, searchQuery, sortBy } = get()
+    const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
     const updated = markets.map(m =>
       m.id === id ? { ...m, yesPrice, noPrice, volume } : m,
     )
     set({
       markets: updated,
-      filteredMarkets: applyFilters(updated, selectedCategory, searchQuery, sortBy),
+      filteredMarkets: applyFilters(updated, selectedCategory, searchQuery, sortBy, timeWindow),
+    })
+  },
+
+  updateMultiOptionPrices: (id, prices) => {
+    const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
+    const updated = markets.map(m => {
+      if (m.id !== id || !m.options) return m
+      const updatedOptions = m.options.map(opt => {
+        const priceUpdate = prices.find(p => p.optionId === opt.id)
+        return priceUpdate ? { ...opt, price: priceUpdate.price } : opt
+      })
+      return { ...m, options: updatedOptions }
+    })
+    set({
+      markets: updated,
+      filteredMarkets: applyFilters(updated, selectedCategory, searchQuery, sortBy, timeWindow),
     })
   },
 
   fetchFromAPI: async () => {
     try {
       const apiMarkets = await fetchMarkets()
-      const { selectedCategory, searchQuery, sortBy } = get()
+      const { selectedCategory, searchQuery, sortBy, timeWindow } = get()
       set({
         markets: apiMarkets,
-        filteredMarkets: applyFilters(apiMarkets, selectedCategory, searchQuery, sortBy),
+        filteredMarkets: applyFilters(apiMarkets, selectedCategory, searchQuery, sortBy, timeWindow),
         apiMode: true,
+        error: false,
       })
     } catch {
-      // API not available — keep existing mock data
-      set({ apiMode: false })
+      // API not available — fall back to mock data
+      const { selectedCategory, searchQuery, sortBy, timeWindow } = get()
+      set({
+        markets: MOCK_MARKETS,
+        filteredMarkets: applyFilters(MOCK_MARKETS, selectedCategory, searchQuery, sortBy, timeWindow),
+        apiMode: false,
+        error: false,
+      })
     }
   },
 }))

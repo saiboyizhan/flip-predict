@@ -26,17 +26,17 @@ export function AgentMarketplace() {
   const displayed = tab === "sale" ? forSale : forRent;
 
   if (loading) {
-    return <div className="p-8 text-center text-zinc-500">{t('common.loading')}</div>;
+    return <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>;
   }
 
   return (
     <div className="space-y-6">
       {/* Tabs */}
-      <div className="flex gap-1 border border-zinc-800 inline-flex">
+      <div className="flex gap-1 border border-border inline-flex">
         <button
           onClick={() => setTab("sale")}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "sale" ? "bg-amber-500 text-black" : "text-zinc-400 hover:text-white"
+            tab === "sale" ? "bg-blue-500 text-black" : "text-muted-foreground hover:text-foreground"
           }`}
         >
           <ShoppingCart className="w-4 h-4" />
@@ -45,7 +45,7 @@ export function AgentMarketplace() {
         <button
           onClick={() => setTab("rent")}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "rent" ? "bg-amber-500 text-black" : "text-zinc-400 hover:text-white"
+            tab === "rent" ? "bg-blue-500 text-black" : "text-muted-foreground hover:text-foreground"
           }`}
         >
           <Clock className="w-4 h-4" />
@@ -72,7 +72,7 @@ export function AgentMarketplace() {
           ))}
         </motion.div>
       ) : (
-        <div className="p-12 text-center text-zinc-600 border border-zinc-800 border-dashed">
+        <div className="p-12 text-center text-muted-foreground border border-border border-dashed">
           {t('agentMarketplace.noAgents')}
         </div>
       )}

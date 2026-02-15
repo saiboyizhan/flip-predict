@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight } from "lucide-react";
 import { PositionCard } from "./PositionCard";
 import { usePortfolioStore } from "@/app/stores/usePortfolioStore";
+import { useTradeStore } from "@/app/stores/useTradeStore";
 
 interface HistoryRecord {
   id: string;
@@ -24,8 +25,8 @@ interface PositionListProps {
 
 const STAT_COLOR_CLASS: Record<string, { badge: string; icon: string }> = {
   amber: {
-    badge: "bg-amber-500/10 border-amber-500/30",
-    icon: "text-amber-400",
+    badge: "bg-blue-500/10 border-blue-500/30",
+    icon: "text-blue-400",
   },
   blue: {
     badge: "bg-blue-500/10 border-blue-500/30",
@@ -52,6 +53,23 @@ export function PositionList({ history = [] }: PositionListProps) {
 
   const positions = usePortfolioStore((s) => s.positions);
   const removePosition = usePortfolioStore((s) => s.removePosition);
+  const executeAPISell = useTradeStore((s) => s.executeAPISell);
+  const [sellingIds, setSellingIds] = useState<Set<string>>(new Set());
+
+  const handleSell = async (positionId: string) => {
+    if (sellingIds.has(positionId)) return;
+    const position = positions.find((p) => p.id === positionId);
+    if (!position) return;
+    setSellingIds((prev) => new Set(prev).add(positionId));
+    try {
+      const result = await executeAPISell(position.marketId, position.side, position.shares);
+      if (result.success) {
+        removePosition(positionId);
+      }
+    } finally {
+      setSellingIds((prev) => { const next = new Set(prev); next.delete(positionId); return next; });
+    }
+  };
 
   const totalValue = useMemo(
     () => positions.reduce((sum, p) => sum + p.shares * p.currentPrice, 0),
@@ -107,55 +125,57 @@ export function PositionList({ history = [] }: PositionListProps) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
-              className="bg-zinc-900 border border-zinc-800 p-6"
+              className="bg-card border border-border rounded-xl p-6"
             >
               <div className="flex items-center gap-2 mb-3">
                 <div className={`w-8 h-8 border flex items-center justify-center ${color.badge}`}>
                   <stat.icon className={`w-4 h-4 ${color.icon}`} />
                 </div>
-                <span className="text-xs text-zinc-500 tracking-wider uppercase">{stat.label}</span>
+                <span className="text-xs text-muted-foreground tracking-wider uppercase">{stat.label}</span>
               </div>
-              <div className="text-2xl font-bold text-white font-mono">{stat.value}</div>
+              <div className="text-2xl font-bold text-foreground font-mono">{stat.value}</div>
             </motion.div>
           );
         })}
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-800">
-        <button
-          onClick={() => setActiveTab("positions")}
-          className={`px-6 py-3 text-sm font-semibold tracking-wider uppercase transition-colors border-b-2 ${
-            activeTab === "positions"
-              ? "border-amber-500 text-amber-400"
-              : "border-transparent text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          {t('portfolio.currentPositions', { count: positions.length })}
-        </button>
-        <button
-          onClick={() => setActiveTab("history")}
-          className={`px-6 py-3 text-sm font-semibold tracking-wider uppercase transition-colors border-b-2 ${
-            activeTab === "history"
-              ? "border-amber-500 text-amber-400"
-              : "border-transparent text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          {t('portfolio.tradeHistory', { count: history.length })}
-        </button>
+      <div className="relative flex border-b border-border">
+        {["positions", "history"].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab as "positions" | "history")}
+            className={`relative px-6 py-3 text-sm font-semibold tracking-wider uppercase transition-colors ${
+              activeTab === tab
+                ? "text-blue-400"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab === "positions"
+              ? t('portfolio.currentPositions', { count: positions.length })
+              : t('portfolio.tradeHistory', { count: history.length })}
+            {activeTab === tab && (
+              <motion.div
+                layoutId="tab-indicator"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Content */}
       {activeTab === "positions" && (
         <div>
           {positions.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 p-16 flex flex-col items-center justify-center">
-              <Inbox className="w-16 h-16 text-zinc-700 mb-4" />
-              <h3 className="text-xl font-bold text-zinc-400 mb-2">{t('portfolio.noPositions')}</h3>
-              <p className="text-zinc-600 text-sm mb-6">{t('portfolio.noPositionsDesc')}</p>
+            <div className="bg-card border border-border p-16 flex flex-col items-center justify-center">
+              <Inbox className="w-16 h-16 text-muted-foreground mb-4" />
+              <h3 className="text-xl font-bold text-muted-foreground mb-2">{t('portfolio.noPositions')}</h3>
+              <p className="text-muted-foreground text-sm mb-6">{t('portfolio.noPositionsDesc')}</p>
               <button
                 onClick={() => navigate("/")}
-                className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition-all hover:scale-[1.02]"
+                className="flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-400 text-black font-semibold text-sm transition-all hover:scale-[1.02]"
               >
                 {t('portfolio.discoverMarkets')}
                 <ArrowRight className="w-4 h-4" />
@@ -170,7 +190,7 @@ export function PositionList({ history = [] }: PositionListProps) {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
                 >
-                  <PositionCard position={position} onSell={removePosition} />
+                  <PositionCard position={position} onSell={handleSell} />
                 </motion.div>
               ))}
             </div>
@@ -181,27 +201,27 @@ export function PositionList({ history = [] }: PositionListProps) {
       {activeTab === "history" && (
         <div>
           {history.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 p-16 flex flex-col items-center justify-center">
-              <TrendingUp className="w-16 h-16 text-zinc-700 mb-4" />
-              <h3 className="text-xl font-bold text-zinc-400 mb-2">{t('portfolio.noTradeHistory')}</h3>
-              <p className="text-zinc-600 text-sm">{t('portfolio.noTradeHistoryDesc')}</p>
+            <div className="bg-card border border-border p-16 flex flex-col items-center justify-center">
+              <TrendingUp className="w-16 h-16 text-muted-foreground mb-4" />
+              <h3 className="text-xl font-bold text-muted-foreground mb-2">{t('portfolio.noTradeHistory')}</h3>
+              <p className="text-muted-foreground text-sm">{t('portfolio.noTradeHistoryDesc')}</p>
             </div>
           ) : (
-            <div className="bg-zinc-900 border border-zinc-800 overflow-x-auto">
+            <div className="bg-card border border-border overflow-x-auto">
               <table className="w-full min-w-[600px]">
-                <thead className="bg-zinc-950/50 border-b border-zinc-800">
+                <thead className="bg-secondary/50 border-b border-border">
                   <tr>
-                    <th className="text-left p-4 text-zinc-500 text-xs tracking-wider uppercase">{t('portfolio.market')}</th>
-                    <th className="text-center p-4 text-zinc-500 text-xs tracking-wider uppercase">{t('portfolio.direction')}</th>
-                    <th className="text-right p-4 text-zinc-500 text-xs tracking-wider uppercase">{t('portfolio.amount')}</th>
-                    <th className="text-center p-4 text-zinc-500 text-xs tracking-wider uppercase">{t('portfolio.result')}</th>
-                    <th className="text-right p-4 text-zinc-500 text-xs tracking-wider uppercase">{t('portfolio.pnl')}</th>
+                    <th className="text-left p-4 text-muted-foreground text-xs tracking-wider uppercase">{t('portfolio.market')}</th>
+                    <th className="text-center p-4 text-muted-foreground text-xs tracking-wider uppercase">{t('portfolio.direction')}</th>
+                    <th className="text-right p-4 text-muted-foreground text-xs tracking-wider uppercase">{t('portfolio.amount')}</th>
+                    <th className="text-center p-4 text-muted-foreground text-xs tracking-wider uppercase">{t('portfolio.result')}</th>
+                    <th className="text-right p-4 text-muted-foreground text-xs tracking-wider uppercase">{t('portfolio.pnl')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800">
+                <tbody className="divide-y divide-border">
                   {history.map((record) => (
-                    <tr key={record.id} className="hover:bg-zinc-950/50 transition-colors">
-                      <td className="p-4 text-white text-sm font-medium max-w-[200px] truncate">
+                    <tr key={record.id} className="hover:bg-accent/50 transition-colors">
+                      <td className="p-4 text-foreground text-sm font-medium max-w-[200px] truncate">
                         {record.marketTitle}
                       </td>
                       <td className="p-4 text-center">
@@ -213,7 +233,7 @@ export function PositionList({ history = [] }: PositionListProps) {
                           {record.side.toUpperCase()}
                         </span>
                       </td>
-                      <td className="p-4 text-right text-white font-mono text-sm">
+                      <td className="p-4 text-right text-foreground font-mono text-sm">
                         ${record.amount.toFixed(2)}
                       </td>
                       <td className="p-4 text-center">

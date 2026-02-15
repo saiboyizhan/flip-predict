@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 contract MockOracle {
     int256 private _price;
     uint8 private _decimals;
+    uint256 private _updatedAt;
+    bool private _useCustomUpdatedAt;
 
     constructor(int256 initialPrice, uint8 decimalsVal) {
         _price = initialPrice;
@@ -12,6 +14,11 @@ contract MockOracle {
 
     function setPrice(int256 newPrice) external {
         _price = newPrice;
+    }
+
+    function setUpdatedAt(uint256 updatedAt) external {
+        _updatedAt = updatedAt;
+        _useCustomUpdatedAt = true;
     }
 
     function latestAnswer() external view returns (int256) {
@@ -29,6 +36,7 @@ contract MockOracle {
     function latestRoundData() external view returns (
         uint80, int256, uint256, uint256, uint80
     ) {
-        return (1, _price, block.timestamp, block.timestamp, 1);
+        uint256 updatedAt = _useCustomUpdatedAt ? _updatedAt : block.timestamp;
+        return (1, _price, block.timestamp, updatedAt, 1);
     }
 }

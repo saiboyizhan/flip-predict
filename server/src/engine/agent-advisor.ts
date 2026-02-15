@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { generateLlmSuggestion } from './agent-llm-adapter';
 
 function generateId(): string {
   return 'sug-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -49,6 +50,14 @@ export async function generateSuggestion(db: Pool, agentId: string, marketId: st
 
   const yesPrice = market.yes_price || 0.5;
 
+  // Try LLM-enhanced suggestion first
+  const llmResult = await generateLlmSuggestion(db, agentId, marketId, strategy, agent.wallet_balance || 1000);
+  if (llmResult) {
+    suggestedSide = llmResult.side;
+    confidence = llmResult.confidence;
+    reasoning = llmResult.reasoning;
+  } else {
+  // Fallback to rule-based
   switch (strategy) {
     case 'conservative':
       suggestedSide = yesPrice >= 0.5 ? 'yes' : 'no';
@@ -75,6 +84,7 @@ export async function generateSuggestion(db: Pool, agentId: string, marketId: st
       confidence = Math.random();
       reasoning = `随机策略: 抛硬币决定 ${suggestedSide}`;
   }
+  } // end fallback
 
   // Calculate risk
   const potentialLoss = agent.wallet_balance * 0.1; // max 10% of balance

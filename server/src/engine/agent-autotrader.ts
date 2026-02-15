@@ -1,6 +1,8 @@
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
-import { generateDecisions, StrategyType } from './agent-strategy';
+import { StrategyType } from './agent-strategy';
+import { executeCopyTrades } from './copy-trade';
+import { generateLlmDecisions } from './agent-llm-adapter';
 
 const WIN_RATES: Record<StrategyType, number> = {
   conservative: 0.60,
@@ -27,6 +29,7 @@ interface AutoTradeAgent {
   daily_trade_used: number;
   auto_trade_expires: number | null;
   last_trade_at: number | null;
+  combo_weights: string | null;
 }
 
 /**
@@ -64,7 +67,12 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
   }
 
   const strategy = agent.strategy as StrategyType;
-  const decisions = await generateDecisions(db, strategy, agent.wallet_balance);
+
+  // Use LLM-enhanced decisions (falls back to rule-based if no LLM config)
+  const comboWeights = agent.combo_weights
+    ? (typeof agent.combo_weights === 'string' ? (() => { try { return JSON.parse(agent.combo_weights as string); } catch { return null; } })() : agent.combo_weights)
+    : null;
+  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights);
 
   if (decisions.length === 0) return;
 
@@ -89,10 +97,13 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       // Check daily limit
       if (totalDailyUsed + tradeAmount > maxDaily) continue;
 
-      // Daily loss circuit breaker: if daily loss > 20% of max daily, stop
+      // Bug D8 Fix: Use calendar-day boundary (consistent with daily_trade_used reset)
+      // instead of rolling 24h window. The old rolling window could under-count losses
+      // right after midnight because the daily usage counter was already reset to 0.
+      const todayStartMs = todayDay * 86400000;
       const dailyProfit = (await client.query(
-        "SELECT COALESCE(SUM(profit), 0) as total FROM agent_trades WHERE agent_id = $1 AND created_at > $2",
-        [agentId, Date.now() - 86400000]
+        "SELECT COALESCE(SUM(profit), 0) as total FROM agent_trades WHERE agent_id = $1 AND created_at >= $2",
+        [agentId, todayStartMs]
       )).rows[0] as any;
 
       if (dailyProfit && dailyProfit.total < -(maxDaily * 0.2)) {
@@ -127,11 +138,12 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       const newLevel = Math.min(10, Math.floor(experience / 100) + 1);
       if (newLevel > level) level = newLevel;
 
+      const tradeId = randomUUID();
       await client.query(`
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `, [
-        randomUUID(),
+        tradeId,
         agentId,
         d.marketId,
         d.side,
@@ -142,6 +154,18 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
         profit,
         Date.now()
       ]);
+
+      // Execute copy trades for followers
+      try {
+        await executeCopyTrades(db, agentId, tradeId, {
+          marketId: d.marketId,
+          side: d.side,
+          amount: tradeAmount,
+          price: Math.round(price * 10000) / 10000,
+        });
+      } catch (copyErr: any) {
+        console.error(`Copy trade execution error for agent ${agentId}:`, copyErr.message);
+      }
     }
 
     const wr = total_trades > 0 ? Math.round((winning_trades / total_trades) * 100) : 0;

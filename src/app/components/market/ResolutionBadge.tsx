@@ -11,11 +11,9 @@ interface ResolutionBadgeProps {
 
 function formatPrice(price: number): string {
   return price.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
+    maximumFractionDigits: 4,
+  }) + " BNB";
 }
 
 export function ResolutionBadge({
@@ -26,22 +24,32 @@ export function ResolutionBadge({
   const { t } = useTranslation();
   if (resolutionType === "manual") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-muted text-muted-foreground border border-border">
         <User className="w-3 h-3" />
         {t('resolved.manualSettlement')}
       </span>
     );
   }
 
-  const operator = resolutionType === "price_above" ? ">" : "<";
-  const label = oraclePair
-    ? `${oraclePair} ${operator} ${targetPrice != null ? formatPrice(targetPrice) : "?"}`
-    : resolutionType;
+  if (resolutionType === "price_above" || resolutionType === "price_below") {
+    const operator = resolutionType === "price_above" ? ">" : "<";
+    const label = oraclePair
+      ? `${oraclePair} ${operator} ${targetPrice != null ? formatPrice(targetPrice) : "?"}`
+      : resolutionType;
 
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-gradient-to-r from-blue-500/20 to-yellow-500/20 text-blue-300 border border-blue-500/30">
+        <Bot className="w-3 h-3" />
+        {t('market.oracle', { label })}
+      </span>
+    );
+  }
+
+  // auto / default: show auto settlement
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-300 border border-amber-500/30">
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-gradient-to-r from-blue-500/20 to-emerald-500/20 text-emerald-300 border border-emerald-500/30">
       <Bot className="w-3 h-3" />
-      {t('market.oracle', { label })}
+      {t('resolved.autoSettlement')}
     </span>
   );
 }

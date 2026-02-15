@@ -1,29 +1,59 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
+import { Sparkles, ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CategoryNav } from "../components/explore/CategoryNav";
+import { TimeFilter } from "../components/explore/TimeFilter";
 import { MarketGrid } from "../components/explore/MarketGrid";
 import { useMarketStore } from "../stores/useMarketStore";
+import { useAuthStore } from "../stores/useAuthStore";
+import { useAgentStore } from "../stores/useAgentStore";
 import { useShallow } from "zustand/react/shallow";
 import { CATEGORIES } from "../data/markets";
+import { PRESET_AVATARS } from "../config/avatars";
 import type { Market } from "../types/market.types";
 
 // Convert store Market to MarketCard format
 function toCardMarket(m: Market) {
   const cat = CATEGORIES.find(c => c.id === m.category);
+
+  // Map store MarketStatus to MarketCard status union
+  let cardStatus: "active" | "expiring" | "settled" | "pending_resolution" | "resolved";
+  switch (m.status) {
+    case "active":
+      cardStatus = "active";
+      break;
+    case "pending":
+    case "pending_resolution":
+      cardStatus = "pending_resolution";
+      break;
+    case "closed":
+    case "resolved":
+      cardStatus = "settled";
+      break;
+    case "disputed":
+      cardStatus = "expiring";
+      break;
+    default:
+      cardStatus = "active";
+  }
+
   return {
     id: m.id,
     title: m.title,
-    category: cat?.name || m.category,
+    category: m.category,
     categoryEmoji: cat?.emoji || "",
     yesPrice: m.yesPrice,
     noPrice: m.noPrice,
     volume: m.volume,
     participants: m.participants,
     endTime: m.endTime,
-    status: m.status === "active" ? "active" as const : m.status === "closed" || m.status === "resolved" ? "settled" as const : "expiring" as const,
+    status: cardStatus,
     description: m.description,
     resolution: m.resolutionSource,
+    resolvedOutcome: m.resolvedOutcome,
+    marketType: m.marketType,
+    options: m.options,
   };
 }
 
@@ -31,14 +61,28 @@ export default function HomePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const {
+    markets,
     filteredMarkets,
     selectedCategory,
     setCategory,
+    sortBy,
+    setSortBy,
+    timeWindow,
+    setTimeWindow,
+    error: marketError,
+    fetchFromAPI,
   } = useMarketStore(
     useShallow((s) => ({
+      markets: s.markets,
       filteredMarkets: s.filteredMarkets,
       selectedCategory: s.selectedCategory,
       setCategory: s.setCategory,
+      sortBy: s.sortBy,
+      setSortBy: s.setSortBy,
+      timeWindow: s.timeWindow,
+      setTimeWindow: s.setTimeWindow,
+      error: s.error,
+      fetchFromAPI: s.fetchFromAPI,
     }))
   );
 
@@ -49,20 +93,71 @@ export default function HomePage() {
     navigate(`/market/${marketId}`);
   };
 
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { hasAgent, setShowMintModal } = useAgentStore(
+    useShallow((s) => ({ hasAgent: s.hasAgent, setShowMintModal: s.setShowMintModal }))
+  );
+
+  const showMintBanner = isAuthenticated && !hasAgent;
+
   return (
-    <div className="pt-4">
+    <div className="relative pt-4">
+      {/* Decorative blur */}
+      <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-blue-500/5 rounded-full blur-3xl" />
+
+      {/* Agent Mint Banner */}
+      {showMintBanner && (
+        <div className="px-4 sm:px-6 mb-6">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden bg-gradient-to-r from-blue-500/15 via-blue-500/5 to-transparent border border-blue-500/30 rounded-xl p-5 sm:p-6"
+          >
+            <div className="flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-5 h-5 text-blue-400" />
+                  <h3 className="text-lg font-bold">{t("agent.mintModalTitle")}</h3>
+                </div>
+                <p className="text-muted-foreground text-sm mb-3">
+                  {t("agent.mintSubtitle")}
+                </p>
+                {/* Avatar preview strip */}
+                <div className="flex items-center gap-1.5">
+                  {PRESET_AVATARS.slice(0, 6).map((av) => (
+                    <div key={av.id} className="w-8 h-8 border border-border overflow-hidden rounded-sm bg-secondary">
+                      <img src={av.src} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                  <span className="text-xs text-muted-foreground ml-1">+6</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMintModal(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white font-bold text-sm transition-colors whitespace-nowrap"
+              >
+                <Sparkles className="w-4 h-4" />
+                {t("agent.mintFree")}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Featured Market Banner */}
       {featuredMarkets.length > 0 && (
-        <div className="px-4 sm:px-6 mb-6">
+        <div className="relative px-4 sm:px-6 mb-6">
+          {/* Primary Featured */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden bg-gradient-to-r from-amber-500/10 via-zinc-900 to-emerald-500/10 border border-zinc-800 p-4 sm:p-6 md:p-8 cursor-pointer"
+            className="relative overflow-hidden bg-gradient-to-r from-blue-500/[0.08] via-card to-emerald-500/[0.04] border border-blue-500/10 rounded-xl p-4 sm:p-6 md:p-8 cursor-pointer hover:border-blue-500/30 transition-colors shadow-lg shadow-blue-500/[0.06] card-highlight"
             onClick={() => handleMarketClick(featuredMarkets[0].id)}
           >
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-3">
-                <span className="px-2 py-1 bg-amber-500 text-black text-xs font-bold">
+                <span className="px-2 py-1 bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm shadow-blue-500/40">
                   {t("common.hotPrediction")}
                 </span>
                 <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs border border-emerald-500/30">
@@ -72,37 +167,73 @@ export default function HomePage() {
               <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-3">
                 {featuredMarkets[0].title}
               </h2>
-              <p className="text-zinc-400 text-sm mb-4 sm:mb-6 max-w-2xl">
+              <p className="text-muted-foreground text-sm mb-4 sm:mb-6 max-w-2xl">
                 {featuredMarkets[0].description}
               </p>
               <div className="flex flex-wrap items-center gap-4 sm:gap-8">
                 <div>
-                  <span className="text-emerald-400 text-2xl sm:text-3xl font-bold font-mono">
+                  <span className="text-emerald-400 text-2xl sm:text-3xl font-bold font-mono tabular-nums tracking-tight">
                     {Math.round(featuredMarkets[0].yesPrice * 100)}%
                   </span>
-                  <span className="text-zinc-500 text-sm ml-2">{t("market.yes")}</span>
+                  <span className="text-muted-foreground text-sm ml-2">{t("market.yes")}</span>
                 </div>
-                <div className="w-px h-8 bg-zinc-700 hidden sm:block" />
+                <div className="w-px h-8 bg-border hidden sm:block" />
                 <div>
-                  <span className="text-red-400 text-2xl sm:text-3xl font-bold font-mono">
-                    {Math.round(featuredMarkets[0].noPrice * 100)}%
+                  <span className="text-red-400 text-2xl sm:text-3xl font-bold font-mono tabular-nums tracking-tight">
+                    {100 - Math.round(featuredMarkets[0].yesPrice * 100)}%
                   </span>
-                  <span className="text-zinc-500 text-sm ml-2">{t("market.no")}</span>
+                  <span className="text-muted-foreground text-sm ml-2">{t("market.no")}</span>
                 </div>
-                <div className="w-px h-8 bg-zinc-700 hidden sm:block" />
+                <div className="w-px h-8 bg-border hidden sm:block" />
                 <div>
-                  <span className="text-amber-400 text-lg font-mono">
+                  <span className="text-blue-400 text-lg font-mono tabular-nums">
                     ${featuredMarkets[0].volume >= 1000000
                       ? `${(featuredMarkets[0].volume / 1000000).toFixed(1)}M`
                       : `${(featuredMarkets[0].volume / 1000).toFixed(1)}K`}
                   </span>
-                  <span className="text-zinc-500 text-sm ml-2">{t("common.volume")}</span>
+                  <span className="text-muted-foreground text-sm ml-2">{t("common.volume")}</span>
                 </div>
               </div>
             </div>
-            {/* Background glow */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl" />
           </motion.div>
+
+          {/* Secondary Featured Cards */}
+          {featuredMarkets.length > 1 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+              {featuredMarkets.slice(1, 3).map((m, i) => {
+                return (
+                  <motion.div
+                    key={m.id}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 + i * 0.08 }}
+                    className="relative overflow-hidden bg-card border border-white/[0.06] rounded-xl p-4 cursor-pointer hover:border-blue-500/20 hover:shadow-md hover:shadow-blue-500/10 transition-all"
+                    onClick={() => handleMarketClick(m.id)}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs font-semibold rounded-md">
+                        {t("common.featured")}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold mb-2 line-clamp-2">{m.title}</h3>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="text-emerald-400 font-mono font-bold">
+                        {Math.round(m.yesPrice * 100)}% {t("market.yes")}
+                      </span>
+                      <span className="text-red-400 font-mono font-bold">
+                        {100 - Math.round(m.yesPrice * 100)}% {t("market.no")}
+                      </span>
+                      <span className="text-muted-foreground ml-auto font-mono">
+                        ${m.volume >= 1000000
+                          ? `${(m.volume / 1000000).toFixed(1)}M`
+                          : `${(m.volume / 1000).toFixed(1)}K`}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -114,18 +245,52 @@ export default function HomePage() {
         />
       </div>
 
-      {/* Market Grid */}
+      {/* Sidebar + Market Grid */}
       <div className="px-4 sm:px-6 pb-12">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg sm:text-xl font-bold">
-            {selectedCategory === "all" ? t("common.allMarkets") : (CATEGORIES.find(c => c.id === selectedCategory)?.name || selectedCategory)}
-          </h2>
-          <span className="text-zinc-500 text-xs sm:text-sm">{t("common.marketsCount", { count: filteredMarkets.length })}</span>
+        <div className="flex gap-6">
+          {/* Left Sidebar - Time Filter (desktop only) */}
+          <aside className="hidden lg:block w-44 shrink-0">
+            <div className="sticky top-20">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">
+                {t("timeFilter.label")}
+              </h3>
+              <TimeFilter selected={timeWindow} onChange={setTimeWindow} markets={markets} />
+            </div>
+          </aside>
+
+          {/* Main Content */}
+          <div className="flex-1 min-w-0">
+            {/* Mobile Time Filter */}
+            <div className="lg:hidden mb-4 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+              <TimeFilter selected={timeWindow} onChange={setTimeWindow} markets={markets} />
+            </div>
+
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg sm:text-xl font-bold">
+                {t(`category.${selectedCategory}`)}
+              </h2>
+              <div className="flex items-center gap-3">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-foreground"
+                >
+                  <option value="volume">{t("sort.volume")}</option>
+                  <option value="newest">{t("sort.newest")}</option>
+                  <option value="ending-soon">{t("sort.endingSoon")}</option>
+                  <option value="popular">{t("sort.popular")}</option>
+                </select>
+                <span className="text-muted-foreground text-xs sm:text-sm">{t("common.marketsCount", { count: filteredMarkets.length })}</span>
+              </div>
+            </div>
+            <MarketGrid
+              markets={cardMarkets}
+              error={marketError}
+              onMarketClick={handleMarketClick}
+              onRetry={fetchFromAPI}
+            />
+          </div>
         </div>
-        <MarketGrid
-          markets={cardMarkets}
-          onMarketClick={handleMarketClick}
-        />
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Clock, Timer, CheckCircle2, Loader2 } from "lucide-react";
+import { Clock, Timer, CheckCircle2, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 interface MarketCountdownProps {
@@ -71,9 +71,9 @@ export function MarketCountdown({
       <motion.div
         animate={{ opacity: [1, 0.6, 1] }}
         transition={{ duration: 2, repeat: Infinity }}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30"
+        className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30"
       >
-        <Loader2 className="w-4 h-4 animate-spin" />
+        <Bot className="w-4 h-4" />
         <span>{t('market.waitingAdmin')}</span>
       </motion.div>
     );
@@ -85,7 +85,7 @@ export function MarketCountdown({
       <motion.div
         animate={{ opacity: [1, 0.6, 1] }}
         transition={{ duration: 2, repeat: Infinity }}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30"
+        className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30"
       >
         <Timer className="w-4 h-4" />
         <span>{t('market.expired_waiting')}</span>
@@ -120,7 +120,7 @@ export function MarketCountdown({
         className={`flex items-center gap-2 px-4 py-2 text-sm font-bold font-mono ${
           isUrgent
             ? "bg-red-500/20 text-red-400 border border-red-500/30"
-            : "bg-zinc-800 text-zinc-300 border border-zinc-700"
+            : "bg-muted text-muted-foreground border border-border"
         }`}
       >
         <Clock className="w-4 h-4" />

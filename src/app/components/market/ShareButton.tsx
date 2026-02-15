@@ -70,8 +70,8 @@ export function ShareButton({ marketTitle, marketId, yesPrice, compact }: ShareB
         }}
         className={`flex items-center justify-center transition-colors ${
           compact
-            ? "w-7 h-7 text-zinc-500 hover:text-amber-400"
-            : "gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-amber-500/50 text-zinc-400 hover:text-amber-400 text-sm"
+            ? "w-7 h-7 text-muted-foreground hover:text-blue-400"
+            : "gap-1.5 px-3 py-1.5 bg-muted border border-border hover:border-blue-500/50 text-muted-foreground hover:text-blue-400 text-sm"
         }`}
         title={t('share.share')}
       >
@@ -81,31 +81,31 @@ export function ShareButton({ marketTitle, marketId, yesPrice, compact }: ShareB
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-2 w-52 bg-zinc-900 border border-zinc-700 shadow-xl z-50"
+          className="absolute right-0 top-full mt-2 w-52 bg-card border border-border shadow-xl z-50"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-2 border-b border-zinc-800 text-xs text-zinc-500">
+          <div className="px-3 py-2 border-b border-border text-xs text-muted-foreground">
             {t('share.shareTo')}
           </div>
           <button
             onClick={handleCopyLink}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
-            <Copy className="w-4 h-4 text-amber-400" />
+            <Copy className="w-4 h-4 text-blue-400" />
             {t('share.copyLink')}
           </button>
           <button
             onClick={handleTwitterShare}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
-            <XIcon className="w-4 h-4 text-amber-400" />
+            <XIcon className="w-4 h-4 text-blue-400" />
             {t('share.shareTwitter')}
           </button>
           <button
             onClick={handleTelegramShare}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
-            <Send className="w-4 h-4 text-amber-400" />
+            <Send className="w-4 h-4 text-blue-400" />
             {t('share.shareTelegram')}
           </button>
         </div>

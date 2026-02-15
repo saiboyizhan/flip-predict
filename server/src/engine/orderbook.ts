@@ -56,16 +56,17 @@ export async function getOrderBook(db: Pool, marketId: string, side: string): Pr
   `, [marketId, side]);
   const sellOrders = sellRes.rows as Array<{ price: number; total_amount: number; cnt: number }>;
 
+  // Bug D11 Fix: PostgreSQL SUM/COUNT return string types; coerce to number.
   const bids: OrderBookLevel[] = buyOrders.map(o => ({
-    price: o.price,
-    amount: o.total_amount,
-    count: o.cnt,
+    price: Number(o.price),
+    amount: Number(o.total_amount),
+    count: Number(o.cnt),
   }));
 
   const asks: OrderBookLevel[] = sellOrders.map(o => ({
-    price: o.price,
-    amount: o.total_amount,
-    count: o.cnt,
+    price: Number(o.price),
+    amount: Number(o.total_amount),
+    count: Number(o.cnt),
   }));
 
   const highestBid = bids.length > 0 ? bids[0].price : 0;
@@ -114,7 +115,7 @@ export async function placeLimitOrder(
       const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
       const balance = balanceRes.rows[0];
       const cost = amount * price;
-      if (!balance || balance.available < cost) throw new Error('Insufficient balance');
+      if (!balance || Number(balance.available) < cost) throw new Error('Insufficient balance');
 
       // Lock funds
       await client.query(
@@ -207,11 +208,11 @@ export async function placeLimitOrder(
         [userAddress, marketId, side]
       );
       const position = posRes.rows[0];
-      if (!position || position.shares < amount) throw new Error('Insufficient shares');
+      if (!position || Number(position.shares) < amount) throw new Error('Insufficient shares');
       const lockedCostBasis = Number(position.avg_cost) || 0;
 
       // Reduce position (lock shares conceptually by reducing position)
-      const newShares = position.shares - amount;
+      const newShares = Number(position.shares) - amount;
       if (newShares <= 0.0001) {
         await client.query('DELETE FROM positions WHERE id = $1', [position.id]);
       } else {
@@ -325,7 +326,7 @@ export async function placeMarketOrder(
     if (orderSide === 'buy') {
       const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
       const balance = balanceRes.rows[0];
-      if (!balance || balance.available < amount) throw new Error('Insufficient balance');
+      if (!balance || Number(balance.available) < amount) throw new Error('Insufficient balance');
 
       // Eat through sell orders (asks) from lowest price, excluding own orders
       const askRes = await client.query(`
@@ -337,7 +338,7 @@ export async function placeMarketOrder(
       `, [marketId, side, userAddress]);
       const askOrders = askRes.rows;
 
-      let remainingBudget = amount; // amount is in USDT terms
+      let remainingBudget = amount; // amount is in BNB terms
 
       for (const askOrder of askOrders) {
         if (remainingBudget <= 0.0001) break;
@@ -372,7 +373,8 @@ export async function placeMarketOrder(
 
       // Remaining budget goes to AMM
       if (remainingBudget > 0.01) {
-        const ammResult = calculateBuy(market.yes_reserve, market.no_reserve, side as 'yes' | 'no', remainingBudget);
+        // Bug D21 Fix: Coerce reserves to number before passing to AMM.
+        const ammResult = calculateBuy(Number(market.yes_reserve), Number(market.no_reserve), side as 'yes' | 'no', remainingBudget);
 
         await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2', [remainingBudget, userAddress]);
 
@@ -402,7 +404,18 @@ export async function placeMarketOrder(
         [userAddress, marketId, side]
       );
       const position = posRes.rows[0];
-      if (!position || position.shares < amount) throw new Error('Insufficient shares');
+      if (!position || Number(position.shares) < amount) throw new Error('Insufficient shares');
+
+      // Bug D6 Fix: Reduce the entire sell amount from the position up-front in a single
+      // operation, instead of calling reducePosition() per matched bid + AMM remainder.
+      // The old approach called reducePosition() in a loop which re-fetched the row each
+      // time, risking double-reduction or finding the row already deleted.
+      const newShares = Number(position.shares) - amount;
+      if (newShares <= 0.0001) {
+        await client.query('DELETE FROM positions WHERE id = $1', [position.id]);
+      } else {
+        await client.query('UPDATE positions SET shares = $1 WHERE id = $2', [newShares, position.id]);
+      }
 
       // Eat through buy orders (bids) from highest price, excluding own orders
       const bidRes = await client.query(`
@@ -438,9 +451,6 @@ export async function placeMarketOrder(
         // Pay seller
         await creditAvailableBalance(client, userAddress, matchCost);
 
-        // Reduce seller's position
-        await reducePosition(client, userAddress, marketId, side, matchAmount);
-
         trades.push({ price: bidOrder.price, amount: matchAmount, counterpartyOrderId: bidOrder.id });
         totalFilled += matchAmount;
         totalCost += matchCost;
@@ -449,9 +459,8 @@ export async function placeMarketOrder(
 
       // Remaining goes to AMM
       if (remaining > 0.0001) {
-        const ammResult = calculateSell(market.yes_reserve, market.no_reserve, side as 'yes' | 'no', remaining);
-
-        await reducePosition(client, userAddress, marketId, side, remaining);
+        // Bug D21 Fix: Coerce reserves to number before passing to AMM.
+        const ammResult = calculateSell(Number(market.yes_reserve), Number(market.no_reserve), side as 'yes' | 'no', remaining);
 
         await creditAvailableBalance(client, userAddress, ammResult.amountOut);
 
@@ -603,7 +612,7 @@ async function reducePosition(
 
   if (!position) return;
 
-  const newShares = position.shares - shares;
+  const newShares = Number(position.shares) - shares;
   if (newShares <= 0.0001) {
     await client.query('DELETE FROM positions WHERE id = $1', [position.id]);
   } else {

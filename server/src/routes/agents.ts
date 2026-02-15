@@ -1,6 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
+import { recordPrediction, analyzeStyle } from '../engine/agent-prediction';
+import { generateSuggestion, calculateRisk } from '../engine/agent-advisor';
+import { getLearningMetrics } from '../engine/agent-learning';
+import { encrypt, decrypt, maskApiKey } from '../utils/crypto';
 
 const router = Router();
 
@@ -24,6 +28,18 @@ function parsePositiveInteger(value: unknown): number | null {
     return null;
   }
   return parsed;
+}
+
+function parseNonNegativeInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function isTxHash(value: unknown): value is string {
+  return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
 }
 
 // ========== Public Routes ==========
@@ -58,6 +74,23 @@ router.get('/', async (req: Request, res: Response) => {
     params.push(parsedLimit);
 
     const agents = (await db.query(sql, params)).rows;
+
+    // Add copy follower counts
+    if (agents.length > 0) {
+      const agentIds = agents.map((a: any) => a.id);
+      const followerCounts = (await db.query(
+        "SELECT agent_id, COUNT(*) as count FROM agent_followers WHERE agent_id = ANY($1) AND status = 'active' GROUP BY agent_id",
+        [agentIds]
+      )).rows;
+      const countMap: Record<string, number> = {};
+      for (const fc of followerCounts) {
+        countMap[fc.agent_id] = Number(fc.count);
+      }
+      for (const agent of agents) {
+        (agent as any).copyFollowerCount = countMap[(agent as any).id] || 0;
+      }
+    }
+
     res.json({ agents });
   } catch (err: any) {
     console.error('Agents error:', err);
@@ -93,6 +126,22 @@ router.get('/marketplace', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/agents/check — quick check if user has agent (JWT required)
+router.get('/check', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const result = await db.query(
+      'SELECT COUNT(*) as count FROM agents WHERE owner_address = $1',
+      [req.userAddress]
+    );
+    const count = Number(result.rows[0]?.count) || 0;
+    res.json({ hasAgent: count > 0, agentCount: count });
+  } catch (err: any) {
+    console.error('Agent check error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/agents/my — my agents (JWT required) — must be before /:id
 router.get('/my', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
@@ -123,6 +172,13 @@ router.get('/:id', async (req: Request, res: Response) => {
       [req.params.id]
     )).rows;
 
+    // Add copy follower count
+    const followerCount = (await db.query(
+      "SELECT COUNT(*) as count FROM agent_followers WHERE agent_id = $1 AND status = 'active'",
+      [req.params.id]
+    )).rows[0];
+    (agent as any).copyFollowerCount = Number(followerCount.count) || 0;
+
     res.json({ agent, trades });
   } catch (err: any) {
     console.error('Agents error:', err);
@@ -132,14 +188,20 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // ========== Authenticated Routes ==========
 
-// POST /api/agents/mint — create agent
+// POST /api/agents/mint — create agent (free, max 3 per address)
 router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { name, strategy, description, persona, avatar } = req.body;
+    const { name, strategy, description, persona, avatar, tokenId, mintTxHash } = req.body;
+    const parsedTokenId = tokenId == null ? null : parseNonNegativeInteger(tokenId);
+    const normalizedMintTxHash = typeof mintTxHash === 'string' ? mintTxHash.trim().toLowerCase() : null;
 
     if (typeof name !== 'string' || !name.trim()) {
       res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+    if (name.trim().length > 30) {
+      res.status(400).json({ error: 'Name must be 30 characters or less' });
       return;
     }
     if (strategy && !VALID_STRATEGIES.includes(strategy)) {
@@ -147,13 +209,52 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
       return;
     }
 
+    // Check 3-agent limit per address
+    const countRes = await db.query(
+      'SELECT COUNT(*) as count FROM agents WHERE owner_address = $1',
+      [req.userAddress]
+    );
+    const currentCount = Number(countRes.rows[0]?.count) || 0;
+    if (currentCount >= 3) {
+      res.status(400).json({ error: 'Max 3 agents per address' });
+      return;
+    }
+
+    // Avatar is required (preset avatar path)
+    if (!avatar || typeof avatar !== 'string') {
+      res.status(400).json({ error: 'Avatar is required' });
+      return;
+    }
+    if (tokenId != null && parsedTokenId === null) {
+      res.status(400).json({ error: 'tokenId must be a non-negative integer' });
+      return;
+    }
+    if (normalizedMintTxHash && !isTxHash(normalizedMintTxHash)) {
+      res.status(400).json({ error: 'mintTxHash must be a valid transaction hash' });
+      return;
+    }
+    if (parsedTokenId == null || normalizedMintTxHash == null) {
+      res.status(400).json({ error: 'tokenId and mintTxHash are required for on-chain mint sync' });
+      return;
+    }
+    const existingToken = await db.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [parsedTokenId]);
+    if (existingToken.rows.length > 0) {
+      res.status(409).json({ error: 'tokenId already exists' });
+      return;
+    }
+    const existingMintTx = await db.query('SELECT id FROM agents WHERE LOWER(mint_tx_hash) = LOWER($1) LIMIT 1', [normalizedMintTxHash]);
+    if (existingMintTx.rows.length > 0) {
+      res.status(409).json({ error: 'mintTxHash already exists' });
+      return;
+    }
+
     const id = generateId();
     const now = Date.now();
 
     await db.query(`
-      INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, wallet_balance, level, experience, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 1000, 1, 0, $8)
-    `, [id, name.trim(), req.userAddress, strategy || 'conservative', description || '', persona || '', avatar || null, now]);
+      INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, token_id, mint_tx_hash, wallet_balance, level, experience, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1000, 1, 0, $10)
+    `, [id, name.trim(), req.userAddress, strategy || 'random', description || '', persona || '', avatar, parsedTokenId, normalizedMintTxHash, now]);
 
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
     res.json({ agent });
@@ -410,7 +511,6 @@ router.delete('/:id/delist', authMiddleware, async (req: AuthRequest, res: Respo
 router.post('/:id/predict', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { recordPrediction } = require('../engine/agent-prediction');
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
@@ -431,7 +531,7 @@ router.post('/:id/predict', authMiddleware, async (req: AuthRequest, res: Respon
     }
 
     const result = await recordPrediction(db, {
-      agentId: req.params.id,
+      agentId: req.params.id as string,
       marketId,
       prediction,
       confidence: parsedConfidence,
@@ -439,7 +539,14 @@ router.post('/:id/predict', authMiddleware, async (req: AuthRequest, res: Respon
     });
     res.json({ prediction: result });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    const safePredictionMessages = ['Agent not found', 'Market not found', 'Market is not active', 'already has a prediction', 'Prediction must be', 'Confidence must be'];
+    const isSafe = safePredictionMessages.some(m => err.message?.includes(m));
+    if (isSafe) {
+      res.status(400).json({ error: err.message });
+    } else {
+      console.error('Agent prediction error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 
@@ -464,8 +571,7 @@ router.get('/:id/predictions', async (req: Request, res: Response) => {
 router.get('/:id/style-profile', async (req: Request, res: Response) => {
   try {
     const db = getDb();
-    const { analyzeStyle } = require('../engine/agent-prediction');
-    const report = await analyzeStyle(db, req.params.id);
+    const report = await analyzeStyle(db, req.params.id as string);
     res.json({ profile: report });
   } catch (err: any) {
     console.error('Agents error:', err);
@@ -477,16 +583,22 @@ router.get('/:id/style-profile', async (req: Request, res: Response) => {
 router.post('/:id/suggest', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { generateSuggestion } = require('../engine/agent-advisor');
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
 
     const { marketId } = req.body;
-    const suggestion = await generateSuggestion(db, req.params.id, marketId);
+    const suggestion = await generateSuggestion(db, req.params.id as string, marketId);
     res.json({ suggestion });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    const safeSuggestionMessages = ['Agent not found', 'Market not found', 'Market is not active'];
+    const isSafe = safeSuggestionMessages.some(m => err.message?.includes(m));
+    if (isSafe) {
+      res.status(400).json({ error: err.message });
+    } else {
+      console.error('Agent suggestion error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 
@@ -494,7 +606,6 @@ router.post('/:id/suggest', authMiddleware, async (req: AuthRequest, res: Respon
 router.post('/:id/execute-suggestion', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { calculateRisk } = require('../engine/agent-advisor');
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
@@ -515,7 +626,8 @@ router.post('/:id/execute-suggestion', authMiddleware, async (req: AuthRequest, 
 
     res.json({ success: true, suggestion: { ...suggestion, user_action: 'accepted' } });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    console.error('Agent execute-suggestion error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -626,11 +738,159 @@ router.get('/:id/vault', async (req: Request, res: Response) => {
 router.get('/:id/learning-metrics', async (req: Request, res: Response) => {
   try {
     const db = getDb();
-    const { getLearningMetrics } = require('../engine/agent-learning');
-    const metrics = await getLearningMetrics(db, req.params.id);
+    const metrics = await getLearningMetrics(db, req.params.id as string);
     res.json({ metrics });
   } catch (err: any) {
     console.error('Agents error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ========== NFA Agent LLM Configuration Routes ==========
+
+const VALID_PROVIDERS = ['openai', 'anthropic', 'google', 'deepseek', 'zhipu', 'custom'];
+
+// PUT /api/agents/:id/llm-config -- set or update LLM config
+router.put('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+
+    const { provider, model, apiKey, baseUrl, systemPrompt, temperature, maxTokens } = req.body;
+
+    if (!provider || !VALID_PROVIDERS.includes(provider)) {
+      res.status(400).json({ error: 'Invalid provider. Must be one of: ' + VALID_PROVIDERS.join(', ') });
+      return;
+    }
+    if (!model || typeof model !== 'string') {
+      res.status(400).json({ error: 'Model is required' });
+      return;
+    }
+    if (provider === 'custom' && (!baseUrl || typeof baseUrl !== 'string')) {
+      res.status(400).json({ error: 'Base URL is required for custom provider' });
+      return;
+    }
+
+    const temp = typeof temperature === 'number' ? Math.max(0, Math.min(1, temperature)) : 0.7;
+    const tokens = typeof maxTokens === 'number' ? Math.max(64, Math.min(4096, maxTokens)) : 1024;
+    const now = Date.now();
+
+    // Check if updating existing config with "KEEP_EXISTING" sentinel
+    let encryptedKey: string;
+    if (apiKey === 'KEEP_EXISTING') {
+      const existing = (await db.query('SELECT api_key_encrypted FROM agent_llm_config WHERE agent_id = $1', [req.params.id])).rows[0] as any;
+      if (!existing) {
+        res.status(400).json({ error: 'Valid API key is required (no existing config found)' });
+        return;
+      }
+      encryptedKey = existing.api_key_encrypted;
+    } else {
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.length < 8) {
+        res.status(400).json({ error: 'Valid API key is required (min 8 chars)' });
+        return;
+      }
+      encryptedKey = encrypt(apiKey);
+    }
+
+    await db.query(`
+      INSERT INTO agent_llm_config (agent_id, provider, model, api_key_encrypted, base_url, system_prompt, temperature, max_tokens, enabled, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $9)
+      ON CONFLICT (agent_id)
+      DO UPDATE SET provider = $2, model = $3, api_key_encrypted = $4, base_url = $5, system_prompt = $6, temperature = $7, max_tokens = $8, updated_at = $9
+    `, [req.params.id, provider, model, encryptedKey, baseUrl || null, systemPrompt || null, temp, tokens, now]);
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('LLM config update error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/agents/:id/llm-config -- get LLM config (key masked)
+router.get('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+
+    const config = (await db.query('SELECT * FROM agent_llm_config WHERE agent_id = $1', [req.params.id])).rows[0] as any;
+    if (!config) {
+      res.json({ config: null });
+      return;
+    }
+
+    let maskedKey = '****';
+    try {
+      const rawKey = decrypt(config.api_key_encrypted);
+      maskedKey = maskApiKey(rawKey);
+    } catch {}
+
+    res.json({
+      config: {
+        provider: config.provider,
+        model: config.model,
+        apiKeyMasked: maskedKey,
+        baseUrl: config.base_url,
+        systemPrompt: config.system_prompt,
+        temperature: config.temperature,
+        maxTokens: config.max_tokens,
+        enabled: config.enabled,
+        lastUsedAt: config.last_used_at,
+        totalCalls: config.total_calls,
+        totalErrors: config.total_errors,
+        createdAt: config.created_at,
+        updatedAt: config.updated_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('LLM config get error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/agents/:id/llm-config -- remove LLM config
+router.delete('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+
+    await db.query('DELETE FROM agent_llm_config WHERE agent_id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('LLM config delete error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/agents/:id/llm-config/toggle -- toggle LLM on/off
+router.post('/:id/llm-config/toggle', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+
+    const { enabled } = req.body;
+    const val = enabled ? 1 : 0;
+
+    const result = await db.query(
+      'UPDATE agent_llm_config SET enabled = $1, updated_at = $2 WHERE agent_id = $3',
+      [val, Date.now(), req.params.id]
+    );
+
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'No LLM config found for this agent' });
+      return;
+    }
+
+    res.json({ success: true, enabled: val });
+  } catch (err: any) {
+    console.error('LLM config toggle error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

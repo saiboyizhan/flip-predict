@@ -2,8 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'prediction-market-dev-secret';
+import { JWT_SECRET } from '../config';
 
 interface Client {
   ws: WebSocket;
@@ -18,7 +17,7 @@ const clients: Client[] = [];
 const messageRates = new Map<WebSocket, { count: number; resetTime: number }>();
 
 export function setupWebSocket(server: Server): WebSocketServer {
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, maxPayload: 4096 });
 
   wss.on('connection', (ws: WebSocket) => {
     const client: Client = { ws, subscribedMarkets: new Set(), subscribedOrderBooks: new Set() };
@@ -41,23 +40,37 @@ export function setupWebSocket(server: Server): WebSocketServer {
 
         const msg = JSON.parse(data.toString());
 
-        if (msg.type === 'subscribe' && msg.marketId) {
-          client.subscribedMarkets.add(msg.marketId);
-          ws.send(JSON.stringify({ type: 'subscribed', marketId: msg.marketId }));
+        // Handle heartbeat ping from frontend
+        if (msg.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }));
+          return;
         }
 
-        if (msg.type === 'unsubscribe' && msg.marketId) {
+        if (msg.type === 'subscribe' && typeof msg.marketId === 'string' && msg.marketId.length <= 100) {
+          if (client.subscribedMarkets.size >= 50) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Too many subscriptions' }));
+          } else {
+            client.subscribedMarkets.add(msg.marketId);
+            ws.send(JSON.stringify({ type: 'subscribed', marketId: msg.marketId }));
+          }
+        }
+
+        if (msg.type === 'unsubscribe' && typeof msg.marketId === 'string') {
           client.subscribedMarkets.delete(msg.marketId);
           ws.send(JSON.stringify({ type: 'unsubscribed', marketId: msg.marketId }));
         }
 
-        if (msg.type === 'subscribe_orderbook' && msg.marketId && msg.side) {
-          const key = `${msg.marketId}:${msg.side}`;
-          client.subscribedOrderBooks.add(key);
-          ws.send(JSON.stringify({ type: 'subscribed_orderbook', marketId: msg.marketId, side: msg.side }));
+        if (msg.type === 'subscribe_orderbook' && typeof msg.marketId === 'string' && msg.marketId.length <= 100 && (msg.side === 'yes' || msg.side === 'no')) {
+          if (client.subscribedOrderBooks.size >= 50) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Too many orderbook subscriptions' }));
+          } else {
+            const key = `${msg.marketId}:${msg.side}`;
+            client.subscribedOrderBooks.add(key);
+            ws.send(JSON.stringify({ type: 'subscribed_orderbook', marketId: msg.marketId, side: msg.side }));
+          }
         }
 
-        if (msg.type === 'unsubscribe_orderbook' && msg.marketId && msg.side) {
+        if (msg.type === 'unsubscribe_orderbook' && typeof msg.marketId === 'string' && (msg.side === 'yes' || msg.side === 'no')) {
           const key = `${msg.marketId}:${msg.side}`;
           client.subscribedOrderBooks.delete(key);
           ws.send(JSON.stringify({ type: 'unsubscribed_orderbook', marketId: msg.marketId, side: msg.side }));
@@ -82,6 +95,10 @@ export function setupWebSocket(server: Server): WebSocketServer {
       }
     });
 
+    ws.on('error', (err) => {
+      console.error('WebSocket client error:', (err as Error).message);
+    });
+
     ws.on('close', () => {
       const idx = clients.indexOf(client);
       if (idx !== -1) clients.splice(idx, 1);
@@ -95,6 +112,21 @@ export function setupWebSocket(server: Server): WebSocketServer {
   return wss;
 }
 
+export function broadcastMultiPriceUpdate(marketId: string, prices: { optionId: string; price: number }[]): void {
+  const msg = JSON.stringify({
+    type: 'multi_price_update',
+    marketId,
+    prices,
+    timestamp: Date.now(),
+  });
+
+  for (const client of clients) {
+    if (client.ws.readyState === WebSocket.OPEN && client.subscribedMarkets.has(marketId)) {
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
+    }
+  }
+}
+
 export function broadcastPriceUpdate(marketId: string, yesPrice: number, noPrice: number): void {
   const msg = JSON.stringify({
     type: 'price_update',
@@ -106,7 +138,7 @@ export function broadcastPriceUpdate(marketId: string, yesPrice: number, noPrice
 
   for (const client of clients) {
     if (client.ws.readyState === WebSocket.OPEN && client.subscribedMarkets.has(marketId)) {
-      client.ws.send(msg);
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }
 }
@@ -124,12 +156,13 @@ export function broadcastNewTrade(trade: {
 }): void {
   const msg = JSON.stringify({
     ...trade,
+    tradeType: trade.type,  // 保留原始 buy/sell
     type: 'new_trade',
   });
 
   for (const client of clients) {
     if (client.ws.readyState === WebSocket.OPEN && client.subscribedMarkets.has(trade.marketId)) {
-      client.ws.send(msg);
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }
 }
@@ -145,7 +178,7 @@ export function broadcastMarketResolved(marketId: string, outcome: string, resol
 
   for (const client of clients) {
     if (client.ws.readyState === WebSocket.OPEN && client.subscribedMarkets.has(marketId)) {
-      client.ws.send(msg);
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }
 }
@@ -162,7 +195,30 @@ export function broadcastOrderBookUpdate(marketId: string, side: string, orderbo
 
   for (const client of clients) {
     if (client.ws.readyState === WebSocket.OPEN && client.subscribedOrderBooks.has(key)) {
-      client.ws.send(msg);
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
+    }
+  }
+}
+
+// Broadcast a feed trade event to all authenticated clients (frontend filters by followed users)
+export function broadcastFeedTrade(trade: {
+  userAddress: string;
+  marketId: string;
+  marketTitle?: string;
+  side: string;
+  amount: number;
+  shares?: number;
+  price?: number;
+  timestamp: number;
+}): void {
+  const msg = JSON.stringify({
+    type: 'feed_trade',
+    ...trade,
+  });
+
+  for (const client of clients) {
+    if (client.ws.readyState === WebSocket.OPEN && client.userAddress) {
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }
 }
@@ -177,7 +233,7 @@ export function broadcastNotification(userAddress: string, notification: any): v
   const targetAddress = userAddress.toLowerCase();
   for (const client of clients) {
     if (client.ws.readyState === WebSocket.OPEN && client.userAddress === targetAddress) {
-      client.ws.send(msg);
+      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }
 }

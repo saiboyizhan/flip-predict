@@ -26,11 +26,11 @@ export function AgentLeaderboard() {
   }, []);
 
   if (loading) {
-    return <div className="p-8 text-center text-zinc-500">{t("common.loading")}</div>;
+    return <div className="p-8 text-center text-muted-foreground">{t("common.loading")}</div>;
   }
 
   if (agents.length === 0) {
-    return <div className="p-8 text-center text-zinc-600">{t("agent.noLeaderboardData")}</div>;
+    return <div className="p-8 text-center text-muted-foreground">{t("agent.noLeaderboardData")}</div>;
   }
 
   const top3 = agents.slice(0, 3);
@@ -48,11 +48,11 @@ export function AgentLeaderboard() {
             transition={{ delay: 0.2 }}
             className="sm:pt-12 order-2 sm:order-1"
           >
-            <div className="bg-gradient-to-br from-zinc-800/30 to-zinc-950 border border-zinc-400/50 p-4 sm:p-6 text-center">
-              <Medal className="w-10 h-10 sm:w-12 sm:h-12 text-zinc-300 mx-auto mb-3" />
-              <div className="text-zinc-400 text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.runnerUp")}</div>
-              <div className="text-lg sm:text-xl font-bold text-white mb-1">{top3[1].name}</div>
-              <div className="text-zinc-500 text-xs mb-2">{STRATEGY_MAP[top3[1].strategy] || top3[1].strategy}</div>
+            <div className="bg-gradient-to-br from-muted/30 to-secondary border border-zinc-400/50 p-4 sm:p-6 text-center">
+              <Medal className="w-10 h-10 sm:w-12 sm:h-12 text-zinc-400 dark:text-zinc-300 mx-auto mb-3" />
+              <div className="text-muted-foreground text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.runnerUp")}</div>
+              <div className="text-lg sm:text-xl font-bold text-foreground mb-1">{top3[1].name}</div>
+              <div className="text-muted-foreground text-xs mb-2">{STRATEGY_MAP[top3[1].strategy] || top3[1].strategy}</div>
               <div className={`text-xl sm:text-2xl font-bold ${top3[1].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {top3[1].roi >= 0 ? "+" : ""}{top3[1].roi.toFixed(1)}% {t("agent.roi")}
               </div>
@@ -66,15 +66,15 @@ export function AgentLeaderboard() {
             transition={{ delay: 0.1 }}
             className="order-1 sm:order-2"
           >
-            <div className="bg-gradient-to-br from-amber-900/30 to-zinc-950 border-2 border-amber-500/50 p-4 sm:p-6 text-center">
-              <Crown className="w-12 h-12 sm:w-16 sm:h-16 text-amber-400 mx-auto mb-3" />
-              <div className="text-amber-400 text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.champion")}</div>
-              <div className="text-xl sm:text-2xl font-bold text-white mb-1">{top3[0].name}</div>
-              <div className="text-zinc-500 text-xs mb-2">{STRATEGY_MAP[top3[0].strategy] || top3[0].strategy}</div>
+            <div className="bg-gradient-to-br from-blue-900/30 to-secondary border-2 border-blue-500/50 p-4 sm:p-6 text-center">
+              <Crown className="w-12 h-12 sm:w-16 sm:h-16 text-blue-400 mx-auto mb-3" />
+              <div className="text-blue-400 text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.champion")}</div>
+              <div className="text-xl sm:text-2xl font-bold text-foreground mb-1">{top3[0].name}</div>
+              <div className="text-muted-foreground text-xs mb-2">{STRATEGY_MAP[top3[0].strategy] || top3[0].strategy}</div>
               <div className={`text-2xl sm:text-3xl font-bold mb-2 ${top3[0].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {top3[0].roi >= 0 ? "+" : ""}{top3[0].roi.toFixed(1)}% {t("agent.roi")}
               </div>
-              <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
+              <div className="flex items-center justify-center gap-2 text-blue-400 text-sm">
                 <TrendingUp className="w-4 h-4" />
                 <span>{top3[0].winning_trades}/{top3[0].total_trades} {t("leaderboard.wins")}</span>
               </div>
@@ -88,11 +88,11 @@ export function AgentLeaderboard() {
             transition={{ delay: 0.3 }}
             className="sm:pt-12 order-3"
           >
-            <div className="bg-gradient-to-br from-orange-900/30 to-zinc-950 border border-orange-600/50 p-4 sm:p-6 text-center">
+            <div className="bg-gradient-to-br from-orange-900/30 to-secondary border border-orange-600/50 p-4 sm:p-6 text-center">
               <Award className="w-10 h-10 sm:w-12 sm:h-12 text-orange-600 mx-auto mb-3" />
               <div className="text-orange-400 text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.thirdPlace")}</div>
-              <div className="text-lg sm:text-xl font-bold text-white mb-1">{top3[2].name}</div>
-              <div className="text-zinc-500 text-xs mb-2">{STRATEGY_MAP[top3[2].strategy] || top3[2].strategy}</div>
+              <div className="text-lg sm:text-xl font-bold text-foreground mb-1">{top3[2].name}</div>
+              <div className="text-muted-foreground text-xs mb-2">{STRATEGY_MAP[top3[2].strategy] || top3[2].strategy}</div>
               <div className={`text-xl sm:text-2xl font-bold ${top3[2].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {top3[2].roi >= 0 ? "+" : ""}{top3[2].roi.toFixed(1)}% {t("agent.roi")}
               </div>
@@ -106,31 +106,31 @@ export function AgentLeaderboard() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
-        className="bg-zinc-900/30 border border-zinc-800"
+        className="bg-muted/30 border border-border"
       >
-        <div className="p-4 sm:p-6 border-b border-zinc-800">
+        <div className="p-4 sm:p-6 border-b border-border">
           <h2 className="text-lg sm:text-xl font-bold">{t("agent.fullList")}</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
-            <thead className="bg-zinc-900/50 border-b border-zinc-800">
+            <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <th className="text-left p-3 text-zinc-500 text-xs uppercase tracking-wider">{t("leaderboard.rank")}</th>
-                <th className="text-left p-3 text-zinc-500 text-xs uppercase tracking-wider">Agent</th>
-                <th className="text-center p-3 text-zinc-500 text-xs uppercase tracking-wider hidden sm:table-cell">{t("agent.strategy")}</th>
-                <th className="text-right p-3 text-zinc-500 text-xs uppercase tracking-wider">{t("agent.roi")}</th>
-                <th className="text-right p-3 text-zinc-500 text-xs uppercase tracking-wider">{t("agent.winRate")}</th>
-                <th className="text-right p-3 text-zinc-500 text-xs uppercase tracking-wider hidden md:table-cell">{t("agent.totalProfit")}</th>
-                <th className="text-center p-3 text-zinc-500 text-xs uppercase tracking-wider hidden lg:table-cell">{t("agent.level")}</th>
-                <th className="text-right p-3 text-zinc-500 text-xs uppercase tracking-wider hidden lg:table-cell">{t("agent.trades")}</th>
+                <th className="text-left p-3 text-muted-foreground text-xs uppercase tracking-wider">{t("leaderboard.rank")}</th>
+                <th className="text-left p-3 text-muted-foreground text-xs uppercase tracking-wider">Agent</th>
+                <th className="text-center p-3 text-muted-foreground text-xs uppercase tracking-wider hidden sm:table-cell">{t("agent.strategy")}</th>
+                <th className="text-right p-3 text-muted-foreground text-xs uppercase tracking-wider">{t("agent.roi")}</th>
+                <th className="text-right p-3 text-muted-foreground text-xs uppercase tracking-wider">{t("agent.winRate")}</th>
+                <th className="text-right p-3 text-muted-foreground text-xs uppercase tracking-wider hidden md:table-cell">{t("agent.totalProfit")}</th>
+                <th className="text-center p-3 text-muted-foreground text-xs uppercase tracking-wider hidden lg:table-cell">{t("agent.level")}</th>
+                <th className="text-right p-3 text-muted-foreground text-xs uppercase tracking-wider hidden lg:table-cell">{t("agent.trades")}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800">
+            <tbody className="divide-y divide-border">
               {rest.map((agent, index) => {
                 const rank = index + 1;
                 const getRankBg = () => {
-                  if (rank === 1) return "bg-gradient-to-r from-amber-900/20 to-transparent";
-                  if (rank === 2) return "bg-gradient-to-r from-zinc-800/20 to-transparent";
+                  if (rank === 1) return "bg-gradient-to-r from-blue-900/20 to-transparent";
+                  if (rank === 2) return "bg-gradient-to-r from-muted/20 to-transparent";
                   if (rank === 3) return "bg-gradient-to-r from-orange-900/20 to-transparent";
                   return "";
                 };
@@ -140,19 +140,19 @@ export function AgentLeaderboard() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.5 + index * 0.03 }}
-                    className={`hover:bg-zinc-900/50 transition-colors ${getRankBg()}`}
+                    className={`hover:bg-accent transition-colors ${getRankBg()}`}
                   >
                     <td className="p-3">
-                      {rank === 1 ? <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400" /> :
-                       rank === 2 ? <Medal className="w-5 h-5 sm:w-6 sm:h-6 text-zinc-300" /> :
+                      {rank === 1 ? <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" /> :
+                       rank === 2 ? <Medal className="w-5 h-5 sm:w-6 sm:h-6 text-zinc-400 dark:text-zinc-300" /> :
                        rank === 3 ? <Award className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" /> :
-                       <span className="text-zinc-500 font-bold text-sm">#{rank}</span>}
+                       <span className="text-muted-foreground font-bold text-sm">#{rank}</span>}
                     </td>
                     <td className="p-3">
-                      <span className="text-white font-semibold text-sm">{agent.name}</span>
+                      <span className="text-foreground font-semibold text-sm">{agent.name}</span>
                     </td>
                     <td className="p-3 text-center hidden sm:table-cell">
-                      <span className="text-zinc-400 text-xs sm:text-sm">{STRATEGY_MAP[agent.strategy] || agent.strategy}</span>
+                      <span className="text-muted-foreground text-xs sm:text-sm">{STRATEGY_MAP[agent.strategy] || agent.strategy}</span>
                     </td>
                     <td className="p-3 text-right">
                       <span className={`font-bold font-mono text-sm ${agent.roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
@@ -160,7 +160,7 @@ export function AgentLeaderboard() {
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      <span className="text-white font-mono text-sm">{agent.win_rate.toFixed(1)}%</span>
+                      <span className="text-foreground font-mono text-sm">{agent.win_rate.toFixed(1)}%</span>
                     </td>
                     <td className="p-3 text-right hidden md:table-cell">
                       <span className={`font-bold font-mono text-sm ${agent.total_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
@@ -168,9 +168,9 @@ export function AgentLeaderboard() {
                       </span>
                     </td>
                     <td className="p-3 text-center hidden lg:table-cell">
-                      <span className="px-2 py-0.5 bg-amber-500 text-black text-xs font-bold">Lv.{agent.level}</span>
+                      <span className="px-2 py-0.5 bg-blue-500 text-black text-xs font-bold">Lv.{agent.level}</span>
                     </td>
-                    <td className="p-3 text-right text-zinc-400 font-mono text-sm hidden lg:table-cell">{agent.total_trades}</td>
+                    <td className="p-3 text-right text-muted-foreground font-mono text-sm hidden lg:table-cell">{agent.total_trades}</td>
                   </motion.tr>
                 );
               })}

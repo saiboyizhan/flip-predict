@@ -29,7 +29,7 @@ export default function CreateMarketPage() {
         {/* Back */}
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-zinc-400 hover:text-white text-sm transition-colors mb-6"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-sm transition-colors mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
           {t('createMarket.back')}
@@ -42,10 +42,10 @@ export default function CreateMarketPage() {
           className="mb-8"
         >
           <div className="flex items-center gap-3 mb-3">
-            <Plus className="w-8 h-8 text-amber-400" />
+            <Plus className="w-8 h-8 text-blue-400" />
             <h1 className="text-3xl sm:text-4xl font-bold">{t('createMarket.title')}</h1>
           </div>
-          <p className="text-zinc-400 text-lg">
+          <p className="text-muted-foreground text-lg">
             {t('createMarket.subtitle')}
           </p>
         </motion.div>

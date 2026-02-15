@@ -26,8 +26,15 @@ const bscTestnet = defineChain({
   testnet: true,
 });
 
+const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
+if (!walletConnectProjectId || walletConnectProjectId === "YOUR_WALLETCONNECT_PROJECT_ID") {
+  console.warn(
+    "[wagmi] VITE_WALLETCONNECT_PROJECT_ID is not configured. WalletConnect will not work. Get one at https://cloud.walletconnect.com"
+  );
+}
+
 export const config = getDefaultConfig({
   appName: "链上预测",
-  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID",
+  projectId: walletConnectProjectId,
   chains: [bsc, bscTestnet],
 });

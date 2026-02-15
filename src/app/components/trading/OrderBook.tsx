@@ -41,7 +41,7 @@ function Row({
   return (
     <button
       onClick={onClick}
-      className="relative w-full grid grid-cols-3 text-xs font-mono py-1 px-3 hover:bg-zinc-800/50 transition-colors text-left"
+      className="relative w-full grid grid-cols-3 text-xs font-mono py-1 px-3 hover:bg-accent/50 transition-all duration-200 text-left"
     >
       <div
         className={`absolute inset-y-0 right-0 ${bgColor}`}
@@ -50,10 +50,10 @@ function Row({
       <span className={`relative z-10 ${textColor}`}>
         {level.price.toFixed(2)}
       </span>
-      <span className="relative z-10 text-zinc-300 text-right">
+      <span className="relative z-10 text-muted-foreground text-right">
         {level.amount.toFixed(2)}
       </span>
-      <span className="relative z-10 text-zinc-500 text-right">
+      <span className="relative z-10 text-muted-foreground text-right">
         {cumulative.toFixed(2)}
       </span>
     </button>
@@ -135,7 +135,7 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
     1,
   );
 
-  const sideLabel = side === "yes" ? "YES" : "NO";
+  const sideLabel = side === "yes" ? t('market.yes') : t('market.no');
   const sideColor = side === "yes" ? "text-emerald-400" : "text-red-400";
   const isEmpty = asks.length === 0 && bids.length === 0;
 
@@ -144,12 +144,12 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 }}
-      className="bg-zinc-900 border border-zinc-800 overflow-hidden"
+      className="bg-card border border-border overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
-        <BookOpen className="w-4 h-4 text-amber-400" />
-        <span className="text-sm font-bold text-white">{t('orderbook.title')}</span>
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <BookOpen className="w-4 h-4 text-blue-400" />
+        <span className="text-sm font-bold text-foreground">{t('orderbook.title')}</span>
         <span
           className={`text-xs font-mono px-2 py-0.5 ${
             side === "yes"
@@ -162,7 +162,7 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-3 text-[10px] text-zinc-600 uppercase tracking-wider px-3 py-2 border-b border-zinc-800/50">
+      <div className="grid grid-cols-3 text-[10px] text-muted-foreground uppercase tracking-wider px-3 py-2 border-b border-border">
         <span>{t('orderbook.price')}</span>
         <span className="text-right">{t('orderbook.amount')}</span>
         <span className="text-right">{t('orderbook.cumulative')}</span>
@@ -172,17 +172,18 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
         <div className="py-10 text-center">
           <BookOpen className="w-8 h-8 text-red-500/50 mx-auto mb-2" />
           <p className="text-red-400 text-sm">{error}</p>
+
           <button
             onClick={fetchData}
-            className="mt-2 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+            className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors"
           >
             {t('common.retry', 'Retry')}
           </button>
         </div>
       ) : isEmpty ? (
         <div className="py-10 text-center">
-          <BookOpen className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
-          <p className="text-zinc-600 text-sm">{t('orderbook.noOrders')}</p>
+          <BookOpen className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+          <p className="text-muted-foreground text-sm">{t('orderbook.noOrders')}</p>
         </div>
       ) : (
         <>
@@ -201,12 +202,12 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
           </div>
 
           {/* Spread */}
-          <div className="flex items-center justify-between px-3 py-2 bg-zinc-950/50 border-y border-zinc-800/50">
-            <span className="text-[10px] text-zinc-600 uppercase">{t('orderbook.spread')}</span>
+          <div className="flex items-center justify-between px-3 py-2 bg-secondary/30 border-y border-border">
+            <span className="text-[10px] text-muted-foreground uppercase">{t('orderbook.spread')}</span>
             <span className={`text-sm font-mono font-bold ${sideColor}`}>
               {data?.spread?.toFixed(2) ?? "—"}
             </span>
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-[10px] text-muted-foreground">
               {t('orderbook.midPrice', { price: data?.midPrice?.toFixed(2) ?? "—" })}
             </span>
           </div>

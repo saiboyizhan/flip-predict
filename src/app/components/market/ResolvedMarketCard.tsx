@@ -28,11 +28,9 @@ function formatDate(dateStr: string): string {
 
 function formatPrice(price: number): string {
   return price.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
+    maximumFractionDigits: 4,
+  }) + " BNB";
 }
 
 export function ResolvedMarketCard({
@@ -50,13 +48,13 @@ export function ResolvedMarketCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -2 }}
-      className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 p-4 transition-colors cursor-pointer"
+      className="bg-card border border-border hover:border-border p-4 transition-colors cursor-pointer"
     >
       {/* Top row */}
       <div className="flex items-center justify-between mb-2">
         {market.categoryEmoji && (
-          <span className="text-xs text-zinc-500">
-            {market.categoryEmoji} {market.category}
+          <span className="text-xs text-muted-foreground">
+            {market.categoryEmoji} {t(`category.${market.category}`, market.category)}
           </span>
         )}
         <span
@@ -71,23 +69,27 @@ export function ResolvedMarketCard({
       </div>
 
       {/* Title */}
-      <h4 className="text-sm font-bold text-white mb-3 leading-tight line-clamp-2">
+      <h4 className="text-sm font-bold text-foreground mb-3 leading-tight line-clamp-2">
         {market.title}
       </h4>
 
       {/* Resolution info */}
-      <div className="space-y-1.5 text-xs text-zinc-500">
+      <div className="space-y-1.5 text-xs text-muted-foreground">
         {/* Resolution type */}
         <div className="flex items-center gap-1.5">
           {isOracle ? (
-            <Bot className="w-3 h-3 text-amber-400" />
+            <Bot className="w-3 h-3 text-blue-400" />
+          ) : resolution?.resolution_type === "manual" ? (
+            <User className="w-3 h-3 text-muted-foreground" />
           ) : (
-            <User className="w-3 h-3 text-zinc-400" />
+            <Bot className="w-3 h-3 text-emerald-400" />
           )}
           <span>
             {isOracle
               ? t('resolved.oracle', { pair: resolution?.oracle_pair ?? "" })
-              : t('resolved.manualSettlement')}
+              : resolution?.resolution_type === "manual"
+                ? t('resolved.manualSettlement')
+                : t('resolved.autoSettlement')}
           </span>
         </div>
 

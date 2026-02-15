@@ -1,9 +1,16 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Users, TrendingUp, Clock, CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Bot, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ShareButton } from "./ShareButton";
+
+interface MarketOptionDisplay {
+  id: string;
+  label: string;
+  color: string;
+  price: number;
+}
 
 interface Market {
   id: string;
@@ -19,6 +26,9 @@ interface Market {
   description?: string;
   resolution?: string;
   resolvedOutcome?: string;
+  marketType?: "binary" | "multi";
+  options?: MarketOptionDisplay[];
+  totalLiquidity?: number;
 }
 
 interface MarketCardProps {
@@ -33,36 +43,75 @@ function formatVolume(volume: number): string {
   return volume.toString();
 }
 
+/** Compute the effective display status of a market, factoring in time-to-expiry */
+function getEffectiveStatus(market: Market): {
+  status: string;
+  label: string;
+  className: string;
+  isExpiringSoon: boolean;
+} {
+  const isResolved = market.status === "resolved" || market.status === "settled";
+  const isPending = market.status === "pending_resolution";
+
+  if (isResolved) {
+    const outcomeLabel = market.resolvedOutcome
+      ? ` (${market.resolvedOutcome})`
+      : "";
+    return {
+      status: "resolved",
+      label: `Settled${outcomeLabel}`,
+      className: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+      isExpiringSoon: false,
+    };
+  }
+
+  if (isPending) {
+    return {
+      status: "pending_resolution",
+      label: "Pending Settlement",
+      className: "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse",
+      isExpiringSoon: false,
+    };
+  }
+
+  // Active -- check if expiring soon (<24h)
+  const now = Date.now();
+  const end = new Date(market.endTime).getTime();
+  const diff = end - now;
+
+  if (diff <= 0) {
+    return {
+      status: "expired",
+      label: "Expired",
+      className: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+      isExpiringSoon: false,
+    };
+  }
+
+  if (diff < 24 * 60 * 60 * 1000) {
+    return {
+      status: "expiring",
+      label: "Expiring Soon",
+      className: "bg-orange-500/20 text-orange-400 border border-orange-500/30 animate-pulse",
+      isExpiringSoon: true,
+    };
+  }
+
+  return {
+    status: "active",
+    label: "Trading",
+    className: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+    isExpiringSoon: false,
+  };
+}
+
 export function MarketCard({ market, size = "medium", onClick }: MarketCardProps) {
   const { t } = useTranslation();
 
-  const STATUS_CONFIG: Record<
-    string,
-    { label: string; className: string }
-  > = {
-    active: {
-      label: t("market.status.active"),
-      className: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
-    },
-    expiring: {
-      label: t("market.status.expiring"),
-      className: "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse",
-    },
-    settled: {
-      label: t("market.status.settled"),
-      className: "bg-zinc-700/50 text-zinc-400 border border-zinc-600",
-    },
-    pending_resolution: {
-      label: t("market.status.pending"),
-      className: "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse",
-    },
-    resolved: {
-      label: t("market.status.resolved"),
-      className: "bg-zinc-700/50 text-zinc-400 border border-zinc-600",
-    },
-  };
+  const effectiveStatus = getEffectiveStatus(market);
+  const isLowLiquidity = market.volume < 1000 || (market.totalLiquidity != null && market.totalLiquidity < 5000);
 
-  function getTimeRemaining(endTime: string): { text: string; urgent: boolean } {
+  function getTimeRemaining(endTime: string): { text: string; urgent: boolean; countdown?: string } {
     const now = new Date();
     const end = new Date(endTime);
     const diff = end.getTime() - now.getTime();
@@ -70,32 +119,31 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     if (hours >= 24) return { text: t("market.days", { count: Math.floor(hours / 24) }), urgent: false };
-    if (hours > 0) return { text: t("market.hoursMinutes", { hours, minutes }), urgent: hours < 2 };
-    return { text: t("market.minutes", { count: minutes }), urgent: true };
+    if (hours > 0) return { text: t("market.hoursMinutes", { hours, minutes }), urgent: hours < 2, countdown: `${hours}h ${minutes}m` };
+    return { text: t("market.minutes", { count: minutes }), urgent: true, countdown: `${minutes}m` };
   }
 
-  const statusConfig = STATUS_CONFIG[market.status] ?? STATUS_CONFIG.active;
   const yesPercent = Math.round(market.yesPrice * 100);
-  const noPercent = Math.round(market.noPrice * 100);
+  const noPercent = 100 - yesPercent;
   const isCompact = size === "compact";
   const isLarge = size === "large";
 
   const isResolved = market.status === "resolved" || market.status === "settled";
   const isPending = market.status === "pending_resolution";
-  const { text: timeText, urgent } = getTimeRemaining(market.endTime);
+  const { text: timeText, urgent, countdown } = getTimeRemaining(market.endTime);
 
   return (
     <motion.div
       whileHover={{ y: -4 }}
       onClick={onClick}
-      className={`group relative bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 transition-all duration-300 cursor-pointer overflow-hidden ${
+      className={`group relative bg-card/80 backdrop-blur-sm border border-white/[0.06] rounded-xl hover:border-blue-500/20 hover:shadow-xl hover:shadow-blue-500/[0.07] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden card-highlight ${
         isCompact ? "p-3 sm:p-4" : isLarge ? "p-4 sm:p-8" : "p-4 sm:p-6"
       }`}
     >
       {/* Resolved outcome corner badge */}
       {isResolved && market.resolvedOutcome && (
         <div
-          className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold ${
+          className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold rounded-tr-xl ${
             market.resolvedOutcome.toLowerCase() === "yes"
               ? "bg-emerald-500 text-black"
               : "bg-red-500 text-white"
@@ -108,83 +156,107 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
 
       {/* Pending badge */}
       {isPending && (
-        <div className="absolute top-0 right-0 px-3 py-1 text-xs font-bold bg-amber-500/90 text-black">
-          <Loader2 className="w-3 h-3 inline mr-1 animate-spin" />
-          {t("market.status.settling")}
+        <div className="absolute top-0 right-0 px-3 py-1 text-xs font-bold bg-amber-500/90 text-black rounded-tr-xl">
+          <Bot className="w-3 h-3 inline mr-1" />
+          Pending
         </div>
       )}
 
-      {/* Top Row: Category + Status */}
+      {/* Top Row: Category + Status + Expiry Countdown */}
       <div className="flex items-center justify-between mb-3">
-        <span className="px-2 py-1 bg-zinc-800 text-zinc-400 text-xs font-medium">
-          {market.category}
-        </span>
-        <span className={`px-2 py-1 text-xs font-semibold ${statusConfig.className}`}>
-          {statusConfig.label}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-1 bg-muted text-muted-foreground text-xs font-medium rounded-lg">
+            {t(`category.${market.category}`, market.category)}
+          </span>
+          {isLowLiquidity && !isResolved && (
+            <span className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/25">
+              <AlertTriangle className="w-3 h-3" />
+              Low Liquidity
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {effectiveStatus.isExpiringSoon && countdown && (
+            <span className="px-2 py-1 text-xs font-bold font-mono rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/25">
+              {countdown}
+            </span>
+          )}
+          <span className={`flex items-center gap-1.5 px-2 py-1 text-xs font-semibold rounded-lg ${effectiveStatus.className}`}>
+            {effectiveStatus.status === "active" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            )}
+            {effectiveStatus.label}
+          </span>
+        </div>
       </div>
 
       {/* Title */}
       <h3
-        className={`font-bold text-white mb-4 leading-tight ${
+        className={`font-bold text-foreground mb-4 leading-tight ${
           isLarge ? "text-xl sm:text-2xl" : isCompact ? "text-sm" : "text-base sm:text-lg"
         }`}
       >
         {market.title}
       </h3>
 
-      {/* YES/NO Progress Bar */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-            <span className="text-emerald-400 text-xs sm:text-sm font-semibold">{t("market.yes")} {yesPercent}%</span>
+      {/* Option Buttons */}
+      {market.marketType === "multi" && market.options && market.options.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {market.options.slice(0, 3).map((opt) => (
+            <div
+              key={opt.id}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border"
+              style={{
+                backgroundColor: `${opt.color}15`,
+                borderColor: `${opt.color}30`,
+                color: opt.color,
+              }}
+            >
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: opt.color }} />
+              {opt.label} {Math.round(opt.price * 100)}%
+            </div>
+          ))}
+          {market.options.length > 3 && (
+            <span className="text-xs text-muted-foreground px-2">
+              {t('market.moreOptions', { count: market.options.length - 3 })}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
+            <span className="text-emerald-400 font-mono tabular-nums">{t('market.yes')} {yesPercent}%</span>
+            <span className="text-red-400 font-mono tabular-nums">{t('market.no')} {noPercent}%</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-red-400 text-xs sm:text-sm font-semibold">{t("market.no")} {noPercent}%</span>
-            <div className="w-2 h-2 bg-red-500 rounded-full" />
+          <div className="flex h-2 rounded-full overflow-hidden bg-white/[0.04]">
+            <div
+              className="bg-emerald-500/70 transition-all duration-500"
+              style={{ width: `${yesPercent}%` }}
+            />
+            <div
+              className="bg-red-500/70 transition-all duration-500"
+              style={{ width: `${noPercent}%` }}
+            />
           </div>
         </div>
-        <div className="relative h-2 bg-zinc-800 overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${yesPercent}%` }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="absolute left-0 top-0 h-full bg-emerald-500"
-          />
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${noPercent}%` }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="absolute right-0 top-0 h-full bg-red-500"
-          />
-        </div>
-      </div>
+      )}
 
       {/* Stats Row */}
-      <div className={`flex items-center gap-3 sm:gap-4 text-zinc-500 ${isCompact ? "text-xs" : "text-xs sm:text-sm"}`}>
-        <div className="flex items-center gap-1.5">
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span className="font-mono">${formatVolume(market.volume)}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Users className="w-3.5 h-3.5" />
-          <span>{market.participants}</span>
-        </div>
-        <div className={`flex items-center gap-1.5 ml-auto ${urgent ? "text-red-400" : ""}`}>
-          <Clock className="w-3.5 h-3.5" />
-          <span>{timeText}</span>
-        </div>
-        <ShareButton
-          marketTitle={market.title}
-          marketId={market.id}
-          yesPrice={market.yesPrice}
-          compact
-        />
+      <div className={`flex items-center text-muted-foreground ${isCompact ? "text-xs" : "text-xs sm:text-sm"}`}>
+        <span className="font-mono tabular-nums">${formatVolume(market.volume)}</span>
+        <span className="mx-2 text-white/10">|</span>
+        <span>{market.participants} {t('market.participants').toLowerCase()}</span>
+        <span className="mx-2 text-white/10">|</span>
+        <span className={urgent ? "text-red-400" : ""}>{timeText}</span>
+        <span className="ml-auto">
+          <ShareButton
+            marketTitle={market.title}
+            marketId={market.id}
+            yesPrice={market.yesPrice}
+            compact
+          />
+        </span>
       </div>
-
-      {/* Hover Glow */}
-      <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/10 to-amber-400/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
     </motion.div>
   );
 }

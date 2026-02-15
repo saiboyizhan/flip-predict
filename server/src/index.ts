@@ -18,7 +18,7 @@ import settlementRoutes from './routes/settlement';
 import agentRoutes from './routes/agents';
 import { startKeeper } from './engine/keeper';
 import { startAutoTrader } from './engine/agent-autotrader';
-import { startSwarmVerifier } from './engine/swarm-verifier';
+
 import marketCreationRoutes from './routes/market-creation';
 import leaderboardRoutes from './routes/leaderboard';
 import commentsRoutes from './routes/comments';
@@ -30,7 +30,8 @@ import achievementRoutes from './routes/achievements';
 import socialRoutes from './routes/social';
 import profileRoutes from './routes/profile';
 import copyTradingRoutes from './routes/copy-trading';
-import swarmRoutes from './routes/swarm';
+
+import favoritesRoutes from './routes/favorites';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -78,7 +79,16 @@ async function main() {
 
   // Middleware
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: function (origin, callback) {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      // Allow all localhost ports in development
+      if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+      // Allow configured origin
+      const allowed = process.env.CORS_ORIGIN;
+      if (allowed && origin === allowed) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   }));
   app.use(helmet());
@@ -104,7 +114,8 @@ async function main() {
   app.use('/api/social', socialRoutes);
   app.use('/api/profile', profileRoutes);
   app.use('/api/copy-trading', copyTradingRoutes);
-  app.use('/api/swarm', swarmRoutes);
+
+  app.use('/api/favorites', favoritesRoutes);
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -123,14 +134,16 @@ async function main() {
     console.log(`WebSocket available on ws://localhost:${PORT}`);
     const keeperInterval = startKeeper(pool, 30000);
     const autoTraderInterval = startAutoTrader(pool, 60000);
-    const swarmVerifierInterval = startSwarmVerifier(pool, 300000);
+
+
 
     // Graceful shutdown handler
     const shutdown = () => {
       console.log('Shutting down gracefully...');
       clearInterval(keeperInterval);
       clearInterval(autoTraderInterval);
-      clearInterval(swarmVerifierInterval);
+
+
       server.close(() => {
         pool.end().then(() => {
           console.log('Server shut down.');

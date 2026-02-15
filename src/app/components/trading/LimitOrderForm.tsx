@@ -94,7 +94,7 @@ export function LimitOrderForm({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="bg-zinc-900 border border-zinc-800 overflow-hidden"
+      className="bg-card border border-border overflow-hidden"
     >
       {/* Order type tabs */}
       <div className="grid grid-cols-2">
@@ -102,8 +102,8 @@ export function LimitOrderForm({
           onClick={() => setOrderType("limit")}
           className={`flex items-center justify-center gap-1.5 py-3 text-sm font-bold transition-all ${
             orderType === "limit"
-              ? "bg-zinc-800 text-amber-400 border-b-2 border-amber-500"
-              : "bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+              ? "bg-muted text-blue-400 border-b-2 border-blue-500"
+              : "bg-secondary text-muted-foreground hover:text-foreground"
           }`}
         >
           <Clock className="w-3.5 h-3.5" />
@@ -113,8 +113,8 @@ export function LimitOrderForm({
           onClick={() => setOrderType("market")}
           className={`flex items-center justify-center gap-1.5 py-3 text-sm font-bold transition-all ${
             orderType === "market"
-              ? "bg-zinc-800 text-amber-400 border-b-2 border-amber-500"
-              : "bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+              ? "bg-muted text-blue-400 border-b-2 border-blue-500"
+              : "bg-secondary text-muted-foreground hover:text-foreground"
           }`}
         >
           <Zap className="w-3.5 h-3.5" />
@@ -138,7 +138,7 @@ export function LimitOrderForm({
               className={`py-2.5 text-sm font-bold transition-all ${
                 orderSide === "buy"
                   ? "bg-emerald-500 text-white"
-                  : "bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                  : "bg-secondary border border-border text-muted-foreground hover:text-foreground"
               }`}
             >
               {t('limitOrder.buy')}
@@ -148,7 +148,7 @@ export function LimitOrderForm({
               className={`py-2.5 text-sm font-bold transition-all ${
                 orderSide === "sell"
                   ? "bg-red-500 text-white"
-                  : "bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                  : "bg-secondary border border-border text-muted-foreground hover:text-foreground"
               }`}
             >
               {t('limitOrder.sell')}
@@ -158,7 +158,7 @@ export function LimitOrderForm({
           {/* Price input (limit only) */}
           {orderType === "limit" && (
             <div>
-              <label className="block text-zinc-500 text-xs tracking-wider uppercase mb-1.5">
+              <label className="block text-muted-foreground text-xs tracking-wider uppercase mb-1.5">
                 {t('limitOrder.price')}
               </label>
               <input
@@ -168,11 +168,11 @@ export function LimitOrderForm({
                 max="0.99"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 text-white font-mono text-lg py-3 px-4 focus:outline-none focus:border-amber-500/50 transition-colors"
+                className="w-full bg-input-background border border-border text-foreground font-mono text-lg py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors"
                 placeholder="0.50"
               />
               {currentPrice !== undefined && (
-                <p className="text-zinc-600 text-xs mt-1">
+                <p className="text-muted-foreground text-xs mt-1">
                   {t('limitOrder.currentPrice', { price: currentPrice.toFixed(2) })}
                 </p>
               )}
@@ -181,18 +181,18 @@ export function LimitOrderForm({
 
           {/* Amount input */}
           <div>
-            <label className="block text-zinc-500 text-xs tracking-wider uppercase mb-1.5">
+            <label className="block text-muted-foreground text-xs tracking-wider uppercase mb-1.5">
               {t('limitOrder.amount')}
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 text-sm">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                 $
               </span>
               <input
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 text-white font-mono text-lg py-3 pl-8 pr-4 focus:outline-none focus:border-amber-500/50 transition-colors"
+                className="w-full bg-input-background border border-border text-foreground font-mono text-lg py-3 pl-8 pr-4 focus:outline-none focus:border-blue-500/50 transition-colors"
                 placeholder="0.00"
               />
             </div>
@@ -206,8 +206,8 @@ export function LimitOrderForm({
                 onClick={() => setAmount(qa.toString())}
                 className={`py-1.5 text-xs font-mono border transition-all ${
                   amount === qa.toString()
-                    ? "bg-amber-500/10 border-amber-500/50 text-amber-400"
-                    : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                    ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
+                    : "bg-secondary border-border text-muted-foreground hover:text-foreground hover:border-border"
                 }`}
               >
                 ${qa}
@@ -217,9 +217,9 @@ export function LimitOrderForm({
 
           {/* Info line */}
           {orderType === "limit" && numAmount > 0 && numPrice > 0 && (
-            <div className="flex justify-between text-xs text-zinc-500 px-1">
+            <div className="flex justify-between text-xs text-muted-foreground px-1">
               <span>{t('limitOrder.estShares')}</span>
-              <span className="text-zinc-300 font-mono">
+              <span className="text-muted-foreground font-mono">
                 {t('limitOrder.shares', { count: estimatedShares.toFixed(2) })}
               </span>
             </div>
@@ -229,7 +229,7 @@ export function LimitOrderForm({
           <button
             onClick={handleSubmit}
             disabled={loading || numAmount <= 0}
-            className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm tracking-wide uppercase transition-all flex items-center justify-center gap-2 disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed"
+            className="w-full py-3.5 bg-blue-500 hover:bg-blue-400 text-black font-bold text-sm tracking-wide uppercase transition-all flex items-center justify-center gap-2 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
           >
             {loading ? (
               <span className="animate-pulse">{t('limitOrder.processing')}</span>

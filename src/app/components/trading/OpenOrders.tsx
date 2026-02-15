@@ -54,7 +54,7 @@ export function OpenOrders({ marketId }: OpenOrdersProps) {
     }
   };
 
-  const sideLabel = (s: string) => (s === "yes" ? "YES" : "NO");
+  const sideLabel = (s: string) => (s === "yes" ? t('market.yes') : t('market.no'));
   const sideColor = (s: string) =>
     s === "yes" ? "text-emerald-400" : "text-red-400";
   const orderSideLabel = (s: string) => (s === "buy" ? t('openOrders.buy') : t('openOrders.sell'));
@@ -66,14 +66,14 @@ export function OpenOrders({ marketId }: OpenOrdersProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
-      className="bg-zinc-900 border border-zinc-800 overflow-hidden"
+      className="bg-card border border-border overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
-        <ListOrdered className="w-4 h-4 text-amber-400" />
-        <span className="text-sm font-bold text-white">{t('openOrders.title')}</span>
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <ListOrdered className="w-4 h-4 text-blue-400" />
+        <span className="text-sm font-bold text-foreground">{t('openOrders.title')}</span>
         {orders.length > 0 && (
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 font-mono">
+          <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 font-mono">
             {orders.length}
           </span>
         )}
@@ -81,20 +81,20 @@ export function OpenOrders({ marketId }: OpenOrdersProps) {
 
       {loading ? (
         <div className="py-8 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
+          <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
         </div>
       ) : orders.length === 0 ? (
         <div className="py-8 text-center">
-          <ListOrdered className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
-          <p className="text-zinc-600 text-sm">{t('openOrders.noOrders')}</p>
-          <p className="text-zinc-700 text-xs mt-1">
+          <ListOrdered className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+          <p className="text-muted-foreground text-sm">{t('openOrders.noOrders')}</p>
+          <p className="text-muted-foreground text-xs mt-1">
             {t('openOrders.noOrdersHint')}
           </p>
         </div>
       ) : (
-        <div className="divide-y divide-zinc-800/50">
+        <div className="divide-y divide-border/50">
           {/* Column header */}
-          <div className="grid grid-cols-[1fr_40px_40px_60px_60px_40px] gap-1 px-3 py-2 text-[10px] text-zinc-600 uppercase tracking-wider">
+          <div className="grid grid-cols-[1fr_40px_40px_60px_60px_40px] gap-1 px-3 py-2 text-[10px] text-muted-foreground uppercase tracking-wider">
             <span>{t('openOrders.direction')}</span>
             <span>{t('openOrders.buySell')}</span>
             <span>{t('openOrders.price')}</span>
@@ -118,20 +118,20 @@ export function OpenOrders({ marketId }: OpenOrdersProps) {
                 <span className={orderSideColor(order.orderSide)}>
                   {orderSideLabel(order.orderSide)}
                 </span>
-                <span className="text-white font-mono">
+                <span className="text-foreground font-mono">
                   {order.price.toFixed(2)}
                 </span>
-                <span className="text-zinc-300 font-mono text-right">
+                <span className="text-muted-foreground font-mono text-right">
                   ${order.amount.toFixed(0)}
                 </span>
-                <span className="text-zinc-500 font-mono text-right">
+                <span className="text-muted-foreground font-mono text-right">
                   ${order.filled.toFixed(0)}
                 </span>
                 <div className="flex justify-end">
                   <button
                     onClick={() => handleCancel(order.id)}
                     disabled={cancellingId === order.id}
-                    className="p-1 text-zinc-600 hover:text-red-400 transition-colors disabled:opacity-50"
+                    className="p-1 text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-50"
                     title={t('openOrders.cancelOrder')}
                   >
                     {cancellingId === order.id ? (

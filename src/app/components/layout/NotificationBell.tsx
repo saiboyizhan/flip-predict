@@ -25,7 +25,7 @@ function TypeIcon({ type }: { type: Notification["type"] }) {
     case "trade":
       return <ShoppingCart className="w-4 h-4 text-emerald-400 shrink-0" />;
     case "market":
-      return <BarChart3 className="w-4 h-4 text-amber-400 shrink-0" />;
+      return <BarChart3 className="w-4 h-4 text-blue-400 shrink-0" />;
     case "system":
       return <Info className="w-4 h-4 text-blue-400 shrink-0" />;
   }
@@ -76,7 +76,7 @@ export function NotificationBell() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(!open)}
-        className="relative flex items-center justify-center w-9 h-9 text-zinc-400 hover:text-white transition-colors"
+        className="relative flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground transition-colors"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
@@ -87,14 +87,14 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="fixed sm:absolute left-0 sm:left-auto right-0 top-[60px] sm:top-full sm:mt-2 w-full sm:w-80 bg-zinc-900 border border-zinc-700 shadow-xl z-50 max-h-96 flex flex-col">
+        <div className="fixed sm:absolute left-0 sm:left-auto right-0 top-[60px] sm:top-full sm:mt-2 w-full sm:w-80 bg-card border border-border shadow-xl z-50 max-h-96 flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-            <span className="text-sm font-semibold text-white">{t('notification.title')}</span>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-sm font-semibold text-foreground">{t('notification.title')}</span>
             {unreadCount > 0 && (
               <button
                 onClick={() => markAllAsRead()}
-                className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+                className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
               >
                 <Check className="w-3 h-3" />
                 {t('notification.markAllRead')}
@@ -106,13 +106,13 @@ export function NotificationBell() {
           <div className="overflow-y-auto flex-1">
             {loading ? (
               <div className="py-10 text-center">
-                <Loader2 className="w-6 h-6 text-zinc-600 mx-auto mb-2 animate-spin" />
-                <p className="text-zinc-600 text-sm">{t('notification.loading')}</p>
+                <Loader2 className="w-6 h-6 text-muted-foreground mx-auto mb-2 animate-spin" />
+                <p className="text-muted-foreground text-sm">{t('notification.loading')}</p>
               </div>
             ) : notifications.length === 0 ? (
               <div className="py-10 text-center">
-                <Bell className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
-                <p className="text-zinc-600 text-sm">{t('notification.noNotifications')}</p>
+                <Bell className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground text-sm">{t('notification.noNotifications')}</p>
               </div>
             ) : (
               notifications.map((n) => (
@@ -121,8 +121,8 @@ export function NotificationBell() {
                   onClick={() => {
                     if (!n.read) markAsRead(n.id);
                   }}
-                  className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-800/50 ${
-                    !n.read ? "bg-zinc-800/30" : ""
+                  className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent ${
+                    !n.read ? "bg-muted/30" : ""
                   }`}
                 >
                   <div className="mt-0.5">
@@ -130,15 +130,15 @@ export function NotificationBell() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white truncate">
+                      <span className="text-sm font-medium text-foreground truncate">
                         {n.title}
                       </span>
                       {!n.read && (
-                        <span className="w-1.5 h-1.5 bg-amber-400 rounded-full shrink-0" />
+                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full shrink-0" />
                       )}
                     </div>
-                    <p className="text-xs text-zinc-500 mt-0.5 truncate">{n.message}</p>
-                    <p className="text-[10px] text-zinc-600 mt-1">{formatTime(n.timestamp)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{n.message}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">{formatTime(n.timestamp)}</p>
                   </div>
                 </button>
               ))

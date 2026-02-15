@@ -39,12 +39,18 @@ export async function executeBuy(
     if (market.status !== 'active') throw new Error('Market is not active');
 
     // Check balance
+    // Bug D19 Fix: Coerce DB values to number for safe comparison.
     const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
     const balance = balanceRes.rows[0];
-    if (!balance || balance.available < amount) throw new Error('Insufficient balance');
+    if (!balance || Number(balance.available) < amount) throw new Error('Insufficient balance');
+
+    // Bug D2 Fix: Coerce reserves to number. PostgreSQL DOUBLE PRECISION values
+    // may arrive as strings depending on the driver/connection settings.
+    const yesReserve = Number(market.yes_reserve);
+    const noReserve = Number(market.no_reserve);
 
     // Calculate trade via AMM
-    const result = calculateBuy(market.yes_reserve, market.no_reserve, side, amount);
+    const result = calculateBuy(yesReserve, noReserve, side, amount);
 
     const orderId = randomUUID();
     const now = Date.now();
@@ -129,10 +135,15 @@ export async function executeSell(
       [userAddress, marketId, side]
     );
     const position = positionRes.rows[0];
-    if (!position || position.shares < shares) throw new Error('Insufficient shares');
+    // Bug D19 Fix: Coerce DB value to number.
+    if (!position || Number(position.shares) < shares) throw new Error('Insufficient shares');
+
+    // Bug D2 Fix: Coerce reserves to number (same as executeBuy).
+    const yesReserve = Number(market.yes_reserve);
+    const noReserve = Number(market.no_reserve);
 
     // Calculate trade via AMM
-    const result = calculateSell(market.yes_reserve, market.no_reserve, side, shares);
+    const result = calculateSell(yesReserve, noReserve, side, shares);
 
     const orderId = randomUUID();
     const now = Date.now();
@@ -165,7 +176,7 @@ export async function executeSell(
     `, [orderId, userAddress, marketId, side, result.amountOut, shares, result.pricePerShare, now]);
 
     // Update position
-    const newShares = position.shares - shares;
+    const newShares = Number(position.shares) - shares;
     if (newShares <= 0.0001) {
       await client.query('DELETE FROM positions WHERE id = $1', [position.id]);
     } else {

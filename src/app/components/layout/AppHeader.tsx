@@ -12,7 +12,6 @@ import {
   Wallet,
   Menu,
   X,
-  Home,
   BarChart3,
   PieChart,
   Trophy,
@@ -25,38 +24,91 @@ import {
   Loader2,
   LayoutDashboard,
   Gift,
+  ChevronDown,
+  Sun,
+  Moon,
+  Rss,
+  Zap,
+  Clock,
+  Trash2,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { useMarketStore } from "@/app/stores/useMarketStore";
 import { useAuthStore } from "@/app/stores/useAuthStore";
+import { useAgentStore } from "@/app/stores/useAgentStore";
 import { searchMarkets } from "@/app/services/api";
 import { NotificationBell } from "./NotificationBell";
 
-const NAV_ITEMS = [
-  { id: "home", labelKey: "nav.home", icon: Home, path: "/" },
+// Core nav: 6 items visible in the top bar (covers the full loop)
+const CORE_NAV_ITEMS = [
   { id: "markets", labelKey: "nav.market", icon: BarChart3, path: "/" },
+  { id: "mint", labelKey: "agent.mintFree", icon: Sparkles, path: "/agents/mint" },
   { id: "portfolio", labelKey: "nav.portfolio", icon: PieChart, path: "/portfolio" },
   { id: "leaderboard", labelKey: "nav.leaderboard", icon: Trophy, path: "/leaderboard" },
   { id: "wallet", labelKey: "nav.wallet", icon: CreditCard, path: "/wallet" },
   { id: "agents", labelKey: "nav.agents", icon: Bot, path: "/agents" },
-  { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, path: "/dashboard" },
-  { id: "rewards", labelKey: "nav.rewards", icon: Gift, path: "/rewards" },
-  { id: "create", labelKey: "nav.create", icon: Plus, path: "/markets/create" },
-  { id: "mint", labelKey: "nav.mint", icon: Sparkles, path: "/agents/mint" },
 ];
 
+// Items in the user avatar dropdown (secondary features)
+const USER_MENU_ITEMS = [
+  { id: "create", labelKey: "nav.create", icon: Plus, path: "/markets/create" },
+  { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { id: "rewards", labelKey: "nav.rewards", icon: Gift, path: "/rewards" },
+  { id: "feed", labelKey: "social.feed", icon: Rss, path: "/feed" },
+];
+
+const ALL_NAV_ITEMS = [...CORE_NAV_ITEMS, ...USER_MENU_ITEMS];
+
+const SEARCH_HISTORY_KEY = "synapse_search_history";
+const MAX_SEARCH_HISTORY = 5;
+
+function getSearchHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_SEARCH_HISTORY) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSearchHistory(history: string[]) {
+  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_SEARCH_HISTORY)));
+}
+
+function addToSearchHistory(query: string) {
+  const trimmed = query.trim();
+  if (!trimmed) return;
+  const history = getSearchHistory().filter((h) => h !== trimmed);
+  history.unshift(trimmed);
+  saveSearchHistory(history.slice(0, MAX_SEARCH_HISTORY));
+}
+
+function removeFromSearchHistory(query: string) {
+  const history = getSearchHistory().filter((h) => h !== query);
+  saveSearchHistory(history);
+}
+
+function clearSearchHistory() {
+  localStorage.removeItem(SEARCH_HISTORY_KEY);
+}
+
 function getActiveNavId(pathname: string): string {
-  if (pathname === "/") return "home";
+  if (pathname === "/") return "markets";
   if (pathname.startsWith("/markets/create")) return "create";
   if (pathname.startsWith("/market/")) return "markets";
   if (pathname.startsWith("/portfolio")) return "portfolio";
   if (pathname.startsWith("/leaderboard")) return "leaderboard";
+  if (pathname.startsWith("/feed")) return "feed";
+  if (pathname.startsWith("/user/")) return "feed";
   if (pathname.startsWith("/wallet")) return "wallet";
   if (pathname.startsWith("/agents/mint")) return "mint";
   if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/profile")) return "profile";
   if (pathname.startsWith("/dashboard")) return "dashboard";
   if (pathname.startsWith("/rewards")) return "rewards";
-  return "home";
+  return "markets";
 }
 
 interface SearchResult {
@@ -68,21 +120,28 @@ interface SearchResult {
 
 export function AppHeader() {
   const { t, i18n } = useTranslation();
+  const { resolvedTheme, setTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchHistory, setSearchHistoryState] = useState<string[]>([]);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const setStoreSearch = useMarketStore((s) => s.setSearch);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const { login, disconnect: authDisconnect, isAuthenticated } = useAuthStore();
   const prevAddressRef = useRef<string | undefined>(undefined);
+
+  const hasAgent = useAgentStore((s) => s.hasAgent);
 
   // Auto-login when wallet connects
   useEffect(() => {
@@ -102,15 +161,31 @@ export function AppHeader() {
     }
   }, [isConnected, address, isAuthenticated, login, signMessageAsync, authDisconnect, t]);
 
-  // Close search dropdown on outside click
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node)) {
         setShowSearchResults(false);
+        setShowSearchHistory(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Refresh search history from localStorage
+  const refreshSearchHistory = useCallback(() => {
+    setSearchHistoryState(getSearchHistory());
   }, []);
 
   const handleSearch = useCallback(
@@ -124,6 +199,9 @@ export function AppHeader() {
         setStoreSearch("");
         return;
       }
+
+      // Hide history when user starts typing
+      setShowSearchHistory(false);
 
       debounceRef.current = setTimeout(async () => {
         setStoreSearch(value);
@@ -142,6 +220,10 @@ export function AppHeader() {
             }))
           );
           setShowSearchResults(true);
+
+          // Save to search history
+          addToSearchHistory(value);
+          refreshSearchHistory();
         } catch {
           // Fallback: just do local filtering via store, don't show dropdown
           setShowSearchResults(false);
@@ -151,14 +233,42 @@ export function AppHeader() {
         }
       }, 300);
     },
-    [setStoreSearch, location.pathname, navigate],
+    [setStoreSearch, location.pathname, navigate, refreshSearchHistory],
   );
 
   const handleSearchResultClick = (marketId: string) => {
     setShowSearchResults(false);
+    setShowSearchHistory(false);
     setSearchQuery("");
     setStoreSearch("");
     navigate(`/market/${marketId}`);
+  };
+
+  const handleSearchFocus = () => {
+    if (searchQuery.trim() && searchResults.length > 0) {
+      setShowSearchResults(true);
+    } else if (!searchQuery.trim()) {
+      refreshSearchHistory();
+      setShowSearchHistory(true);
+    }
+  };
+
+  const handleHistoryItemClick = (query: string) => {
+    setShowSearchHistory(false);
+    setSearchQuery(query);
+    handleSearch(query);
+  };
+
+  const handleRemoveHistoryItem = (e: React.MouseEvent, query: string) => {
+    e.stopPropagation();
+    removeFromSearchHistory(query);
+    refreshSearchHistory();
+  };
+
+  const handleClearAllHistory = () => {
+    clearSearchHistory();
+    refreshSearchHistory();
+    setShowSearchHistory(false);
   };
 
   const toggleLang = () => {
@@ -169,18 +279,30 @@ export function AppHeader() {
   const activePage = getActiveNavId(location.pathname);
 
   return (
-    <header className="sticky top-0 z-50 bg-black/80 backdrop-blur-md border-b border-zinc-800">
+    <header className="sticky top-0 z-50 bg-background/60 backdrop-blur-xl border-b border-white/[0.06]">
       {/* Main Bar */}
       <div className="px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
         {/* Left: Logo */}
         <div
-          className="flex items-center gap-3 shrink-0 cursor-pointer"
+          className="flex items-center gap-2.5 shrink-0 cursor-pointer"
           onClick={() => navigate("/")}
         >
-          <div className="w-8 h-8 bg-amber-500 flex items-center justify-center">
-            <BarChart3 className="w-5 h-5 text-black" />
-          </div>
-          <span className="text-xl font-bold text-white tracking-tight hidden sm:inline">
+          <svg width="32" height="32" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="synapse-g" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#10B981"/>
+                <stop offset="100%" stopColor="#3B82F6"/>
+              </linearGradient>
+            </defs>
+            <path d="M8 32 Q18 12 28 32 Q38 52 48 32 Q53 22 58 28" stroke="url(#synapse-g)" strokeWidth="4" fill="none" strokeLinecap="round"/>
+            <path d="M6 42 Q16 27 26 42 Q36 57 46 42 Q52 34 56 38" stroke="#3B82F6" strokeWidth="2" fill="none" opacity="0.35" strokeLinecap="round"/>
+            <path d="M6 22 Q16 7 26 22 Q36 37 46 22 Q52 14 56 18" stroke="#10B981" strokeWidth="2" fill="none" opacity="0.35" strokeLinecap="round"/>
+            <circle cx="18" cy="18" r="4" fill="#10B981" opacity="0.9"/>
+            <circle cx="38" cy="46" r="5" fill="url(#synapse-g)"/>
+            <circle cx="38" cy="46" r="2" fill="white" opacity="0.9"/>
+            <circle cx="48" cy="28" r="4" fill="#3B82F6" opacity="0.9"/>
+          </svg>
+          <span className="text-xl font-bold tracking-tight hidden sm:inline bg-gradient-to-r from-emerald-400 to-blue-500 bg-clip-text text-transparent">
             {t("nav.siteName")}
           </span>
         </div>
@@ -188,39 +310,74 @@ export function AppHeader() {
         {/* Center: Search */}
         <div className="flex-1 max-w-md hidden md:block relative" ref={searchDropdownRef}>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              onFocus={() => {
-                if (searchResults.length > 0) setShowSearchResults(true);
-              }}
+              onFocus={handleSearchFocus}
               placeholder={t("nav.searchMarket")}
-              className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2 pl-10 pr-10 focus:outline-none focus:border-amber-500/50 transition-colors placeholder:text-zinc-600"
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg text-foreground text-sm py-2 pl-10 pr-10 focus:outline-none focus:border-blue-500/40 transition-colors placeholder:text-muted-foreground"
             />
             {searchLoading && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 animate-spin" />
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
             )}
           </div>
 
+          {/* Search History Dropdown */}
+          {showSearchHistory && !showSearchResults && searchHistory.length > 0 && (
+            <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+              <div className="px-4 py-2 border-b border-white/[0.06]">
+                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                  {t("nav.recentSearches", "Recent Searches")}
+                </span>
+              </div>
+              {searchHistory.map((item) => (
+                <button
+                  key={item}
+                  onClick={() => handleHistoryItemClick(item)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-accent transition-colors text-left group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm text-foreground truncate">{item}</span>
+                  </div>
+                  <button
+                    onClick={(e) => handleRemoveHistoryItem(e, item)}
+                    className="p-1 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    title={t("nav.removeSearch", "Remove")}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </button>
+              ))}
+              <button
+                onClick={handleClearAllHistory}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs text-muted-foreground hover:text-red-400 hover:bg-accent/50 transition-colors border-t border-white/[0.06]"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>{t("nav.clearHistory", "Clear All History")}</span>
+              </button>
+            </div>
+          )}
+
           {/* Search Results Dropdown */}
           {showSearchResults && searchResults.length > 0 && (
-            <div className="absolute top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 shadow-xl z-50 max-h-80 overflow-y-auto">
+            <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
               {searchResults.map((result) => (
                 <button
                   key={result.id}
                   onClick={() => handleSearchResultClick(result.id)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/50 transition-colors text-left"
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors text-left"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white truncate">{result.title}</div>
+                    <div className="text-sm text-foreground truncate">{result.title}</div>
                     {result.category && (
-                      <div className="text-xs text-zinc-500 mt-0.5">{result.category}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{result.category}</div>
                     )}
                   </div>
                   {result.yesPrice != null && (
-                    <span className="text-sm font-mono text-amber-400 shrink-0 ml-3">
+                    <span className="text-sm font-mono text-blue-500 shrink-0 ml-3">
                       {(result.yesPrice * 100).toFixed(0)}%
                     </span>
                   )}
@@ -230,16 +387,27 @@ export function AppHeader() {
           )}
         </div>
 
-        {/* Right: Lang + Notification + Wallet + Mobile Menu */}
+        {/* Right: Lang + Notification + Wallet + User Menu + Mobile Menu */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Language Switcher */}
           <button
             onClick={toggleLang}
-            className="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-amber-400 text-xs sm:text-sm font-medium transition-colors"
-            title="Switch Language"
+            className="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-white/[0.04] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] text-muted-foreground hover:text-blue-500 text-xs sm:text-sm font-medium transition-colors"
+            title={t('nav.switchLang')}
+            aria-label={t('nav.switchLang')}
           >
             <Globe className="w-3.5 h-3.5" />
             <span>{i18n.language === "zh" ? t("lang.zh") : t("lang.en")}</span>
+          </button>
+
+          {/* Theme Toggle */}
+          <button
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            className="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-white/[0.04] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] text-muted-foreground hover:text-blue-500 text-xs sm:text-sm font-medium transition-colors"
+            title={t('nav.toggleTheme')}
+            aria-label={t('nav.toggleTheme')}
+          >
+            {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
 
           <NotificationBell />
@@ -257,28 +425,70 @@ export function AppHeader() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={openAccountModal}
-                        className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors"
+                        className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-card border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 transition-colors"
                       >
-                        <Wallet className="w-4 h-4 text-amber-400" />
-                        <span className="text-white text-sm font-mono hidden sm:inline">{account.displayName}</span>
+                        <Wallet className="w-4 h-4 text-emerald-400" />
+                        <span className="text-foreground text-sm font-mono hidden sm:inline">{account.displayName}</span>
                         {account.displayBalance && (
-                          <span className="text-amber-400 text-sm font-mono font-semibold hidden md:inline">
+                          <span className="text-blue-500 text-sm font-mono font-semibold hidden md:inline">
                             {account.displayBalance}
                           </span>
                         )}
                       </button>
-                      <button
-                        onClick={() => navigate("/profile")}
-                        className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-amber-400 transition-colors"
-                        title={t("nav.myProfile")}
-                      >
-                        <User className="w-4 h-4" />
-                      </button>
+                      {/* User Avatar Dropdown */}
+                      <div className="relative" ref={userMenuRef}>
+                        <button
+                          onClick={() => setUserMenuOpen(!userMenuOpen)}
+                          className="p-2 bg-white/[0.04] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] text-muted-foreground hover:text-blue-500 transition-colors"
+                          title={t("nav.myProfile")}
+                        >
+                          <User className="w-4 h-4" />
+                        </button>
+                        {userMenuOpen && (
+                          <div className="absolute top-full right-0 mt-2 bg-card border border-border rounded-xl shadow-xl z-50 min-w-[220px] py-1">
+                            {/* Profile link at top */}
+                            <button
+                              onClick={() => {
+                                navigate("/profile");
+                                setUserMenuOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors border-b border-border ${
+                                activePage === "profile"
+                                  ? "text-blue-500"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                              }`}
+                            >
+                              <User className="w-4 h-4" />
+                              <span>{t("nav.myProfile")}</span>
+                            </button>
+                            {USER_MENU_ITEMS.map((item) => {
+                              const isActive = activePage === item.id;
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => {
+                                    navigate(item.path);
+                                    setUserMenuOpen(false);
+                                  }}
+                                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
+                                    isActive
+                                      ? "text-blue-500"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                  }`}
+                                >
+                                  <item.icon className="w-4 h-4" />
+                                  <span>{t(item.labelKey)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <button
                       onClick={openConnectModal}
-                      className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm transition-colors"
+                      className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-white/[0.08] rounded-lg hover:border-blue-500/50 text-foreground hover:text-blue-400 bg-white/[0.04] font-semibold text-sm transition-colors"
                     >
                       <Wallet className="w-4 h-4" />
                       <span className="hidden sm:inline">{t("nav.connectWallet")}</span>
@@ -292,25 +502,30 @@ export function AppHeader() {
           {/* Mobile Hamburger */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-zinc-400 hover:text-white transition-colors"
+            className="md:hidden p-2 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={t('nav.toggleMenu')}
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
-      {/* Desktop Nav */}
+      {/* Desktop Nav - 6 core items covering the full product loop */}
       <div className="hidden md:flex items-center gap-1 px-6 pb-3">
-        {NAV_ITEMS.map((item) => {
+        {CORE_NAV_ITEMS.map((item) => {
           const isActive = activePage === item.id;
+          const isMint = item.id === "mint";
           return (
             <button
               key={item.id}
               onClick={() => navigate(item.path)}
               className={`relative flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "text-amber-400"
-                  : "text-zinc-500 hover:text-zinc-300"
+                isMint && !isActive
+                  ? "text-emerald-400 hover:text-emerald-300"
+                  : isActive
+                    ? "text-blue-500"
+                    : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <item.icon className="w-4 h-4" />
@@ -318,7 +533,7 @@ export function AppHeader() {
               {isActive && (
                 <motion.div
                   layoutId="nav-indicator"
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 shadow-[0_2px_8px] shadow-blue-500/30"
                   transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
                 />
               )}
@@ -335,25 +550,25 @@ export function AppHeader() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="md:hidden overflow-hidden border-t border-zinc-800"
+            className="md:hidden overflow-hidden border-t border-border"
           >
             {/* Mobile Search */}
-            <div className="p-4 border-b border-zinc-800">
+            <div className="p-4 border-b border-border">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => handleSearch(e.target.value)}
                   placeholder={t("nav.searchMarket")}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm py-2 pl-10 pr-4 focus:outline-none focus:border-amber-500/50 transition-colors placeholder:text-zinc-600"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg text-foreground text-sm py-2 pl-10 pr-4 focus:outline-none focus:border-blue-500/40 transition-colors placeholder:text-muted-foreground"
                 />
               </div>
             </div>
 
             {/* Mobile Nav Items */}
             <div className="p-2">
-              {NAV_ITEMS.map((item) => {
+              {ALL_NAV_ITEMS.map((item) => {
                 const isActive = activePage === item.id;
                 return (
                   <button
@@ -364,8 +579,8 @@ export function AppHeader() {
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
                       isActive
-                        ? "text-amber-400 bg-amber-500/10"
-                        : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+                        ? "text-blue-500 bg-blue-500/10"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
                     }`}
                   >
                     <item.icon className="w-5 h-5" />

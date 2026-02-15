@@ -29,7 +29,7 @@ router.get('/:marketId', async (req: Request, res: Response) => {
     const { marketId } = req.params;
 
     const result = await db.query(
-      'SELECT * FROM comments WHERE market_id = $1 ORDER BY created_at DESC LIMIT 100',
+      'SELECT * FROM comments WHERE market_id = $1 ORDER BY created_at ASC LIMIT 100',
       [marketId]
     );
 
@@ -45,7 +45,7 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
   try {
     const db = getDb();
     const { marketId } = req.params;
-    const { content } = req.body;
+    const { content, parentId } = req.body;
 
     if (typeof content !== 'string' || !content.trim()) {
       res.status(400).json({ error: 'Content is required' });
@@ -56,9 +56,33 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
       return;
     }
 
+    // Validate parentId if provided
+    if (parentId !== undefined && parentId !== null) {
+      if (typeof parentId !== 'string') {
+        res.status(400).json({ error: 'Invalid parentId' });
+        return;
+      }
+      const parentExists = await db.query('SELECT id FROM comments WHERE id = $1 AND market_id = $2', [parentId, marketId]);
+      if (parentExists.rows.length === 0) {
+        res.status(404).json({ error: 'Parent comment not found' });
+        return;
+      }
+    }
+
     const marketResult = await db.query('SELECT id FROM markets WHERE id = $1', [marketId]);
     if (marketResult.rows.length === 0) {
       res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    // Bug D27 Fix: Rate limit comments to 20 per hour per user to prevent spam.
+    const oneHourAgo = Date.now() - 3600000;
+    const recentCommentsRes = await db.query(
+      'SELECT COUNT(*) as cnt FROM comments WHERE user_address = $1 AND created_at > $2',
+      [req.userAddress, oneHourAgo]
+    );
+    if (parseInt(recentCommentsRes.rows[0].cnt, 10) >= 20) {
+      res.status(429).json({ error: '评论太频繁，请稍后再试 (每小时最多20条)' });
       return;
     }
 
@@ -66,9 +90,9 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
     const now = Date.now();
 
     await db.query(
-      `INSERT INTO comments (id, market_id, user_address, content, likes, liked_by, created_at)
-       VALUES ($1, $2, $3, $4, 0, '[]', $5)`,
-      [id, marketId, req.userAddress, content.trim(), now]
+      `INSERT INTO comments (id, market_id, user_address, content, likes, liked_by, parent_id, created_at)
+       VALUES ($1, $2, $3, $4, 0, '[]', $5, $6)`,
+      [id, marketId, req.userAddress, content.trim(), parentId ?? null, now]
     );
 
     const comment = (await db.query('SELECT * FROM comments WHERE id = $1', [id])).rows[0];

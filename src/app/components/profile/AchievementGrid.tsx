@@ -34,13 +34,13 @@ function AchievementCard({ achievement, isBackendData }: { achievement: Achievem
     <div
       className={`relative p-4 border text-center transition-colors ${
         unlocked
-          ? 'bg-zinc-900 border-zinc-700 hover:border-zinc-600'
-          : 'bg-zinc-950/50 border-zinc-800/50 opacity-60'
+          ? 'bg-card border-border hover:border-border'
+          : 'bg-secondary/50 border-border/50 opacity-60'
       }`}
     >
       {/* Unlocked badge */}
       {unlocked && (
-        <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400" />
+        <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-400" />
       )}
 
       {/* Icon */}
@@ -48,34 +48,34 @@ function AchievementCard({ achievement, isBackendData }: { achievement: Achievem
         {unlocked ? (
           icon
         ) : (
-          <Lock className="w-7 h-7 text-zinc-600 mx-auto" />
+          <Lock className="w-7 h-7 text-muted-foreground mx-auto" />
         )}
       </div>
 
       {/* Name */}
       <div
         className={`text-sm font-semibold mb-1 ${
-          unlocked ? 'text-white' : 'text-zinc-600'
+          unlocked ? 'text-foreground' : 'text-muted-foreground'
         }`}
       >
         {name}
       </div>
 
       {/* Description */}
-      <div className="text-xs text-zinc-500 mb-2 line-clamp-2">
+      <div className="text-xs text-muted-foreground mb-2 line-clamp-2">
         {description}
       </div>
 
       {/* Progress bar */}
       {showProgress && (
         <div className="mt-2">
-          <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-amber-500/70 rounded-full transition-all duration-500"
+              className="h-full bg-blue-500/70 rounded-full transition-all duration-500"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <div className="text-[10px] text-zinc-600 mt-1">
+          <div className="text-[10px] text-muted-foreground mt-1">
             {progress}/{requirement}
           </div>
         </div>
@@ -83,7 +83,7 @@ function AchievementCard({ achievement, isBackendData }: { achievement: Achievem
 
       {/* Unlock time */}
       {unlocked && unlockedAt && (
-        <div className="text-[10px] text-zinc-600">
+        <div className="text-[10px] text-muted-foreground">
           {new Date(unlockedAt).toLocaleDateString(isZh ? 'zh-CN' : 'en-US')}
         </div>
       )}
@@ -134,8 +134,8 @@ export function AchievementGrid() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-white">{t('profile.achievements')}</h2>
-        <span className="text-sm text-zinc-500">
+        <h2 className="text-xl font-bold text-foreground">{t('profile.achievements')}</h2>
+        <span className="text-sm text-muted-foreground">
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin inline" />
           ) : (

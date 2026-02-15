@@ -79,9 +79,78 @@ router.put('/:id/read', authMiddleware, async (req: AuthRequest, res: Response) 
       return;
     }
     const notification = { ...result.rows[0], is_read: !!result.rows[0].is_read };
-    res.json({ notification });
+    res.json({ success: true, notification });
   } catch (err: any) {
     console.error('Notifications error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/notifications/activity — aggregated activity from settlement_log + orders
+// Provides a unified feed even when the notifications table is empty
+router.get('/activity', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const { limit = '50', offset = '0' } = req.query;
+    const rawLimit = Number.parseInt(String(limit), 10);
+    const rawOffset = Number.parseInt(String(offset), 10);
+    const parsedLimit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 200));
+    const parsedOffset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
+
+    // Union of orders and settlement_log for this user, ordered by time desc
+    const { rows } = await db.query(`
+      (
+        SELECT
+          o.id,
+          'trade' as type,
+          CASE
+            WHEN o.type = 'buy' THEN 'Order Filled'
+            ELSE 'Order Sold'
+          END as title,
+          'You ' || o.type || ' ' || ROUND(CAST(o.shares AS NUMERIC), 2) || ' ' || UPPER(o.side) || ' shares at $' || ROUND(CAST(o.price AS NUMERIC), 4) as message,
+          o.created_at,
+          0 as is_read
+        FROM orders o
+        WHERE o.user_address = $1
+      )
+      UNION ALL
+      (
+        SELECT
+          s.id,
+          'market' as type,
+          CASE
+            WHEN s.action = 'resolve' THEN 'Market Resolved'
+            WHEN s.action = 'claim' THEN 'Winnings Claimed'
+            WHEN s.action = 'refund' THEN 'Refund Issued'
+            ELSE 'Settlement Update'
+          END as title,
+          CASE
+            WHEN s.action = 'claim' THEN 'You claimed $' || ROUND(CAST(COALESCE(s.amount, 0) AS NUMERIC), 2) || ' in winnings'
+            WHEN s.action = 'resolve' THEN 'A market you participated in has been resolved'
+            WHEN s.action = 'refund' THEN 'You received a refund of $' || ROUND(CAST(COALESCE(s.amount, 0) AS NUMERIC), 2)
+            ELSE 'Settlement action: ' || s.action
+          END as message,
+          s.created_at,
+          0 as is_read
+        FROM settlement_log s
+        WHERE s.user_address = $1
+      )
+      ORDER BY created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [req.userAddress, parsedLimit, parsedOffset]);
+
+    const notifications = rows.map((r: any) => ({
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      message: r.message,
+      created_at: r.created_at,
+      is_read: !!r.is_read,
+    }));
+
+    res.json({ notifications });
+  } catch (err: any) {
+    console.error('Activity feed error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

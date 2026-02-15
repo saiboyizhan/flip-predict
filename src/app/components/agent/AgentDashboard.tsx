@@ -41,21 +41,21 @@ export function AgentDashboard() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-amber-500/10 via-zinc-900 to-purple-500/10 border border-zinc-800 p-4 sm:p-6 md:p-8"
+          className="bg-gradient-to-r from-blue-500/10 via-card to-purple-500/10 border border-border p-4 sm:p-6 md:p-8"
         >
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-3 mb-2">
-                <Bot className="w-6 h-6 sm:w-8 sm:h-8 text-amber-400" />
+                <Bot className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
                 <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">{t("agent.title")}</h1>
               </div>
-              <p className="text-zinc-400 text-sm sm:text-base">
+              <p className="text-muted-foreground text-sm sm:text-base">
                 {t("agent.subtitle")}
               </p>
             </div>
             <button
               onClick={() => navigate("/agents/mint")}
-              className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold transition-colors shrink-0 w-full sm:w-auto justify-center text-sm sm:text-base"
+              className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-500 hover:bg-blue-400 text-black font-bold transition-colors shrink-0 w-full sm:w-auto justify-center text-sm sm:text-base"
             >
               <Sparkles className="w-5 h-5" />
               {t("agent.mintAgent")}
@@ -64,20 +64,20 @@ export function AgentDashboard() {
         </motion.div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-zinc-800 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none" }}>
+        <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none" }}>
           {TABS.map((tabItem) => (
             <button
               key={tabItem.id}
               onClick={() => setTab(tabItem.id)}
               className={`relative px-3 sm:px-4 py-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
-                tab === tabItem.id ? "text-amber-400" : "text-zinc-500 hover:text-zinc-300"
+                tab === tabItem.id ? "text-blue-400" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {tabItem.label}
               {tab === tabItem.id && (
                 <motion.div
                   layoutId="agent-tab-indicator"
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"
                   transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
                 />
               )}
@@ -91,7 +91,7 @@ export function AgentDashboard() {
         {tab === "my" && (
           <div>
             {myLoading ? (
-              <div className="p-8 text-center text-zinc-500">{t("common.loading")}</div>
+              <div className="p-8 text-center text-muted-foreground">{t("common.loading")}</div>
             ) : myAgents.length > 0 ? (
               <motion.div
                 initial={{ opacity: 0 }}
@@ -110,11 +110,11 @@ export function AgentDashboard() {
                 ))}
               </motion.div>
             ) : (
-              <div className="p-8 sm:p-12 text-center border border-zinc-800 border-dashed">
-                <p className="text-zinc-500 mb-4">{t("agent.noAgentYet")}</p>
+              <div className="p-8 sm:p-12 text-center border border-border border-dashed">
+                <p className="text-muted-foreground mb-4">{t("agent.noAgentYet")}</p>
                 <button
                   onClick={() => navigate("/agents/mint")}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold transition-colors w-full sm:w-auto justify-center"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-400 text-black font-bold transition-colors w-full sm:w-auto justify-center"
                 >
                   <Sparkles className="w-5 h-5" />
                   {t("agent.mintAgent")}

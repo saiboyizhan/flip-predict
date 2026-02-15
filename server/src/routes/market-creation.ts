@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
+import { createLMSRPool, getLMSRPrices } from '../engine/lmsr';
 
 const router = Router();
 
@@ -8,10 +9,12 @@ function generateId(): string {
   return 'ucm-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
 }
 
+const OPTION_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
+
 const VALID_CATEGORIES = [
-  'four-meme', 'meme-arena', 'narrative', 'kol',
-  'on-chain', 'rug-alert', 'btc-weather', 'fun', 'daily'
+  'four-meme', 'flap', 'nfa', 'hackathon'
 ];
+const VALID_RESOLUTION_TYPES = ['manual', 'price_above', 'price_below'] as const;
 
 function parseAddressArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -30,15 +33,59 @@ function parseAddressArray(value: unknown): string[] {
   return [];
 }
 
+function normalizeOptionalUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
+function isTxHash(value: unknown): value is string {
+  return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
+}
+
 // POST /api/markets/create — create user market
 router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { title, description, category, endTime } = req.body;
+    const {
+      title,
+      description,
+      category,
+      endTime,
+      marketType,
+      options: optionLabels,
+      resolutionType,
+      oraclePair,
+      targetPrice,
+      resolutionRule,
+      resolutionSourceUrl,
+      resolutionTimeUtc,
+      onChainMarketId,
+      createTxHash,
+      onChainCreationFee,
+    } = req.body;
     const userAddress = req.userAddress!;
     const normalizedTitle = typeof title === 'string' ? title.trim() : '';
     const normalizedDescription = typeof description === 'string' ? description.trim() : '';
     const normalizedCategory = typeof category === 'string' ? category.trim() : '';
+    const normalizedResolutionType = typeof resolutionType === 'string' && VALID_RESOLUTION_TYPES.includes(resolutionType as any)
+      ? resolutionType
+      : 'manual';
+    const normalizedOraclePair = typeof oraclePair === 'string' ? oraclePair.trim() : '';
+    const parsedTargetPrice = Number(targetPrice);
+    const normalizedRuleText = typeof resolutionRule === 'string' ? resolutionRule.trim() : '';
+    const normalizedSourceUrl = normalizeOptionalUrl(resolutionSourceUrl);
+    if (typeof resolutionSourceUrl === 'string' && resolutionSourceUrl.trim() && !normalizedSourceUrl) {
+      res.status(400).json({ error: 'resolutionSourceUrl 必须是合法的 http/https 链接' });
+      return;
+    }
 
     // Validate title
     if (!normalizedTitle || normalizedTitle.length < 10 || normalizedTitle.length > 200) {
@@ -68,9 +115,53 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       return;
     }
 
-    const creationFee = 10;
+    if (!VALID_RESOLUTION_TYPES.includes(normalizedResolutionType as any)) {
+      res.status(400).json({ error: '无效结算类型' });
+      return;
+    }
 
-    // Use a single transaction for rate limit check + balance check + creation
+    if (normalizedResolutionType === 'manual' && normalizedRuleText.length < 10) {
+      res.status(400).json({ error: '手动结算市场必须提供至少10个字符的判定规则' });
+      return;
+    }
+
+    if ((normalizedResolutionType === 'price_above' || normalizedResolutionType === 'price_below')) {
+      if (!normalizedOraclePair) {
+        res.status(400).json({ error: '价格类市场必须提供 oraclePair' });
+        return;
+      }
+      if (!Number.isFinite(parsedTargetPrice) || parsedTargetPrice <= 0) {
+        res.status(400).json({ error: '价格类市场必须提供有效 targetPrice' });
+        return;
+      }
+    }
+
+    const parsedResolutionTime = Number(resolutionTimeUtc);
+    const parsedOnChainMarketId = Number(onChainMarketId);
+    const normalizedCreateTxHash = typeof createTxHash === 'string' ? createTxHash.trim().toLowerCase() : '';
+    const parsedOnChainCreationFee = Number(onChainCreationFee);
+    const recordedCreationFee = Number.isFinite(parsedOnChainCreationFee) && parsedOnChainCreationFee >= 0
+      ? parsedOnChainCreationFee
+      : 10;
+
+    if (!Number.isInteger(parsedOnChainMarketId) || parsedOnChainMarketId < 0) {
+      res.status(400).json({ error: 'onChainMarketId is required and must be a non-negative integer' });
+      return;
+    }
+    if (!isTxHash(normalizedCreateTxHash)) {
+      res.status(400).json({ error: 'createTxHash is required and must be a valid transaction hash' });
+      return;
+    }
+
+    const resolutionTimeMs = Number.isFinite(parsedResolutionTime)
+      ? Math.floor(parsedResolutionTime)
+      : Math.floor(endTimeMs);
+    if (resolutionTimeMs < endTimeMs) {
+      res.status(400).json({ error: '结算时间必须晚于市场结束时间' });
+      return;
+    }
+
+    // Use a single transaction for rate limit check + creation
     // to prevent race conditions where concurrent requests bypass the rate limit
     const client = await db.connect();
     let committed = false;
@@ -106,41 +197,92 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
         return;
       }
 
-      // Check and deduct balance atomically
-      const balanceResult = await client.query(
-        'UPDATE balances SET available = available - $1 WHERE user_address = $2 AND available >= $1 RETURNING *',
-        [creationFee, userAddress]
+      const existingOnChainMarket = await client.query(
+        'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1 FOR UPDATE',
+        [parsedOnChainMarketId],
       );
-      if (balanceResult.rows.length === 0) {
+      if (existingOnChainMarket.rows.length > 0) {
         await client.query('ROLLBACK');
-        res.status(400).json({ error: `余额不足，创建市场需要 ${creationFee} USDT` });
+        res.status(409).json({ error: 'onChainMarketId already exists' });
+        return;
+      }
+      const existingCreateTx = await client.query(
+        'SELECT id FROM user_created_markets WHERE LOWER(create_tx_hash) = LOWER($1) LIMIT 1 FOR UPDATE',
+        [normalizedCreateTxHash],
+      );
+      if (existingCreateTx.rows.length > 0) {
+        await client.query('ROLLBACK');
+        res.status(409).json({ error: 'createTxHash already exists' });
+        return;
+      }
+
+      // Validate multi-option specific fields
+      const isMulti = marketType === 'multi';
+      if (isMulti) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: '当前链上主流程仅支持二元市场（YES/NO）' });
         return;
       }
 
       // Create market
       const marketId = generateId();
-      await client.query(`
-        INSERT INTO markets (id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at)
-        VALUES ($1, $2, $3, $4, $5, 'active', 0.5, 0.5, 0, 10000, 10000, 10000, $6)
-      `, [marketId, normalizedTitle, normalizedDescription, normalizedCategory || 'daily', Math.floor(endTimeMs), now]);
+      const totalLiquidity = 10000;
+      // Bug D10 Fix: Truncate endTimeMs to integer to prevent storing fractional timestamps.
+
+      if (isMulti) {
+        const numOptions = optionLabels.length;
+        const pool = createLMSRPool(numOptions, totalLiquidity);
+        const initialPrices = getLMSRPrices(pool.reserves, pool.b);
+
+        await client.query(`
+          INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
+          VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, 0, $9, 0, 0, $10, 'multi')
+        `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), initialPrices[0], 1 - initialPrices[0], totalLiquidity, Math.floor(now)]);
+
+        // Insert market_options rows
+        for (let i = 0; i < numOptions; i++) {
+          const opt = optionLabels[i];
+          const optId = generateId();
+          const color = opt.color || OPTION_COLORS[i % OPTION_COLORS.length];
+          await client.query(`
+            INSERT INTO market_options (id, market_id, option_index, label, color, reserve, price)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `, [optId, marketId, i, opt.label.trim(), color, pool.reserves[i], initialPrices[i]]);
+        }
+      } else {
+        await client.query(`
+          INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
+          VALUES ($1, $2, $3, $4, $5, $6, 'active', 0.5, 0.5, 0, 10000, 10000, 10000, $7, 'binary')
+        `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), Math.floor(now)]);
+      }
 
       // Track in user_created_markets
       await client.query(`
-        INSERT INTO user_created_markets (id, market_id, creator_address, creation_fee, created_at)
-        VALUES ($1, $2, $3, $4, $5)
-      `, [generateId(), marketId, userAddress, creationFee, now]);
+        INSERT INTO user_created_markets (id, market_id, creator_address, creation_fee, create_tx_hash, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `, [generateId(), marketId, userAddress, recordedCreationFee, normalizedCreateTxHash, now]);
 
       // Also create market_resolution entry
       await client.query(
-        'INSERT INTO market_resolution (market_id, resolution_type) VALUES ($1, $2)',
-        [marketId, 'manual']
+        `INSERT INTO market_resolution (
+          market_id, resolution_type, oracle_pair, target_price, rule_text, data_source_url, resolution_time_utc
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          marketId,
+          normalizedResolutionType,
+          normalizedOraclePair || null,
+          Number.isFinite(parsedTargetPrice) ? parsedTargetPrice : null,
+          normalizedRuleText || null,
+          normalizedSourceUrl,
+          resolutionTimeMs,
+        ]
       );
 
       await client.query('COMMIT');
       committed = true;
 
       const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [marketId]);
-      res.json({ market: marketResult.rows[0], fee: creationFee });
+      res.json({ market: marketResult.rows[0], fee: recordedCreationFee });
     } catch (txErr) {
       if (!committed) {
         await client.query('ROLLBACK');
@@ -150,7 +292,8 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       client.release();
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Market creation error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -159,7 +302,7 @@ router.get('/user-created', authMiddleware, async (req: AuthRequest, res: Respon
   try {
     const db = getDb();
     const { rows: markets } = await db.query(`
-      SELECT m.*, ucm.creation_fee, ucm.flag_count, ucm.status as ucm_status
+      SELECT m.*, ucm.creation_fee, ucm.create_tx_hash, ucm.flag_count, ucm.status as ucm_status
       FROM user_created_markets ucm
       JOIN markets m ON m.id = ucm.market_id
       WHERE ucm.creator_address = $1
@@ -167,7 +310,8 @@ router.get('/user-created', authMiddleware, async (req: AuthRequest, res: Respon
     `, [req.userAddress]);
     res.json({ markets });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('User-created markets error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -221,7 +365,8 @@ router.post('/:id/flag', authMiddleware, async (req: AuthRequest, res: Response)
       client.release();
     }
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Market flag error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -251,7 +396,8 @@ router.get('/creation-stats', authMiddleware, async (req: AuthRequest, res: Resp
       balance: balance?.available || 0,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Creation stats error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

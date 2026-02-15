@@ -14,39 +14,52 @@ function parseTimestampFilter(value: unknown): string | null {
 
 // GET /api/markets
 router.get('/', async (req: Request, res: Response) => {
-  const { category, search, sort } = req.query;
-  const db = getDb();
+  try {
+    const { category, search, sort } = req.query;
+    const db = getDb();
 
-  let query = 'SELECT * FROM markets WHERE 1=1';
-  const params: any[] = [];
-  let paramIndex = 1;
+    let query = 'SELECT * FROM markets WHERE 1=1';
+    const params: any[] = [];
+    let paramIndex = 1;
 
-  if (category && category !== 'all') {
-    query += ` AND category = $${paramIndex++}`;
-    params.push(category);
+    if (category && category !== 'all') {
+      query += ` AND category = $${paramIndex++}`;
+      params.push(category);
+    }
+
+    if (search) {
+      query += ` AND (title ILIKE $${paramIndex++} OR description ILIKE $${paramIndex++})`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    switch (sort) {
+      case 'volume':
+        query += ' ORDER BY volume DESC';
+        break;
+      case 'newest':
+        query += ' ORDER BY created_at DESC';
+        break;
+      case 'ending':
+        query += ' ORDER BY end_time ASC';
+        break;
+      default:
+        query += ' ORDER BY volume DESC';
+    }
+
+    query += ' LIMIT 200';
+
+    const { rows: markets } = await db.query(query, params);
+    // Normalization guard: derive no_price from yes_price to guarantee sum === 1
+    for (const m of markets) {
+      if (m.market_type !== 'multi') {
+        m.no_price = 1 - m.yes_price;
+      }
+    }
+    res.json({ markets });
+  } catch (err: any) {
+    console.error('Market list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  if (search) {
-    query += ` AND (title ILIKE $${paramIndex++} OR description ILIKE $${paramIndex++})`;
-    params.push(`%${search}%`, `%${search}%`);
-  }
-
-  switch (sort) {
-    case 'volume':
-      query += ' ORDER BY volume DESC';
-      break;
-    case 'newest':
-      query += ' ORDER BY created_at DESC';
-      break;
-    case 'ending':
-      query += ' ORDER BY end_time ASC';
-      break;
-    default:
-      query += ' ORDER BY volume DESC';
-  }
-
-  const { rows: markets } = await db.query(query, params);
-  res.json({ markets });
 });
 
 // GET /api/markets/stats — platform stats for dashboard
@@ -115,6 +128,95 @@ router.get('/search', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/markets/:id/activity — recent trading activity for a market
+router.get('/:id/activity', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    // Verify market exists
+    const marketResult = await db.query('SELECT id FROM markets WHERE id = $1', [id]);
+    if (marketResult.rows.length === 0) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    const { rows: orders } = await db.query(`
+      SELECT o.id, o.user_address, o.side, o.type, o.amount, o.shares, o.price, o.status, o.created_at, o.option_id,
+             mo.label as option_label
+      FROM orders o
+      LEFT JOIN market_options mo ON o.option_id = mo.id
+      WHERE o.market_id = $1 AND o.status = 'filled'
+      ORDER BY o.created_at DESC
+      LIMIT 20
+    `, [id]);
+
+    const activity = orders.map((o: any) => ({
+      id: o.id,
+      userAddress: o.user_address,
+      side: o.side,
+      type: o.type,
+      amount: Number(o.amount) || 0,
+      shares: Number(o.shares) || 0,
+      price: Number(o.price) || 0,
+      optionLabel: o.option_label || null,
+      createdAt: Number(o.created_at) || Date.now(),
+    }));
+
+    res.json({ activity });
+  } catch (err: any) {
+    console.error('Market activity error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/markets/:id/related — related markets in the same category
+router.get('/:id/related', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    // Get the market to find its category
+    const marketResult = await db.query('SELECT id, category FROM markets WHERE id = $1', [id]);
+    if (marketResult.rows.length === 0) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    const market = marketResult.rows[0] as any;
+
+    // Find active markets in the same category, excluding this one, ordered by volume
+    const { rows: related } = await db.query(`
+      SELECT * FROM markets
+      WHERE category = $1 AND id != $2 AND status = 'active'
+      ORDER BY volume DESC
+      LIMIT 4
+    `, [market.category, id]);
+
+    // If we don't have enough from same category, pad with other active markets
+    let markets = related;
+    if (markets.length < 4) {
+      const existing = [id, ...markets.map((m: any) => m.id)];
+      const placeholders = existing.map((_: string, i: number) => `$${i + 1}`).join(',');
+      const { rows: extra } = await db.query(`
+        SELECT * FROM markets
+        WHERE id NOT IN (${placeholders}) AND status = 'active'
+        ORDER BY volume DESC
+        LIMIT $${existing.length + 1}
+      `, [...existing, 4 - markets.length]);
+      markets = [...markets, ...extra];
+    }
+
+    for (const m of markets) {
+      if (m.market_type !== 'multi') m.no_price = 1 - m.yes_price;
+    }
+    res.json({ markets });
+  } catch (err: any) {
+    console.error('Related markets error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/markets/:id/history
 router.get('/:id/history', async (req: Request, res: Response) => {
   try {
@@ -135,9 +237,26 @@ router.get('/:id/history', async (req: Request, res: Response) => {
       return;
     }
 
-    const marketResult = await db.query('SELECT id FROM markets WHERE id = $1', [id]);
+    const marketResult = await db.query('SELECT id, market_type FROM markets WHERE id = $1', [id]);
     if (marketResult.rows.length === 0) {
       res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    const marketRow = marketResult.rows[0];
+
+    // For multi-option markets, return option_price_history instead
+    if (marketRow.market_type === 'multi') {
+      const { rows: optionHistory } = await db.query(`
+        SELECT oph.option_id, oph.price, oph.volume, oph.timestamp,
+               mo.label, mo.color, mo.option_index
+        FROM option_price_history oph
+        JOIN market_options mo ON oph.option_id = mo.id
+        WHERE oph.market_id = $1
+        ORDER BY oph.timestamp ASC
+        LIMIT 2000
+      `, [id]);
+      res.json({ history: optionHistory, marketType: 'multi' });
       return;
     }
 
@@ -222,23 +341,42 @@ router.get('/:id/history', async (req: Request, res: Response) => {
 
 // GET /api/markets/:id
 router.get('/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const db = getDb();
+  try {
+    const { id } = req.params;
+    const db = getDb();
 
-  const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [id]);
-  const market = marketResult.rows[0];
-  if (!market) {
-    res.status(404).json({ error: 'Market not found' });
-    return;
+    const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [id]);
+    const market = marketResult.rows[0];
+    if (!market) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    // Get recent orders for this market
+    const { rows: recentOrders } = await db.query(
+      'SELECT * FROM orders WHERE market_id = $1 ORDER BY created_at DESC LIMIT 20',
+      [id]
+    );
+
+    // For multi-option markets, also return options
+    let options: any[] = [];
+    if (market.market_type === 'multi') {
+      const { rows } = await db.query(
+        'SELECT * FROM market_options WHERE market_id = $1 ORDER BY option_index ASC',
+        [id]
+      );
+      options = rows;
+    }
+
+    // Normalization guard for binary markets
+    if (market.market_type !== 'multi') {
+      market.no_price = 1 - market.yes_price;
+    }
+    res.json({ market, recentOrders, options });
+  } catch (err: any) {
+    console.error('Market detail error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  // Get recent orders for this market
-  const { rows: recentOrders } = await db.query(
-    'SELECT * FROM orders WHERE market_id = $1 ORDER BY created_at DESC LIMIT 20',
-    [id]
-  );
-
-  res.json({ market, recentOrders });
 });
 
 export default router;

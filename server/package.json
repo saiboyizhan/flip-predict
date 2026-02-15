@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "seed": "tsx src/db/seed.ts"
+    "build": "tsc --noEmit",
+    "seed": "tsx src/db/seed.ts",
+    "reseed": "tsx src/db/seed.ts --reseed"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +22,7 @@
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "openai": "^6.22.0",
     "pg": "^8.13.1",
     "ws": "^8.19.0"
   },

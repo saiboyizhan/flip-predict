@@ -5,13 +5,19 @@ import { useTranslation } from "react-i18next";
 import {
   AreaChart,
   Area,
+  ComposedChart,
+  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 import { fetchPriceHistory, type PricePoint } from "@/app/services/api";
+import type { MarketOption } from "@/app/types/market.types";
 
 const INTERVALS = [
   { key: "1m", label: "1M" },
@@ -57,9 +63,11 @@ function defaultTo(): string {
 
 interface PriceChartProps {
   marketId: string;
+  marketType?: "binary" | "multi";
+  options?: MarketOption[];
 }
 
-export function PriceChart({ marketId }: PriceChartProps) {
+export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
   const { t } = useTranslation();
   const [timeInterval, setTimeInterval] = useState("1h");
   const [data, setData] = useState<PricePoint[]>([]);
@@ -69,29 +77,29 @@ export function PriceChart({ marketId }: PriceChartProps) {
   const [fromDate, setFromDate] = useState(defaultFrom);
   const [toDate, setToDate] = useState(defaultTo);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: { cancelled: boolean }) => {
     setLoading(true);
     setError(null);
     try {
       const from = customMode ? toUTCString(fromDate) : undefined;
       const to = customMode ? toUTCString(toDate) : undefined;
       const res = await fetchPriceHistory(marketId, timeInterval, from, to);
-      setData(res.history);
-    } catch (e: any) {
-      setError(e.message || "Failed to load price history");
+      if (!signal?.cancelled) setData(res.history);
+    } catch {
+      if (!signal?.cancelled) setError("LOAD_FAILED");
     } finally {
-      setLoading(false);
+      if (!signal?.cancelled) setLoading(false);
     }
   }, [marketId, timeInterval, customMode, fromDate, toDate]);
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    const timer = window.setInterval(() => { load(); }, 30000);
-    return () => window.clearInterval(timer);
+    const signal = { cancelled: false };
+    load(signal);
+    const timer = window.setInterval(() => { load(signal); }, 30000);
+    return () => {
+      signal.cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [load]);
 
   const handlePresetClick = (key: string) => {
@@ -113,20 +121,20 @@ export function PriceChart({ marketId }: PriceChartProps) {
             onClick={() => handlePresetClick(iv.key)}
             className={`px-3 py-1 text-xs font-medium transition-colors rounded-sm ${
               !customMode && timeInterval === iv.key
-                ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                : "bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300"
+                ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
+                : "bg-muted/50 text-muted-foreground border border-border/50 hover:text-foreground"
             }`}
           >
             {iv.label}
           </button>
         ))}
-        <div className="w-px h-5 bg-zinc-700/50 mx-1" />
+        <div className="w-px h-5 bg-border/50 mx-1" />
         <button
           onClick={toggleCustom}
           className={`px-3 py-1 text-xs font-medium transition-colors rounded-sm ${
             customMode
-              ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-              : "bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300"
+              ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
+              : "bg-muted/50 text-muted-foreground border border-border/50 hover:text-foreground"
           }`}
         >
           {t('priceChart.custom')}
@@ -137,27 +145,27 @@ export function PriceChart({ marketId }: PriceChartProps) {
       {customMode && (
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <div className="flex items-center gap-1.5">
-            <span className="text-zinc-500 text-xs">{t('priceChart.from')}</span>
+            <span className="text-muted-foreground text-xs">{t('priceChart.from')}</span>
             <input
               type="datetime-local"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 outline-none focus:border-amber-500/50 [color-scheme:dark]"
+              className="bg-input-background border border-border rounded px-2 py-1 text-xs text-muted-foreground outline-none focus:border-blue-500/50 [color-scheme:dark]"
             />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-zinc-500 text-xs">{t('priceChart.to')}</span>
+            <span className="text-muted-foreground text-xs">{t('priceChart.to')}</span>
             <input
               type="datetime-local"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 outline-none focus:border-amber-500/50 [color-scheme:dark]"
+              className="bg-input-background border border-border rounded px-2 py-1 text-xs text-muted-foreground outline-none focus:border-blue-500/50 [color-scheme:dark]"
             />
           </div>
           <select
             value={timeInterval}
             onChange={(e) => setTimeInterval(e.target.value)}
-            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 outline-none focus:border-amber-500/50 [color-scheme:dark]"
+            className="bg-input-background border border-border rounded px-2 py-1 text-xs text-muted-foreground outline-none focus:border-blue-500/50 [color-scheme:dark]"
           >
             {INTERVALS.map((iv) => (
               <option key={iv.key} value={iv.key}>
@@ -170,33 +178,40 @@ export function PriceChart({ marketId }: PriceChartProps) {
 
       {/* Chart */}
       {loading ? (
-        <div className="h-64 bg-zinc-950/50 border border-zinc-800/50 animate-pulse flex items-center justify-center rounded">
-          <div className="text-zinc-600 text-sm">Loading...</div>
+        <div className="h-64 bg-secondary/50 border border-border/50 animate-pulse flex items-center justify-center rounded">
+          <div className="text-muted-foreground text-sm">{t('priceChart.loading')}</div>
         </div>
       ) : error ? (
-        <div className="h-64 bg-zinc-950/50 border border-zinc-800/50 flex items-center justify-center rounded">
-          <div className="text-red-400 text-sm">{error}</div>
+        <div className="h-64 bg-secondary/50 border border-border/50 flex items-center justify-center rounded">
+          <div className="text-red-400 text-sm">{t('priceChart.loadFailed')}</div>
         </div>
       ) : data.length === 0 ? (
-        <div className="h-64 bg-zinc-950/50 border border-zinc-800/50 flex items-center justify-center rounded">
+        <div className="h-64 bg-secondary/50 border border-border/50 flex items-center justify-center rounded">
           <div className="text-center">
-            <p className="text-zinc-600 text-sm">No price history yet</p>
-            <p className="text-zinc-700 text-xs mt-1">Trade to generate data</p>
+            <p className="text-muted-foreground text-sm">{t('priceChart.noHistory')}</p>
+            <p className="text-muted-foreground text-xs mt-1">{t('priceChart.tradeToGenerate')}</p>
           </div>
         </div>
-      ) : (
+      ) : marketType === "multi" && options && options.length > 0 ? (
+        /* Multi-option line chart: one line per option */
         <ResponsiveContainer width="100%" height={256}>
-          <AreaChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="yesGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="noGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <LineChart
+            data={(() => {
+              // Group option_price_history data by timestamp into combined rows
+              const timeMap = new Map<string, Record<string, number>>();
+              if (!data || !Array.isArray(data)) return [];
+              for (const point of data as any[]) {
+                const ts = point.timestamp ? new Date(point.timestamp).toISOString() : point.time_bucket;
+                if (!timeMap.has(ts)) timeMap.set(ts, { time_bucket: ts } as any);
+                const row = timeMap.get(ts)!;
+                (row as any).time_bucket = ts;
+                const label = point.label || point.option_id;
+                (row as any)[label] = Number(point.price) || 0;
+              }
+              return Array.from(timeMap.values());
+            })()}
+            margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
             <XAxis
               dataKey="time_bucket"
@@ -222,13 +237,90 @@ export function PriceChart({ marketId }: PriceChartProps) {
               }}
               labelFormatter={(v) => formatTime(v as string, timeInterval)}
               formatter={(value: number, name: string) => {
-                if (name === "yes_price") return [`${(value * 100).toFixed(1)}%`, "YES"];
-                if (name === "no_price") return [`${(value * 100).toFixed(1)}%`, "NO"];
-                if (name === "volume") return [`$${value.toFixed(0)}`, "Volume"];
+                return [`${(value * 100).toFixed(1)}%`, name];
+              }}
+            />
+            <Legend />
+            {options.map((opt) => (
+              <Line
+                key={opt.id}
+                type="monotone"
+                dataKey={opt.label}
+                stroke={opt.color}
+                strokeWidth={2}
+                dot={false}
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <defs>
+              <linearGradient id="yesGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="noGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+            <XAxis
+              dataKey="time_bucket"
+              tickFormatter={(v) => formatTime(v, timeInterval)}
+              tick={{ fill: "#71717a", fontSize: 10 }}
+              axisLine={{ stroke: "#3f3f46" }}
+              tickLine={false}
+              interval="preserveStartEnd"
+            />
+            {/* Left Y-axis: price percentage */}
+            <YAxis
+              yAxisId="price"
+              domain={[0, 1]}
+              tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+              tick={{ fill: "#71717a", fontSize: 10 }}
+              axisLine={{ stroke: "#3f3f46" }}
+              tickLine={false}
+            />
+            {/* Right Y-axis: volume (hidden axis, just for scaling) */}
+            <YAxis
+              yAxisId="volume"
+              orientation="right"
+              hide
+              domain={[0, (dataMax: number) => Math.max(dataMax * 4, 1)]}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#18181b",
+                border: "1px solid #3f3f46",
+                borderRadius: "4px",
+                fontSize: "12px",
+              }}
+              labelFormatter={(v) => formatTime(v as string, timeInterval)}
+              formatter={(value: number, name: string) => {
+                if (name === "yes_price") return [`${(value * 100).toFixed(1)}%`, t('market.yes')];
+                if (name === "no_price") return [`${(value * 100).toFixed(1)}%`, t('market.no')];
+                if (name === "volume") return [`$${value.toFixed(0)}`, t('priceChart.volume', { defaultValue: 'Volume' })];
                 return [value, name];
               }}
             />
+            {/* Volume bars at the bottom */}
+            <Bar
+              yAxisId="volume"
+              dataKey="volume"
+              fill="#3b82f6"
+              fillOpacity={0.2}
+              stroke="#3b82f6"
+              strokeOpacity={0.3}
+              barSize={8}
+              isAnimationActive={false}
+            />
+            {/* YES price area */}
             <Area
+              yAxisId="price"
               type="monotone"
               dataKey="yes_price"
               stroke="#22c55e"
@@ -236,7 +328,9 @@ export function PriceChart({ marketId }: PriceChartProps) {
               fill="url(#yesGrad)"
               dot={false}
             />
+            {/* NO price area */}
             <Area
+              yAxisId="price"
               type="monotone"
               dataKey="no_price"
               stroke="#ef4444"
@@ -244,7 +338,7 @@ export function PriceChart({ marketId }: PriceChartProps) {
               fill="url(#noGrad)"
               dot={false}
             />
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
       )}
     </div>

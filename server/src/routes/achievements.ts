@@ -145,7 +145,10 @@ async function calculateUserProgress(address: string): Promise<Record<string, nu
   `, [address]);
   const winCount = parseInt(winCountRes.rows[0]?.count) || 0;
 
-  // Win streak from ordered settlement records
+  // Bug D13 Fix: Calculate BOTH current streak (from most recent) AND best streak.
+  // The achievement 'five_streak' needs the current consecutive streak, not the
+  // all-time best streak. Rows are ordered DESC so the first contiguous block of
+  // wins is the current streak.
   let winStreak = 0;
   try {
     const streakRes = await db.query(`
@@ -156,17 +159,16 @@ async function calculateUserProgress(address: string): Promise<Record<string, nu
       ORDER BY created_at DESC
     `, [address]);
 
+    // Current streak: count wins from the most recent result backwards
     let currentStreak = 0;
-    let bestStreak = 0;
     for (const row of streakRes.rows as any[]) {
-      if (row.is_win === 1) {
+      if (Number(row.is_win) === 1) {
         currentStreak++;
-        bestStreak = Math.max(bestStreak, currentStreak);
       } else {
-        currentStreak = 0;
+        break;
       }
     }
-    winStreak = bestStreak;
+    winStreak = currentStreak;
   } catch {
     winStreak = 0;
   }

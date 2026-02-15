@@ -6,17 +6,28 @@
 
 from PIL import Image
 import os
+from pathlib import Path
 
 def create_teliubiao_sprite():
     # 源文件夹
-    source_dir = "/Users/xiaobai/pr/13"
+    source_dir = Path(os.environ.get("HORSE_SOURCE_DIR", "/Users/xiaobai/pr/13"))
 
     # 输出文件
-    output_file = "/Users/xiaobai/Desktop/Premium Horse Racing DApp UI (Copy) 2/public/horse-sprite-teliubiao.png"
+    output_file = Path(os.environ.get(
+        "HORSE_OUTPUT_FILE",
+        str(Path(__file__).resolve().parent / "public" / "horse-sprite-teliubiao.png")
+    ))
+
+    if not source_dir.exists() or not source_dir.is_dir():
+        print(f"❌ 源文件夹不存在: {source_dir}")
+        return
 
     # 获取所有帧文件
-    frame_files = sorted([f for f in os.listdir(source_dir) if f.endswith('.png')])
+    frame_files = sorted([f for f in os.listdir(source_dir) if f.lower().endswith('.png')])
     print(f"找到 {len(frame_files)} 帧")
+    if len(frame_files) < 48:
+        print("❌ 帧数不足，至少需要 48 帧")
+        return
 
     # 从178帧中均匀选择48帧
     total_frames = len(frame_files)
@@ -28,7 +39,7 @@ def create_teliubiao_sprite():
     print(f"最后一帧: {selected_files[-1]}")
 
     # 读取第一帧获取尺寸
-    first_frame = Image.open(os.path.join(source_dir, selected_files[0]))
+    first_frame = Image.open(source_dir / selected_files[0])
     frame_width, frame_height = first_frame.size
     print(f"每帧尺寸: {frame_width}x{frame_height}")
 
@@ -45,7 +56,7 @@ def create_teliubiao_sprite():
 
     # 将48帧放置到精灵图中
     for idx, filename in enumerate(selected_files):
-        frame_path = os.path.join(source_dir, filename)
+        frame_path = source_dir / filename
         frame = Image.open(frame_path)
 
         # 计算位置
@@ -62,6 +73,7 @@ def create_teliubiao_sprite():
 
     # 保存精灵图
     print(f"保存精灵图到: {output_file}")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     sprite_sheet.save(output_file, 'PNG', optimize=True, compress_level=9)
 
     # 获取文件大小

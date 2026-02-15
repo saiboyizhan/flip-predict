@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="8" fill="#1a1a2e"/>
+  <!-- Circuit board agent -->
+  <rect x="22" y="22" width="20" height="20" rx="3" fill="none" stroke="#ec4899" stroke-width="2"/>
+  <rect x="28" y="28" width="8" height="8" rx="1" fill="#ec4899"/>
+  <!-- Circuit traces -->
+  <line x1="22" y1="28" x2="10" y2="28" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="22" y1="36" x2="10" y2="36" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="42" y1="28" x2="54" y2="28" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="42" y1="36" x2="54" y2="36" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="28" y1="22" x2="28" y2="10" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="36" y1="22" x2="36" y2="10" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="28" y1="42" x2="28" y2="54" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <line x1="36" y1="42" x2="36" y2="54" stroke="#ec4899" stroke-width="1.5" opacity="0.6"/>
+  <!-- Trace endpoints -->
+  <circle cx="10" cy="28" r="1.5" fill="#ec4899" opacity="0.7"/>
+  <circle cx="10" cy="36" r="1.5" fill="#ec4899" opacity="0.7"/>
+  <circle cx="54" cy="28" r="1.5" fill="#ec4899" opacity="0.7"/>
+  <circle cx="54" cy="36" r="1.5" fill="#ec4899" opacity="0.7"/>
+</svg>

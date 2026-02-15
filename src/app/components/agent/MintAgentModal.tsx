@@ -1,0 +1,436 @@
+import { useState, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { X, Sparkles, ChevronRight, ChevronLeft, Check, Loader2, ImagePlus, Upload, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import { useAgentStore } from "@/app/stores/useAgentStore";
+import { mintAgent } from "@/app/services/api";
+import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
+import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
+import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
+import { decodeEventLog, zeroAddress, zeroHash } from "viem";
+import { getBscScanUrl } from "@/app/hooks/useContracts";
+
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+const AVATAR_SIZE = 256; // resize to 256x256
+
+/** Resize image to a square and return as data URL */
+function resizeImage(file: File, size: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+      // Center-crop: use the largest inscribed square
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+      resolve(canvas.toDataURL("image/webp", 0.8));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load image"));
+    };
+    img.src = url;
+  });
+}
+
+export function MintAgentModal() {
+  const { t } = useTranslation();
+  const chainId = useChainId();
+  const { address, isConnected } = useAccount();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
+  const { showMintModal, setShowMintModal, addAgent, agentCount } = useAgentStore();
+  const [step, setStep] = useState(1);
+  const [name, setName] = useState("");
+  const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
+  const [uploadedAvatar, setUploadedAvatar] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const avatarSrc = uploadedAvatar ?? (selectedAvatar !== null ? PRESET_AVATARS[selectedAvatar].src : null);
+
+  const resetAndClose = () => {
+    setStep(1);
+    setName("");
+    setSelectedAvatar(null);
+    setUploadedAvatar(null);
+    setLoading(false);
+    setShowMintModal(false);
+  };
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error(t("agent.invalidImageType", "Please upload an image file"));
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(t("agent.imageTooLarge", "Image must be under 2MB"));
+      return;
+    }
+    try {
+      const dataUrl = await resizeImage(file, AVATAR_SIZE);
+      setUploadedAvatar(dataUrl);
+      setSelectedAvatar(null);
+    } catch {
+      toast.error(t("agent.imageLoadFailed", "Failed to process image"));
+    }
+  }, [t]);
+
+  const handleMint = async () => {
+    if (!name.trim() || !avatarSrc) return;
+    if (!isConnected || !address) {
+      toast.error(t("auth.pleaseConnectWallet", "Please connect wallet first"));
+      return;
+    }
+    if (!publicClient) {
+      toast.error("Wallet client unavailable");
+      return;
+    }
+    if (NFA_CONTRACT_ADDRESS === "0x0000000000000000000000000000000000000000") {
+      toast.error("NFA contract address is not configured");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
+      const txHash = await writeContractAsync({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: "mint",
+        args: [{
+          name: name.trim(),
+          persona: "",
+          voiceHash: zeroHash,
+          animationURI: "",
+          vaultURI: "",
+          vaultHash: zeroHash,
+          avatarId,
+        }],
+      });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      let tokenId: bigint | null = null;
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== NFA_CONTRACT_ADDRESS.toLowerCase()) continue;
+        try {
+          const decoded = decodeEventLog({
+            abi: NFA_ABI,
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName !== "Transfer") continue;
+          const args = decoded.args as { from?: string; to?: string; tokenId?: bigint };
+          if (
+            typeof args.tokenId === "bigint" &&
+            (args.from || "").toLowerCase() === zeroAddress &&
+            (args.to || "").toLowerCase() === address.toLowerCase()
+          ) {
+            tokenId = args.tokenId;
+            break;
+          }
+        } catch {
+          // Ignore non-matching logs
+        }
+      }
+
+      if (tokenId == null) {
+        throw new Error("Mint succeeded but tokenId was not found in receipt logs");
+      }
+
+      const agent = await mintAgent({
+        name: name.trim(),
+        strategy: "random",
+        description: "",
+        avatar: avatarSrc,
+        tokenId: tokenId.toString(),
+        mintTxHash: txHash,
+      });
+      addAgent(agent);
+      toast.success(`${t("agent.mintSuccess")} #${tokenId.toString()}`);
+      const scanUrl = getBscScanUrl(chainId);
+      window.open(`${scanUrl}/tx/${txHash}`, "_blank");
+      resetAndClose();
+    } catch (err: any) {
+      toast.error(err.message || t("agent.mintFailed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!showMintModal) return null;
+
+  const remaining = MAX_AGENTS_PER_ADDRESS - agentCount;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) resetAndClose();
+        }}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          transition={{ duration: 0.2 }}
+          className="relative w-full max-w-lg bg-card border border-border overflow-hidden"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between p-5 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-400" />
+              <h2 className="text-lg font-bold">{t("agent.mintModalTitle")}</h2>
+            </div>
+            <button
+              onClick={resetAndClose}
+              className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 px-5 pt-4">
+            {[1, 2, 3].map((s) => (
+              <div key={s} className="flex items-center gap-2 flex-1">
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                    s === step
+                      ? "bg-blue-500 text-white"
+                      : s < step
+                        ? "bg-emerald-500 text-white"
+                        : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {s < step ? <Check className="w-3.5 h-3.5" /> : s}
+                </div>
+                {s < 3 && (
+                  <div className={`flex-1 h-0.5 ${s < step ? "bg-emerald-500" : "bg-border"}`} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="p-5 min-h-[280px]">
+            <AnimatePresence mode="wait">
+              {/* Step 1: Name */}
+              {step === 1 && (
+                <motion.div
+                  key="step1"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <h3 className="text-base font-semibold mb-1">{t("agent.nameYourAgent")}</h3>
+                    <p className="text-sm text-muted-foreground">{t("agent.nameHint")}</p>
+                  </div>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t("agent.agentNamePlaceholder")}
+                    maxLength={30}
+                    autoFocus
+                    className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{name.length}/30</span>
+                    <span>{t("agent.remainingSlots", { count: remaining })}</span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Step 2: Avatar (Preset + Upload) */}
+              {step === 2 && (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <h3 className="text-base font-semibold mb-1">{t("agent.selectAvatar")}</h3>
+                    <p className="text-sm text-muted-foreground">{t("agent.selectAvatarHint")}</p>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+
+                  <div className="grid grid-cols-4 gap-3">
+                    {/* Upload tile */}
+                    {uploadedAvatar ? (
+                      <div className="relative aspect-square border-2 border-blue-500 ring-2 ring-blue-500/30 overflow-hidden group">
+                        <img src={uploadedAvatar} alt="uploaded" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
+                          <Check className="w-5 h-5 text-blue-400" />
+                        </div>
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                          <button onClick={() => fileInputRef.current?.click()} className="p-1.5 bg-white/10 hover:bg-white/20 transition-colors">
+                            <Upload className="w-3.5 h-3.5 text-white" />
+                          </button>
+                          <button onClick={() => setUploadedAvatar(null)} className="p-1.5 bg-white/10 hover:bg-red-500/40 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5 text-white" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="relative aspect-square border-2 border-dashed border-border hover:border-blue-500/50 overflow-hidden transition-all hover:bg-white/[0.02] flex flex-col items-center justify-center gap-1"
+                      >
+                        <ImagePlus className="w-6 h-6 text-muted-foreground" />
+                        <span className="text-[10px] text-muted-foreground">{t("agent.uploadAvatar", "Upload")}</span>
+                      </button>
+                    )}
+
+                    {/* Preset avatars */}
+                    {PRESET_AVATARS.map((av) => (
+                      <button
+                        key={av.id}
+                        onClick={() => { setSelectedAvatar(av.id); setUploadedAvatar(null); }}
+                        className={`relative aspect-square border-2 overflow-hidden transition-all hover:scale-105 ${
+                          selectedAvatar === av.id && !uploadedAvatar
+                            ? "border-blue-500 ring-2 ring-blue-500/30"
+                            : "border-border hover:border-border"
+                        }`}
+                      >
+                        <img src={av.src} alt={av.label} className="w-full h-full object-cover bg-secondary" />
+                        {selectedAvatar === av.id && !uploadedAvatar && (
+                          <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
+                            <Check className="w-5 h-5 text-blue-400" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Step 3: Confirm */}
+              {step === 3 && (
+                <motion.div
+                  key="step3"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-5"
+                >
+                  <div>
+                    <h3 className="text-base font-semibold mb-1">{t("agent.confirmMint")}</h3>
+                    <p className="text-sm text-muted-foreground">{t("agent.confirmMintHint")}</p>
+                  </div>
+
+                  {/* Preview card */}
+                  <div className="flex items-center gap-4 p-4 bg-secondary/50 border border-border">
+                    {avatarSrc && (
+                      <div className="w-16 h-16 border border-blue-500/50 overflow-hidden flex-shrink-0">
+                        <img
+                          src={avatarSrc}
+                          alt="avatar"
+                          className="w-full h-full object-cover bg-secondary"
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <div className="font-bold text-lg">{name}</div>
+                      <div className="text-sm text-muted-foreground">{t("agent.freeMintLabel")}</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t("agent.mintCost")}</span>
+                      <span className="text-emerald-400 font-semibold">FREE</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t("agent.initialBalance")}</span>
+                      <span className="text-foreground font-mono">$1,000</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t("agent.strategy")}</span>
+                      <span className="text-foreground">{t("agent.strategies.random")}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between p-5 border-t border-border">
+            {step > 1 ? (
+              <button
+                onClick={() => setStep(step - 1)}
+                className="flex items-center gap-1 px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                {t("common.back")}
+              </button>
+            ) : (
+              <button
+                onClick={resetAndClose}
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {t("common.cancel")}
+              </button>
+            )}
+
+            {step < 3 ? (
+              <button
+                onClick={() => setStep(step + 1)}
+                disabled={(step === 1 && !name.trim()) || (step === 2 && !avatarSrc)}
+                className="flex items-center gap-1 px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
+              >
+                {t("common.next")}
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleMint}
+                disabled={loading}
+                className="flex items-center gap-2 px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-white font-bold text-sm transition-colors"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t("agent.minting")}
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    {t("agent.mintFree")}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}

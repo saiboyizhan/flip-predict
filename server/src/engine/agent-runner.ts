@@ -1,9 +1,11 @@
 import { Pool } from 'pg';
-import { generateDecisions, StrategyType } from './agent-strategy';
+import { randomUUID } from 'crypto';
+import { StrategyType } from './agent-strategy';
+import { executeCopyTrades } from './copy-trade';
+import { generateLlmDecisions } from './agent-llm-adapter';
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
+// Bug D4 Fix: Use crypto.randomUUID() instead of Math.random() to avoid
+// ID collisions in the agent_trades table under concurrent inserts.
 
 const WIN_RATES: Record<StrategyType, number> = {
   conservative: 0.60,
@@ -23,6 +25,7 @@ interface AgentRow {
   total_profit: number;
   experience: number;
   level: number;
+  combo_weights: string | null;
 }
 
 export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
@@ -31,7 +34,12 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
   if (agent.status !== 'active' || agent.wallet_balance < 1) return;
 
   const strategy = agent.strategy as StrategyType;
-  const decisions = await generateDecisions(db, strategy, agent.wallet_balance);
+
+  // Use LLM-enhanced decisions (falls back to rule-based if no LLM config)
+  const comboWeights = agent.combo_weights
+    ? (typeof agent.combo_weights === 'string' ? (() => { try { return JSON.parse(agent.combo_weights as string); } catch { return null; } })() : agent.combo_weights)
+    : null;
+  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights);
 
   if (decisions.length === 0) return;
 
@@ -76,11 +84,12 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
       const newLevel = Math.min(10, Math.floor(experience / 100) + 1);
       if (newLevel > level) level = newLevel;
 
+      const tradeId = randomUUID();
       await client.query(`
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `, [
-        generateId(),
+        tradeId,
         agentId,
         d.marketId,
         d.side,
@@ -91,6 +100,18 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
         profit,
         Date.now()
       ]);
+
+      // Execute copy trades for followers
+      try {
+        await executeCopyTrades(db, agentId, tradeId, {
+          marketId: d.marketId,
+          side: d.side,
+          amount: d.amount,
+          price: Math.round(price * 10000) / 10000,
+        });
+      } catch (copyErr: any) {
+        console.error(`Copy trade execution error for agent ${agentId}:`, copyErr.message);
+      }
     }
 
     const wr = total_trades > 0 ? Math.round((winning_trades / total_trades) * 100) : 0;

@@ -43,16 +43,17 @@ export function getPrice(yesReserve: number, noReserve: number): { yesPrice: num
     throw new Error('Invalid AMM reserves');
   }
   const total = yesReserve + noReserve;
+  const yesPrice = noReserve / total;
   return {
-    yesPrice: noReserve / total,
-    noPrice: yesReserve / total,
+    yesPrice,
+    noPrice: 1 - yesPrice,   // derived — guarantees yes + no === 1
   };
 }
 
 /**
  * Calculate buying shares of a given side
- * When buying YES: user puts USDT into the NO reserve, gets YES shares out
- * When buying NO: user puts USDT into the YES reserve, gets NO shares out
+ * When buying YES: user puts BNB into the NO reserve, gets YES shares out
+ * When buying NO: user puts BNB into the YES reserve, gets NO shares out
  */
 export function calculateBuy(
   yesReserve: number,
@@ -86,6 +87,14 @@ export function calculateBuy(
     sharesOut = noReserve - newNoReserve;
   }
 
+  // Bug D1 Fix: Guard against reserve depletion causing extreme values.
+  // After a buy, the output reserve must stay above a minimum floor to prevent
+  // floating-point overflow in subsequent k/reserve calculations.
+  const MIN_RESERVE = 0.001;
+  if (newYesReserve < MIN_RESERVE || newNoReserve < MIN_RESERVE) {
+    throw new Error('Trade too large: would deplete AMM reserves');
+  }
+
   const newPrice = getPrice(newYesReserve, newNoReserve);
   const pricePerShare = amount / sharesOut;
   if (!Number.isFinite(sharesOut) || sharesOut <= 0 || !Number.isFinite(pricePerShare)) {
@@ -108,8 +117,8 @@ export function calculateBuy(
 
 /**
  * Calculate selling shares of a given side
- * When selling YES: put YES shares back into yesReserve, get USDT from noReserve
- * When selling NO: put NO shares back into noReserve, get USDT from yesReserve
+ * When selling YES: put YES shares back into yesReserve, get BNB from noReserve
+ * When selling NO: put NO shares back into noReserve, get BNB from yesReserve
  */
 export function calculateSell(
   yesReserve: number,
@@ -131,15 +140,21 @@ export function calculateSell(
   let amountOut: number;
 
   if (side === 'yes') {
-    // Selling YES: add shares to yesReserve, remove USDT from noReserve
+    // Selling YES: add shares to yesReserve, remove BNB from noReserve
     newYesReserve = yesReserve + shares;
     newNoReserve = k / newYesReserve;
     amountOut = noReserve - newNoReserve;
   } else {
-    // Selling NO: add shares to noReserve, remove USDT from yesReserve
+    // Selling NO: add shares to noReserve, remove BNB from yesReserve
     newNoReserve = noReserve + shares;
     newYesReserve = k / newNoReserve;
     amountOut = yesReserve - newYesReserve;
+  }
+
+  // Bug D15 Fix: Guard against sell draining reserve below minimum.
+  const MIN_RESERVE = 0.001;
+  if (newYesReserve < MIN_RESERVE || newNoReserve < MIN_RESERVE) {
+    throw new Error('Trade too large: would deplete AMM reserves');
   }
 
   const newPrice = getPrice(newYesReserve, newNoReserve);

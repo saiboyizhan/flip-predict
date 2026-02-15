@@ -53,6 +53,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 interface RawMarket {
   id: string
+  onChainMarketId?: string | number
+  on_chain_market_id?: string | number
   title?: string
   description?: string
   category?: string
@@ -112,8 +114,7 @@ function normalizeMarketStatus(status: unknown): Market['status'] {
 
 function normalizeMarket(raw: RawMarket): Market {
   const yesPrice = Number(raw.yesPrice ?? raw.yes_price ?? 0.5) || 0.5
-  const noPriceRaw = Number(raw.noPrice ?? raw.no_price)
-  const noPrice = Number.isFinite(noPriceRaw) ? noPriceRaw : 1 - yesPrice
+  const noPrice = 1 - yesPrice  // always derived — guarantees yes + no === 1
 
   const resolvedOutcome = String(raw.resolvedOutcome ?? raw.resolved_outcome ?? '').toLowerCase()
   const mappedOutcome = resolvedOutcome === 'yes' ? 'YES' : resolvedOutcome === 'no' ? 'NO' : undefined
@@ -133,11 +134,17 @@ function normalizeMarket(raw: RawMarket): Market {
       }))
     : undefined
 
+  const parsedOnChainMarketId = raw.onChainMarketId ?? raw.on_chain_market_id
+  const onChainMarketId = parsedOnChainMarketId == null
+    ? undefined
+    : String(parsedOnChainMarketId)
+
   return {
     id: String(raw.id),
+    onChainMarketId,
     title: String(raw.title ?? ''),
     description: String(raw.description ?? ''),
-    category: (raw.category ?? 'daily') as Market['category'],
+    category: (raw.category ?? 'four-meme') as Market['category'],
     status: normalizeMarketStatus(raw.status),
     yesPrice,
     noPrice,
@@ -154,6 +161,7 @@ function normalizeMarket(raw: RawMarket): Market {
     resolutionSource: String(raw.resolutionSource ?? raw.resolution_source ?? raw.resolution_type ?? 'auto'),
     marketType,
     options,
+    totalLiquidity: Number(raw.totalLiquidity ?? raw.total_liquidity) || undefined,
   }
 }
 
@@ -263,11 +271,37 @@ export async function getNonce(
 export async function verifySignature(
   address: string,
   signature: string,
-): Promise<{ token: string }> {
+): Promise<{ token: string; user?: { isAdmin?: boolean } }> {
   return request('/api/auth/verify', {
     method: 'POST',
     body: JSON.stringify({ address, signature }),
   })
+}
+
+// --- Market Activity API ---
+
+export interface MarketActivity {
+  id: string
+  userAddress: string
+  side: string
+  type: string
+  amount: number
+  shares: number
+  price: number
+  optionLabel: string | null
+  createdAt: number
+}
+
+export async function fetchMarketActivity(marketId: string): Promise<MarketActivity[]> {
+  const data = await request<{ activity: MarketActivity[] }>(`/api/markets/${marketId}/activity`)
+  return data.activity ?? []
+}
+
+// --- Related Markets API ---
+
+export async function fetchRelatedMarkets(marketId: string): Promise<Market[]> {
+  const data = await request<{ markets: RawMarket[] }>(`/api/markets/${marketId}/related`)
+  return (data.markets ?? []).map(normalizeMarket)
 }
 
 // --- Price History API ---
@@ -403,10 +437,204 @@ export async function getSettlement(marketId: string): Promise<{
     outcome?: string
     resolved_at?: string
     resolved_by?: string
+    winning_option_id?: string
+    rule_text?: string
+    data_source_url?: string
+    evidence_url?: string
+    evidence_hash?: string
+    resolve_tx_hash?: string
   }
   logs: unknown[]
+  proposals?: unknown[]
+  challenges?: unknown[]
 }> {
   return request(`/api/settlement/${marketId}`)
+}
+
+export async function getSettlementPreview(marketId: string): Promise<{
+  marketId: string
+  market: {
+    id: string
+    title: string
+    status: string
+    marketType: string
+    endTime: number
+    ended: boolean
+  }
+  resolution: {
+    type: string
+    oraclePair: string | null
+    targetPrice: number | null
+    currentPrice: number | null
+    priceSource: 'oracle' | 'dexscreener' | null
+    priceUpdatedAt: number | null
+    expectedOutcome: 'yes' | 'no' | null
+    resolvedOutcome: string | null
+    resolvedPrice: number | null
+    resolvedAt: number | null
+    resolvedBy: string | null
+    winningOptionId: string | null
+    ruleText: string | null
+    dataSourceUrl: string | null
+    resolutionTimeUtc: number | null
+    resolveTxHash: string | null
+    priceError: string | null
+  }
+  arbitration: {
+    latestProposalId: string
+    status: string
+    proposedOutcome: string | null
+    proposedWinningOptionId: string | null
+    proposedBy: string | null
+    evidenceUrl: string | null
+    evidenceHash: string | null
+    sourceUrl: string | null
+    resolveTxHash: string | null
+    challengeWindowEndsAt: number
+    challengeCount: number
+    createdAt: number
+  } | null
+  canAutoResolveNow: boolean
+  generatedAt: number
+}> {
+  return request(`/api/settlement/${marketId}/preview`)
+}
+
+export async function getSettlementProof(marketId: string): Promise<{
+  market: {
+    id: string
+    title: string
+    status: string
+    marketType: string
+    endTime: number
+    onChainMarketId?: string | null
+  }
+  resolution: Record<string, unknown> | null
+  resolveTxVerification?: {
+    ok: boolean
+    error?: string
+    blockNumber?: number
+    txTo?: string | null
+  }
+  summary: {
+    winnerCount: number
+    loserCount: number
+    cancelledOpenOrders: number
+    claimedCount: number
+    winnerTotal: number
+    loserTotal: number
+    claimedTotal: number
+    cancelledOpenOrdersTotal: number
+    netDeposits: number
+    settlementGap: number
+    challengeCount: number
+  }
+  checks: Array<{ key: string; pass: boolean; message: string }>
+  overallPass: boolean
+  proofDigest: string
+  arbitration: {
+    proposalId: string
+    status: string
+    proposedBy: string
+    proposedOutcome: string | null
+    proposedWinningOptionId: string | null
+    challengeWindowEndsAt: number
+    challengeCount: number
+    sourceUrl: string | null
+    evidenceUrl: string | null
+    evidenceHash: string | null
+    resolveTxHash: string | null
+    finalizedAt: number | null
+    finalizedBy: string | null
+  } | null
+  logs: {
+    resolveLogs: unknown[]
+    winnerSamples: unknown[]
+    loserSamples: unknown[]
+    challengeSamples: unknown[]
+  }
+  generatedAt: number
+}> {
+  return request(`/api/settlement/${marketId}/proof`)
+}
+
+export async function proposeSettlement(
+  marketId: string,
+  data: {
+    outcome?: 'yes' | 'no'
+    winningOptionId?: string
+    evidenceUrl?: string
+    evidenceHash?: string
+    sourceUrl?: string
+    notes?: string
+    resolveTxHash?: string
+    challengeWindowHours?: number
+  },
+): Promise<{
+  success: boolean
+  proposal: {
+    id: string
+    marketId: string
+    proposedBy: string
+    proposedOutcome: string | null
+    proposedWinningOptionId: string | null
+    challengeWindowEndsAt: number
+    status: string
+  }
+}> {
+  return request(`/api/settlement/${marketId}/propose`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function challengeSettlement(
+  marketId: string,
+  data: {
+    proposalId?: string
+    reason: string
+    evidenceUrl?: string
+    evidenceHash?: string
+  },
+): Promise<{
+  success: boolean
+  challenge: {
+    id: string
+    proposalId: string
+    marketId: string
+    challenger: string
+    createdAt: number
+  }
+}> {
+  return request(`/api/settlement/${marketId}/challenge`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function finalizeSettlement(
+  marketId: string,
+  data: {
+    proposalId?: string
+    outcome?: 'yes' | 'no'
+    winningOptionId?: string
+    evidenceUrl?: string
+    evidenceHash?: string
+    resolveTxHash: string
+    notes?: string
+  },
+): Promise<{
+  success: boolean
+  marketId: string
+  outcome: string
+  proposalId: string | null
+  resolveTxHash?: string
+  resolveTxBlockNumber?: number | null
+}> {
+  return request(`/api/settlement/${marketId}/finalize`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
 }
 
 export async function claimWinnings(marketId: string): Promise<{
@@ -426,10 +654,24 @@ export async function getResolvedMarkets(): Promise<unknown[]> {
 export async function adminResolve(
   marketId: string,
   outcome: string,
+  winningOptionId?: string,
+  extra?: {
+    evidenceUrl?: string
+    evidenceHash?: string
+    resolveTxHash: string
+    notes?: string
+  },
 ): Promise<{ success: boolean }> {
-  return request(`/api/settlement/${marketId}/resolve`, {
-    method: 'POST',
-    body: JSON.stringify({ outcome }),
+  if (!extra?.resolveTxHash) {
+    throw new Error('resolveTxHash is required for adminResolve');
+  }
+  return finalizeSettlement(marketId, {
+    outcome: outcome === 'yes' || outcome === 'no' ? outcome : undefined,
+    winningOptionId,
+    evidenceUrl: extra?.evidenceUrl,
+    evidenceHash: extra?.evidenceHash,
+    resolveTxHash: extra.resolveTxHash,
+    notes: extra?.notes,
   })
 }
 
@@ -470,6 +712,8 @@ export interface Agent {
   rent_price: number | null
   vault_uri: string | null
   vault_hash: string | null
+  token_id?: number | null
+  mint_tx_hash?: string | null
   created_at: string
   last_trade_at: string | null
 }
@@ -502,7 +746,15 @@ export async function getAgentMarketplace(): Promise<Agent[]> {
   return data.agents
 }
 
-export async function mintAgent(data: { name: string; strategy: string; description: string; persona?: string; avatar?: string | null }): Promise<Agent> {
+export async function mintAgent(data: {
+  name: string
+  strategy: string
+  description: string
+  persona?: string
+  avatar?: string | null
+  tokenId?: string
+  mintTxHash?: string
+}): Promise<Agent> {
   const res = await request<{ agent: Agent }>('/api/agents/mint', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -513,6 +765,10 @@ export async function mintAgent(data: { name: string; strategy: string; descript
 export async function getMyAgents(): Promise<Agent[]> {
   const data = await request<{ agents: Agent[] }>('/api/agents/my')
   return data.agents
+}
+
+export async function checkAgent(): Promise<{ hasAgent: boolean; agentCount: number }> {
+  return request('/api/agents/check')
 }
 
 export async function updateAgent(id: string, data: { strategy?: string; description?: string }): Promise<Agent> {
@@ -659,8 +915,17 @@ export async function createUserMarket(data: {
   description?: string
   category: string
   endTime: number
+  onChainMarketId: string
+  createTxHash: string
+  onChainCreationFee?: number
   marketType?: string
   options?: { label: string; color?: string }[]
+  resolutionType?: 'manual' | 'price_above' | 'price_below'
+  oraclePair?: string
+  targetPrice?: number
+  resolutionRule?: string
+  resolutionSourceUrl?: string
+  resolutionTimeUtc?: number
 }): Promise<any> {
   return request('/api/markets/create', {
     method: 'POST',
@@ -673,6 +938,9 @@ export async function createMultiMarket(data: {
   description?: string
   category: string
   endTime: number
+  onChainMarketId: string
+  createTxHash: string
+  onChainCreationFee?: number
   options: { label: string; color?: string }[]
 }): Promise<any> {
   return createUserMarket({
@@ -704,8 +972,9 @@ export async function flagMarket(marketId: string): Promise<{ flagCount: number;
 
 // --- Leaderboard API ---
 
-export async function fetchLeaderboard() {
-  const data = await request<{ leaderboard: unknown[] }>('/api/leaderboard')
+export async function fetchLeaderboard(period: string = 'all') {
+  const params = period !== 'all' ? `?period=${period}` : ''
+  const data = await request<{ leaderboard: unknown[] }>(`/api/leaderboard${params}`)
   return data.leaderboard
 }
 
@@ -1052,83 +1321,53 @@ export async function setComboStrategy(agentId: string, weights: Record<string, 
   )
 }
 
-// ============================================
-// Swarm History & Evolution API
-// ============================================
+// === NFA Agent LLM Config API ===
 
-export interface SwarmHistoryItem {
-  id: number
-  token_name: string
-  chain: string | null
-  category: string | null
-  team_agents: string[]
-  team_weights: number[]
-  initial_consensus: number
-  final_consensus: number
-  price_at_analysis: number | null
-  price_after_24h: number | null
-  price_change_pct: number | null
-  direction_correct: boolean | null
-  verified_at: string | null
-  created_at: string
+export interface AgentLlmConfig {
+  provider: string
+  model: string
+  apiKeyMasked: string
+  baseUrl: string | null
+  systemPrompt: string | null
+  temperature: number
+  maxTokens: number
+  enabled: number
+  lastUsedAt: number | null
+  totalCalls: number
+  totalErrors: number
+  createdAt: number
+  updatedAt: number
 }
 
-export interface SwarmAnalysisDetail extends SwarmHistoryItem {
-  token_address: string | null
-  initial_scores: Record<string, number>
-  revised_scores: Record<string, number>
-  discussion_messages: any[]
+export async function getAgentLlmConfig(agentId: string): Promise<AgentLlmConfig | null> {
+  const data = await request<{ config: AgentLlmConfig | null }>(`/api/agents/${agentId}/llm-config`)
+  return data.config
 }
 
-export interface SwarmAgentScoreDetail {
-  id: number
-  analysis_id: number
-  agent_id: string
-  initial_score: number
-  revised_score: number
-  findings: string | null
-  direction_correct: boolean | null
+export async function setAgentLlmConfig(agentId: string, data: {
+  provider: string
+  model: string
+  apiKey: string
+  baseUrl?: string
+  systemPrompt?: string
+  temperature?: number
+  maxTokens?: number
+}): Promise<{ success: boolean }> {
+  return request(`/api/agents/${agentId}/llm-config`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
 }
 
-export interface SwarmAccuracy {
-  total: number
-  correct: number
-  accuracy: number
-  avgConsensus: number
-  avgPriceChange: number
+export async function deleteAgentLlmConfig(agentId: string): Promise<{ success: boolean }> {
+  return request(`/api/agents/${agentId}/llm-config`, {
+    method: 'DELETE',
+  })
 }
 
-export interface SwarmAgentStat {
-  agent_id: string
-  total_analyses: number
-  correct_predictions: number
-  accuracy: number
-  avg_initial_score: number
-  avg_revised_score: number
-  avg_score_shift: number
-  category_accuracy: Record<string, number>
-  updated_at: string
-}
-
-export async function fetchSwarmHistory(params?: { tokenName?: string; limit?: number; offset?: number }): Promise<SwarmHistoryItem[]> {
-  const query = new URLSearchParams()
-  if (params?.tokenName) query.set('tokenName', params.tokenName)
-  if (params?.limit) query.set('limit', String(params.limit))
-  if (params?.offset) query.set('offset', String(params.offset))
-  const qs = query.toString()
-  const data = await request<{ analyses: SwarmHistoryItem[] }>(`/api/swarm/history${qs ? `?${qs}` : ''}`)
-  return data.analyses ?? []
-}
-
-export async function fetchSwarmDetail(id: number): Promise<{ analysis: SwarmAnalysisDetail; agentScores: SwarmAgentScoreDetail[] }> {
-  return request(`/api/swarm/history/${id}`)
-}
-
-export async function fetchSwarmAccuracy(): Promise<SwarmAccuracy> {
-  return request('/api/swarm/accuracy')
-}
-
-export async function fetchSwarmAgentStats(): Promise<SwarmAgentStat[]> {
-  const data = await request<{ agents: SwarmAgentStat[] }>('/api/swarm/agents/stats')
-  return data.agents ?? []
+export async function toggleAgentLlm(agentId: string, enabled: boolean): Promise<{ success: boolean; enabled: number }> {
+  return request(`/api/agents/${agentId}/llm-config/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  })
 }

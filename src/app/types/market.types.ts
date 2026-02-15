@@ -1,26 +1,33 @@
 // 市场分类
 export type MarketCategory =
-  | 'four-meme'      // Four.meme 主战场
-  | 'meme-arena'     // Meme竞技场
-  | 'narrative'      // 叙事风暴
-  | 'kol'            // KOL开盘
-  | 'on-chain'       // 链上追踪
-  | 'rug-alert'      // Rug预警
-  | 'btc-weather'    // 大饼天气
-  | 'fun'            // 整活现场
-  | 'daily'          // 每日对决
+  | 'four-meme'      // Four.meme Meme 币预测
+  | 'flap'           // Flap.sh 发射台预测
+  | 'nfa'            // NFA Agent 生态预测
+  | 'hackathon'      // 黑客松 & 社区活动
 
-export type MarketStatus = 'active' | 'pending' | 'closed' | 'resolved' | 'disputed'
+export type MarketStatus = 'active' | 'pending' | 'pending_resolution' | 'closed' | 'resolved' | 'disputed'
+
+export type MarketType = 'binary' | 'multi'
+
+export interface MarketOption {
+  id: string
+  optionIndex: number
+  label: string
+  color: string
+  price: number
+  reserve: number
+}
 
 export interface Market {
   id: string
+  onChainMarketId?: string
   title: string
   description: string
   category: MarketCategory
   status: MarketStatus
   yesPrice: number      // 0.01 - 0.99
   noPrice: number       // 自动计算 1 - yesPrice
-  volume: number        // 交易量 (USDT)
+  volume: number        // 交易量 (BNB)
   totalShares: number
   participants: number
   createdAt: string
@@ -31,13 +38,16 @@ export interface Market {
   tags: string[]
   featured: boolean
   resolutionSource: string
+  marketType?: MarketType
+  options?: MarketOption[]
+  totalLiquidity?: number
 }
 
 export interface Position {
   id: string
   marketId: string
   marketTitle: string
-  side: 'yes' | 'no'
+  side: 'yes' | 'no' | (string & {})  // supports 'yes', 'no', and 'option_X' for multi-option markets
   shares: number
   avgCost: number
   currentPrice: number
@@ -74,7 +84,7 @@ export interface UserProfile {
 export interface CategoryConfig {
   id: MarketCategory
   name: string
-  emoji: string
+  emoji?: string
   description: string
   color: string // tailwind color
 }

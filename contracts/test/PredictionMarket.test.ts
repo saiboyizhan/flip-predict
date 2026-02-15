@@ -1,72 +1,60 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { PredictionMarket, MockUSDT, MockOracle } from "../typechain-types";
+import { PredictionMarket, MockOracle } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("PredictionMarket", function () {
   let predictionMarket: PredictionMarket;
-  let usdt: MockUSDT;
   let owner: SignerWithAddress;
   let user1: SignerWithAddress;
   let user2: SignerWithAddress;
 
-  const INITIAL_BALANCE = ethers.parseUnits("10000", 18);
-  const DEPOSIT_AMOUNT = ethers.parseUnits("1000", 18);
+  const DEPOSIT_AMOUNT = ethers.parseEther("10");
 
   beforeEach(async function () {
     [owner, user1, user2] = await ethers.getSigners();
 
-    // Deploy MockUSDT
-    const MockUSDTFactory = await ethers.getContractFactory("MockUSDT");
-    usdt = await MockUSDTFactory.deploy();
-    await usdt.waitForDeployment();
-
-    // Deploy PredictionMarket
+    // Deploy PredictionMarket (uses native BNB, no constructor args)
     const PredictionMarketFactory = await ethers.getContractFactory("PredictionMarket");
-    predictionMarket = await PredictionMarketFactory.deploy(await usdt.getAddress());
+    predictionMarket = await PredictionMarketFactory.deploy();
     await predictionMarket.waitForDeployment();
-
-    // Distribute USDT to users
-    await usdt.mint(user1.address, INITIAL_BALANCE);
-    await usdt.mint(user2.address, INITIAL_BALANCE);
-
-    // Approve PredictionMarket to spend USDT
-    await usdt.connect(user1).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
-    await usdt.connect(user2).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
+    // Keep legacy tests stable; strict mode behavior is covered in dedicated tests below.
+    await predictionMarket.setStrictArbitrationMode(false);
   });
 
   describe("Deposit", function () {
-    it("should deposit USDT successfully", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+    it("should deposit BNB successfully", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT);
     });
 
     it("should emit Deposit event", async function () {
-      await expect(predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT))
+      await expect(predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT }))
         .to.emit(predictionMarket, "Deposit")
         .withArgs(user1.address, DEPOSIT_AMOUNT);
     });
 
-    it("should transfer USDT from user to contract", async function () {
-      const balanceBefore = await usdt.balanceOf(user1.address);
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      const balanceAfter = await usdt.balanceOf(user1.address);
-      expect(balanceBefore - balanceAfter).to.equal(DEPOSIT_AMOUNT);
+    it("should transfer BNB from user to contract", async function () {
+      const contractAddress = await predictionMarket.getAddress();
+      const balanceBefore = await ethers.provider.getBalance(contractAddress);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      const balanceAfter = await ethers.provider.getBalance(contractAddress);
+      expect(balanceAfter - balanceBefore).to.equal(DEPOSIT_AMOUNT);
     });
 
     it("should revert on zero amount", async function () {
-      await expect(predictionMarket.connect(user1).deposit(0)).to.be.revertedWith("Amount must be > 0");
+      await expect(predictionMarket.connect(user1).deposit({ value: 0 })).to.be.revertedWith("Must send BNB");
     });
   });
 
   describe("Withdraw", function () {
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
     });
 
-    it("should withdraw USDT successfully", async function () {
-      const withdrawAmount = ethers.parseUnits("500", 18);
+    it("should withdraw BNB successfully", async function () {
+      const withdrawAmount = ethers.parseEther("5");
       await predictionMarket.connect(user1).withdraw(withdrawAmount);
       expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT - withdrawAmount);
     });
@@ -78,7 +66,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert on insufficient balance", async function () {
-      const tooMuch = ethers.parseUnits("2000", 18);
+      const tooMuch = ethers.parseEther("20");
       await expect(predictionMarket.connect(user1).withdraw(tooMuch)).to.be.revertedWith("Insufficient balance");
     });
 
@@ -127,38 +115,46 @@ describe("PredictionMarket", function () {
     let endTime: number;
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Will BTC reach 100k?", endTime);
     });
 
-    it("should take a YES position", async function () {
-      const amount = ethers.parseUnits("100", 18);
+    it("should take a YES position (mint ERC1155 YES token)", async function () {
+      const amount = ethers.parseEther("1");
       await predictionMarket.connect(user1).takePosition(0, true, amount);
 
       const pos = await predictionMarket.getPosition(0, user1.address);
       expect(pos.yesAmount).to.equal(amount);
       expect(pos.noAmount).to.equal(0);
+
+      // Verify ERC1155 balance
+      const yesTokenId = await predictionMarket.getYesTokenId(0);
+      expect(await predictionMarket.balanceOf(user1.address, yesTokenId)).to.equal(amount);
     });
 
-    it("should take a NO position", async function () {
-      const amount = ethers.parseUnits("100", 18);
+    it("should take a NO position (mint ERC1155 NO token)", async function () {
+      const amount = ethers.parseEther("1");
       await predictionMarket.connect(user1).takePosition(0, false, amount);
 
       const pos = await predictionMarket.getPosition(0, user1.address);
       expect(pos.yesAmount).to.equal(0);
       expect(pos.noAmount).to.equal(amount);
+
+      // Verify ERC1155 balance
+      const noTokenId = await predictionMarket.getNoTokenId(0);
+      expect(await predictionMarket.balanceOf(user1.address, noTokenId)).to.equal(amount);
     });
 
     it("should deduct from user balance", async function () {
-      const amount = ethers.parseUnits("100", 18);
+      const amount = ethers.parseEther("1");
       await predictionMarket.connect(user1).takePosition(0, true, amount);
       expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT - amount);
     });
 
     it("should revert on insufficient balance", async function () {
-      const tooMuch = ethers.parseUnits("2000", 18);
+      const tooMuch = ethers.parseEther("20");
       await expect(
         predictionMarket.connect(user1).takePosition(0, true, tooMuch)
       ).to.be.revertedWith("Insufficient balance");
@@ -166,7 +162,7 @@ describe("PredictionMarket", function () {
 
     it("should revert after market ended", async function () {
       await time.increaseTo(endTime + 1);
-      const amount = ethers.parseUnits("100", 18);
+      const amount = ethers.parseEther("1");
       await expect(
         predictionMarket.connect(user1).takePosition(0, true, amount)
       ).to.be.revertedWith("Market ended");
@@ -210,13 +206,13 @@ describe("PredictionMarket", function () {
     });
   });
 
-  describe("Claim Winnings", function () {
+  describe("Claim Winnings (CTF model)", function () {
     let endTime: number;
-    const betAmount = ethers.parseUnits("500", 18);
+    const betAmount = ethers.parseEther("5");
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Will BTC reach 100k?", endTime);
 
@@ -231,7 +227,8 @@ describe("PredictionMarket", function () {
 
       await predictionMarket.connect(user1).claimWinnings(0);
 
-      // Winner gets their stake (500) + loser pool (500) = 1000
+      // Winner gets their stake (5) + loser pool (5) = 10
+      // CTF: 5 * 10 / 5 = 10
       const balanceAfter = await predictionMarket.balances(user1.address);
       expect(balanceAfter).to.equal(DEPOSIT_AMOUNT - betAmount + betAmount * 2n);
     });
@@ -250,7 +247,7 @@ describe("PredictionMarket", function () {
       await time.increaseTo(endTime);
       await predictionMarket.resolveMarket(0, true);
 
-      const expectedReward = betAmount * 2n; // stake + loser pool
+      const expectedReward = betAmount * 2n; // 5 * 10 / 5 = 10
       await expect(predictionMarket.connect(user1).claimWinnings(0))
         .to.emit(predictionMarket, "WinningsClaimed")
         .withArgs(0, user1.address, expectedReward);
@@ -267,12 +264,13 @@ describe("PredictionMarket", function () {
       await expect(predictionMarket.connect(user2).claimWinnings(0)).to.be.revertedWith("No winning position");
     });
 
-    it("should revert if already claimed", async function () {
+    it("should revert if already claimed (burn prevents double-claim)", async function () {
       await time.increaseTo(endTime);
       await predictionMarket.resolveMarket(0, true);
 
       await predictionMarket.connect(user1).claimWinnings(0);
-      await expect(predictionMarket.connect(user1).claimWinnings(0)).to.be.revertedWith("Already claimed");
+      // Second claim: tokens burned, balance = 0 -> "No winning position"
+      await expect(predictionMarket.connect(user1).claimWinnings(0)).to.be.revertedWith("No winning position");
     });
 
     it("should distribute proportionally with multiple winners", async function () {
@@ -282,7 +280,7 @@ describe("PredictionMarket", function () {
 
       // user1 (the only YES bettor) should get all the loser pool
       await predictionMarket.connect(user1).claimWinnings(0);
-      // 500 (stake) + 500 (loser pool) = 1000
+      // 5 (stake) + 5 (loser pool) = 10
       const expectedBalance = DEPOSIT_AMOUNT - betAmount + betAmount * 2n;
       expect(await predictionMarket.balances(user1.address)).to.equal(expectedBalance);
     });
@@ -302,8 +300,8 @@ describe("PredictionMarket", function () {
       oracleAddress = await mockOracle.getAddress();
 
       // Deposit for users
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
     });
 
     describe("Create Oracle Market", function () {
@@ -384,8 +382,7 @@ describe("PredictionMarket", function () {
       });
 
       it("should resolve YES when price is above target", async function () {
-        // Set price above target
-        await mockOracle.setPrice(TARGET_PRICE + 100000000n); // $1 above
+        await mockOracle.setPrice(TARGET_PRICE + 100000000n);
         await time.increaseTo(endTime);
 
         await expect(predictionMarket.resolveByOracle(0))
@@ -393,49 +390,41 @@ describe("PredictionMarket", function () {
 
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
-        expect(market.outcome).to.equal(true); // YES wins
+        expect(market.outcome).to.equal(true);
         expect(market.resolvedPrice).to.equal(TARGET_PRICE + 100000000n);
       });
 
       it("should resolve NO when price is below target (price_above type)", async function () {
-        // Set price below target
-        await mockOracle.setPrice(TARGET_PRICE - 100000000n); // $1 below
+        await mockOracle.setPrice(TARGET_PRICE - 100000000n);
         await time.increaseTo(endTime);
 
         await predictionMarket.resolveByOracle(0);
 
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
-        expect(market.outcome).to.equal(false); // NO wins
+        expect(market.outcome).to.equal(false);
       });
 
       it("should resolve YES when price equals target (price_above type)", async function () {
-        // Price equals target -> >= means YES
         await time.increaseTo(endTime);
-
         await predictionMarket.resolveByOracle(0);
 
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
-        expect(market.outcome).to.equal(true); // YES wins (>=)
+        expect(market.outcome).to.equal(true);
       });
 
       it("should allow anyone to call resolveByOracle", async function () {
         await time.increaseTo(endTime);
-
-        // user1 (not owner) can call resolveByOracle
         await expect(predictionMarket.connect(user1).resolveByOracle(0)).to.not.be.reverted;
-
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
       });
 
       it("should revert for non-oracle market", async function () {
-        // Create a manual market
         const endTime2 = (await time.latest()) + 3600;
         await predictionMarket.createMarket("Manual market", endTime2);
         await time.increaseTo(endTime2);
-
         await expect(predictionMarket.resolveByOracle(1)).to.be.revertedWith("Not oracle market");
       });
 
@@ -446,7 +435,6 @@ describe("PredictionMarket", function () {
       it("should revert if already resolved", async function () {
         await time.increaseTo(endTime);
         await predictionMarket.resolveByOracle(0);
-
         await expect(predictionMarket.resolveByOracle(0)).to.be.revertedWith("Already resolved");
       });
 
@@ -458,86 +446,66 @@ describe("PredictionMarket", function () {
     describe("Oracle with price_below resolution", function () {
       it("should resolve YES when price is below target", async function () {
         const endTime = (await time.latest()) + 3600;
-        await predictionMarket.createOracleMarket(
-          "BTC below 100k?",
-          endTime,
-          oracleAddress,
-          TARGET_PRICE,
-          2 // price_below
-        );
+        await predictionMarket.createOracleMarket("BTC below 100k?", endTime, oracleAddress, TARGET_PRICE, 2);
 
-        // Set price below target
         await mockOracle.setPrice(TARGET_PRICE - 100000000n);
         await time.increaseTo(endTime);
-
         await predictionMarket.resolveByOracle(0);
 
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
-        expect(market.outcome).to.equal(true); // YES wins - price is below
+        expect(market.outcome).to.equal(true);
+      });
+
+      it("should resolve YES when price equals target (price_below type)", async function () {
+        const endTime = (await time.latest()) + 3600;
+        await predictionMarket.createOracleMarket("BTC below 100k?", endTime, oracleAddress, TARGET_PRICE, 2);
+
+        await mockOracle.setPrice(TARGET_PRICE);
+        await time.increaseTo(endTime);
+        await predictionMarket.resolveByOracle(0);
+
+        const market = await predictionMarket.getMarket(0);
+        expect(market.resolved).to.equal(true);
+        expect(market.outcome).to.equal(true);
       });
 
       it("should resolve NO when price is above target (price_below type)", async function () {
         const endTime = (await time.latest()) + 3600;
-        await predictionMarket.createOracleMarket(
-          "BTC below 100k?",
-          endTime,
-          oracleAddress,
-          TARGET_PRICE,
-          2 // price_below
-        );
+        await predictionMarket.createOracleMarket("BTC below 100k?", endTime, oracleAddress, TARGET_PRICE, 2);
 
-        // Set price above target
         await mockOracle.setPrice(TARGET_PRICE + 100000000n);
         await time.increaseTo(endTime);
-
         await predictionMarket.resolveByOracle(0);
 
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
-        expect(market.outcome).to.equal(false); // NO wins - price is above
+        expect(market.outcome).to.equal(false);
       });
     });
 
     describe("Oracle Full Flow", function () {
-      it("should complete full oracle market lifecycle: create -> bet -> resolve -> claim", async function () {
+      it("should complete full oracle market lifecycle", async function () {
         const endTime = (await time.latest()) + 3600;
-        const betAmount = ethers.parseUnits("500", 18);
+        const betAmount = ethers.parseEther("5");
 
-        // 1. Create oracle market
-        await predictionMarket.createOracleMarket(
-          "BTC above 100k?",
-          endTime,
-          oracleAddress,
-          TARGET_PRICE,
-          1 // price_above
-        );
+        await predictionMarket.createOracleMarket("BTC above 100k?", endTime, oracleAddress, TARGET_PRICE, 1);
 
-        // 2. Users take positions
-        await predictionMarket.connect(user1).takePosition(0, true, betAmount); // user1 bets YES
-        await predictionMarket.connect(user2).takePosition(0, false, betAmount); // user2 bets NO
+        await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+        await predictionMarket.connect(user2).takePosition(0, false, betAmount);
 
-        // 3. Set price above target and resolve by oracle
-        await mockOracle.setPrice(TARGET_PRICE + 500000000n); // $5 above target
+        await mockOracle.setPrice(TARGET_PRICE + 500000000n);
         await time.increaseTo(endTime);
-
-        // Anyone can trigger resolution
         await predictionMarket.connect(user2).resolveByOracle(0);
 
-        // Verify resolution
         const market = await predictionMarket.getMarket(0);
         expect(market.resolved).to.equal(true);
-        expect(market.outcome).to.equal(true); // YES wins
-        expect(market.resolvedPrice).to.equal(TARGET_PRICE + 500000000n);
+        expect(market.outcome).to.equal(true);
 
-        // 4. Winner claims
         await predictionMarket.connect(user1).claimWinnings(0);
-
-        // user1 started with 1000, bet 500, won 500+500=1000
         const finalBalance = await predictionMarket.balances(user1.address);
         expect(finalBalance).to.equal(DEPOSIT_AMOUNT - betAmount + betAmount * 2n);
 
-        // 5. Loser cannot claim
         await expect(
           predictionMarket.connect(user2).claimWinnings(0)
         ).to.be.revertedWith("No winning position");
@@ -548,16 +516,12 @@ describe("PredictionMarket", function () {
   describe("Pause", function () {
     it("should pause and unpause", async function () {
       await predictionMarket.pause();
-      await expect(predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT)).to.be.revertedWithCustomError(
-        predictionMarket,
-        "EnforcedPause"
-      );
+      await expect(
+        predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT })
+      ).to.be.revertedWithCustomError(predictionMarket, "EnforcedPause");
 
       await predictionMarket.unpause();
-      // Need to approve first
-      await usdt.mint(user1.address, DEPOSIT_AMOUNT);
-      await usdt.connect(user1).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
-      await expect(predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT)).to.not.be.reverted;
+      await expect(predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT })).to.not.be.reverted;
     });
 
     it("should only allow owner to pause", async function () {
@@ -569,20 +533,14 @@ describe("PredictionMarket", function () {
   });
 
   describe("User Market Creation", function () {
-    const CREATION_FEE = ethers.parseUnits("10", 18);
+    const CREATION_FEE = ethers.parseEther("0.01");
 
-    beforeEach(async function () {
-      // Mint extra USDT for creation fees
-      await usdt.mint(user1.address, ethers.parseUnits("1000", 18));
-      await usdt.connect(user1).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
-    });
-
-    it("should create a user market with 10 USDT fee", async function () {
-      const endTime = (await time.latest()) + 7200; // 2 hours from now
+    it("should create a user market with 0.01 BNB fee", async function () {
+      const endTime = (await time.latest()) + 7200;
       const title = "Will DOGE reach $1 this month?";
 
       await expect(
-        predictionMarket.connect(user1).createUserMarket(title, endTime, 0)
+        predictionMarket.connect(user1).createUserMarket(title, endTime, 0, { value: CREATION_FEE })
       )
         .to.emit(predictionMarket, "UserMarketCreated")
         .withArgs(0, user1.address, title, CREATION_FEE);
@@ -597,19 +555,19 @@ describe("PredictionMarket", function () {
     it("should limit to max 3 markets per day", async function () {
       const endTime = (await time.latest()) + 7200;
 
-      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0);
-      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0);
-      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0, { value: CREATION_FEE });
 
       await expect(
-        predictionMarket.connect(user1).createUserMarket("Market four test title", endTime, 0)
+        predictionMarket.connect(user1).createUserMarket("Market four test title", endTime, 0, { value: CREATION_FEE })
       ).to.be.revertedWith("Daily market limit reached");
     });
 
     it("should reject title too short", async function () {
       const endTime = (await time.latest()) + 7200;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("Short", endTime, 0)
+        predictionMarket.connect(user1).createUserMarket("Short", endTime, 0, { value: CREATION_FEE })
       ).to.be.revertedWith("Title too short");
     });
 
@@ -617,62 +575,72 @@ describe("PredictionMarket", function () {
       const endTime = (await time.latest()) + 7200;
       const longTitle = "A".repeat(201);
       await expect(
-        predictionMarket.connect(user1).createUserMarket(longTitle, endTime, 0)
+        predictionMarket.connect(user1).createUserMarket(longTitle, endTime, 0, { value: CREATION_FEE })
       ).to.be.revertedWith("Title too long");
     });
 
     it("should reject end time too soon (less than 1 hour)", async function () {
-      const endTime = (await time.latest()) + 1800; // 30 minutes
+      const endTime = (await time.latest()) + 1800;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0)
+        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0, { value: CREATION_FEE })
       ).to.be.revertedWith("End time too soon");
     });
 
     it("should reject end time too far (more than 90 days)", async function () {
-      const endTime = (await time.latest()) + 91 * 86400; // 91 days
+      const endTime = (await time.latest()) + 91 * 86400;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0)
+        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0, { value: CREATION_FEE })
       ).to.be.revertedWith("End time too far");
     });
 
     it("should reset daily count on a new day", async function () {
       const endTime = (await time.latest()) + 7200;
 
-      // Create 3 markets today
-      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0);
-      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0);
-      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0, { value: CREATION_FEE });
 
-      // Advance time by 1 day
       await time.increase(86400);
-
       const newEndTime = (await time.latest()) + 7200;
-      // Should succeed on new day
       await expect(
-        predictionMarket.connect(user1).createUserMarket("Market on new day!!", newEndTime, 0)
+        predictionMarket.connect(user1).createUserMarket("Market on new day!!", newEndTime, 0, { value: CREATION_FEE })
       ).to.not.be.reverted;
     });
 
-    it("should create market with initial liquidity", async function () {
-      // Deposit first so user1 has balance
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+    it("should create market with initial liquidity (CTF split)", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
 
       const endTime = (await time.latest()) + 7200;
-      const liquidity = ethers.parseUnits("100", 18);
+      const liquidity = ethers.parseEther("1");
 
       await predictionMarket.connect(user1).createUserMarket(
         "Market with liquidity test",
         endTime,
-        liquidity
+        liquidity,
+        { value: CREATION_FEE }
       );
 
       const market = await predictionMarket.getMarket(0);
       const half = liquidity / 2n;
+      // In CTF model, totalYes/totalNo come from ERC1155 totalSupply
       expect(market.totalYes).to.equal(half);
       expect(market.totalNo).to.equal(liquidity - half);
 
       // Balance should be reduced
       expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT - liquidity);
+
+      // User should hold ERC1155 tokens
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const noId = await predictionMarket.getNoTokenId(0);
+      expect(await predictionMarket.balanceOf(user1.address, yesId)).to.equal(half);
+      expect(await predictionMarket.balanceOf(user1.address, noId)).to.equal(liquidity - half);
+    });
+
+    it("should revert if insufficient BNB fee sent", async function () {
+      const endTime = (await time.latest()) + 7200;
+      await expect(
+        predictionMarket.connect(user1).createUserMarket("A valid title for no fee test!", endTime, 0, { value: 0 })
+      ).to.be.revertedWith("Insufficient creation fee");
     });
   });
 
@@ -683,34 +651,32 @@ describe("PredictionMarket", function () {
     beforeEach(async function () {
       [, , , nfaSigner] = await ethers.getSigners();
 
-      // Set NFA contract
       await predictionMarket.setNFAContract(nfaSigner.address);
 
-      // Create a market
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent test market", endTime);
 
-      // Deposit for nfaSigner (simulate NFA contract having balance)
-      await usdt.mint(nfaSigner.address, INITIAL_BALANCE);
-      await usdt.connect(nfaSigner).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
-      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
     });
 
     it("should allow NFA contract to take position", async function () {
-      const amount = ethers.parseUnits("100", 18);
+      const amount = ethers.parseEther("1");
       await expect(
         predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, amount)
       )
         .to.emit(predictionMarket, "AgentPositionTaken")
         .withArgs(0, 1, true, amount);
 
-      const pos = await predictionMarket.getPosition(0, nfaSigner.address);
-      expect(pos.yesAmount).to.equal(amount);
+      expect(await predictionMarket.balances(nfaSigner.address)).to.equal(DEPOSIT_AMOUNT - amount);
+
+      // Verify ERC1155 token minted to nfaContract
+      const yesId = await predictionMarket.getYesTokenId(0);
+      expect(await predictionMarket.balanceOf(nfaSigner.address, yesId)).to.equal(amount);
     });
 
     it("should reject non-NFA contract caller", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      const amount = ethers.parseUnits("100", 18);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      const amount = ethers.parseEther("1");
       await expect(
         predictionMarket.connect(user1).agentTakePosition(1, 0, true, amount)
       ).to.be.revertedWith("Only NFA contract");
@@ -726,7 +692,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should set market creation fee", async function () {
-      const newFee = ethers.parseUnits("20", 18);
+      const newFee = ethers.parseEther("0.02");
       await expect(predictionMarket.setMarketCreationFee(newFee))
         .to.emit(predictionMarket, "MarketCreationFeeUpdated")
         .withArgs(newFee);
@@ -741,17 +707,16 @@ describe("PredictionMarket", function () {
     });
 
     it("should withdraw fees", async function () {
-      // First create a user market to generate fees
-      await usdt.mint(user1.address, ethers.parseUnits("100", 18));
-      await usdt.connect(user1).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
+      const CREATION_FEE = ethers.parseEther("0.01");
       const endTime = (await time.latest()) + 7200;
-      await predictionMarket.connect(user1).createUserMarket("Withdraw fee test market", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Withdraw fee test market", endTime, 0, { value: CREATION_FEE });
 
-      const fee = ethers.parseUnits("10", 18);
-      const ownerBalanceBefore = await usdt.balanceOf(owner.address);
-      await predictionMarket.withdrawFees(fee);
-      const ownerBalanceAfter = await usdt.balanceOf(owner.address);
-      expect(ownerBalanceAfter - ownerBalanceBefore).to.equal(fee);
+      const ownerBalanceBefore = await ethers.provider.getBalance(owner.address);
+      const tx = await predictionMarket.withdrawFees(CREATION_FEE);
+      const receipt = await tx.wait();
+      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+      const ownerBalanceAfter = await ethers.provider.getBalance(owner.address);
+      expect(ownerBalanceAfter - ownerBalanceBefore + gasUsed).to.equal(CREATION_FEE);
     });
 
     it("should reject non-owner for admin functions", async function () {
@@ -777,12 +742,12 @@ describe("PredictionMarket", function () {
     it("should revert deposit when paused", async function () {
       await predictionMarket.pause();
       await expect(
-        predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT)
+        predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT })
       ).to.be.revertedWithCustomError(predictionMarket, "EnforcedPause");
     });
 
     it("should revert withdraw when paused", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       await predictionMarket.pause();
       await expect(
         predictionMarket.connect(user1).withdraw(DEPOSIT_AMOUNT)
@@ -790,23 +755,23 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition when paused", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Pause test market", endTime);
       await predictionMarket.pause();
 
       await expect(
-        predictionMarket.connect(user1).takePosition(0, true, ethers.parseUnits("100", 18))
+        predictionMarket.connect(user1).takePosition(0, true, ethers.parseEther("1"))
       ).to.be.revertedWithCustomError(predictionMarket, "EnforcedPause");
     });
 
     it("should revert claimWinnings when paused", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Pause claim test", endTime);
 
-      const betAmount = ethers.parseUnits("100", 18);
+      const betAmount = ethers.parseEther("1");
       await predictionMarket.connect(user1).takePosition(0, true, betAmount);
       await predictionMarket.connect(user2).takePosition(0, false, betAmount);
 
@@ -820,9 +785,9 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition on non-existent market", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       await expect(
-        predictionMarket.connect(user1).takePosition(999, true, ethers.parseUnits("100", 18))
+        predictionMarket.connect(user1).takePosition(999, true, ethers.parseEther("1"))
       ).to.be.revertedWith("Market does not exist");
     });
 
@@ -833,7 +798,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition on resolved market", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Resolved position test", endTime);
 
@@ -841,12 +806,12 @@ describe("PredictionMarket", function () {
       await predictionMarket.resolveMarket(0, true);
 
       await expect(
-        predictionMarket.connect(user1).takePosition(0, true, ethers.parseUnits("100", 18))
+        predictionMarket.connect(user1).takePosition(0, true, ethers.parseEther("1"))
       ).to.be.revertedWith("Market already resolved");
     });
 
     it("should revert takePosition with zero amount", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Zero amount test", endTime);
 
@@ -862,12 +827,12 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle multiple deposits and withdrawals correctly", async function () {
-      const amount1 = ethers.parseUnits("300", 18);
-      const amount2 = ethers.parseUnits("200", 18);
-      const withdrawAmount = ethers.parseUnits("400", 18);
+      const amount1 = ethers.parseEther("3");
+      const amount2 = ethers.parseEther("2");
+      const withdrawAmount = ethers.parseEther("4");
 
-      await predictionMarket.connect(user1).deposit(amount1);
-      await predictionMarket.connect(user1).deposit(amount2);
+      await predictionMarket.connect(user1).deposit({ value: amount1 });
+      await predictionMarket.connect(user1).deposit({ value: amount2 });
       expect(await predictionMarket.balances(user1.address)).to.equal(amount1 + amount2);
 
       await predictionMarket.connect(user1).withdraw(withdrawAmount);
@@ -875,12 +840,12 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle user taking both YES and NO positions on the same market", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Both sides test", endTime);
 
-      const yesAmount = ethers.parseUnits("200", 18);
-      const noAmount = ethers.parseUnits("300", 18);
+      const yesAmount = ethers.parseEther("2");
+      const noAmount = ethers.parseEther("3");
 
       await predictionMarket.connect(user1).takePosition(0, true, yesAmount);
       await predictionMarket.connect(user1).takePosition(0, false, noAmount);
@@ -894,49 +859,37 @@ describe("PredictionMarket", function () {
 
     it("should correctly distribute winnings with multiple YES bettors", async function () {
       const user3 = (await ethers.getSigners())[3];
-      await usdt.mint(user3.address, INITIAL_BALANCE);
-      await usdt.connect(user3).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
 
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user3).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user3).deposit({ value: DEPOSIT_AMOUNT });
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Multi winner test", endTime);
 
-      // user1 bets 300 YES, user3 bets 200 YES, user2 bets 500 NO
-      const bet1 = ethers.parseUnits("300", 18);
-      const bet3 = ethers.parseUnits("200", 18);
-      const bet2 = ethers.parseUnits("500", 18);
+      const bet1 = ethers.parseEther("3");
+      const bet3 = ethers.parseEther("2");
+      const bet2 = ethers.parseEther("5");
 
       await predictionMarket.connect(user1).takePosition(0, true, bet1);
       await predictionMarket.connect(user3).takePosition(0, true, bet3);
       await predictionMarket.connect(user2).takePosition(0, false, bet2);
 
       await time.increaseTo(endTime);
-      await predictionMarket.resolveMarket(0, true); // YES wins
+      await predictionMarket.resolveMarket(0, true);
 
-      // user1 gets 300 + (300 * 500 / 500) = 300 + 300 = 600
+      // totalCollateral = 10, yesSupply = 5
+      // user1: 3 * 10 / 5 = 6
       await predictionMarket.connect(user1).claimWinnings(0);
       const bal1 = await predictionMarket.balances(user1.address);
-      expect(bal1).to.equal(DEPOSIT_AMOUNT - bet1 + bet1 + (bet1 * bet2) / (bet1 + bet3));
+      // CTF: reward = tokens * totalCollateral / winnerSupply
+      // user1: 3 * 10 / 5 = 6
+      expect(bal1).to.equal(DEPOSIT_AMOUNT - bet1 + (bet1 * (bet1 + bet2 + bet3)) / (bet1 + bet3));
 
-      // user3 gets 200 + (200 * 500 / 500) = 200 + 200 = 400
+      // user3: 2 * (10 - 6) / (5 - 3) = 2 * 4 / 2 = 4
       await predictionMarket.connect(user3).claimWinnings(0);
       const bal3 = await predictionMarket.balances(user3.address);
-      expect(bal3).to.equal(DEPOSIT_AMOUNT - bet3 + bet3 + (bet3 * bet2) / (bet1 + bet3));
-    });
-
-    it("should handle user market creation with sufficient USDT approval", async function () {
-      // User tries to create market without approving USDT
-      const noApprovalUser = (await ethers.getSigners())[4];
-      await usdt.mint(noApprovalUser.address, ethers.parseUnits("100", 18));
-      // No approval given
-
-      const endTime = (await time.latest()) + 7200;
-      await expect(
-        predictionMarket.connect(noApprovalUser).createUserMarket("A valid title for no approval test", endTime, 0)
-      ).to.be.reverted; // SafeERC20 will revert
+      expect(bal3).to.equal(DEPOSIT_AMOUNT - bet3 + (bet3 * (bet1 + bet2 + bet3)) / (bet1 + bet3));
     });
 
     it("should handle agentTakePosition when market ended", async function () {
@@ -946,14 +899,12 @@ describe("PredictionMarket", function () {
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent expired test", endTime);
 
-      await usdt.mint(nfaSigner.address, INITIAL_BALANCE);
-      await usdt.connect(nfaSigner).approve(await predictionMarket.getAddress(), ethers.MaxUint256);
-      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
 
       await time.increaseTo(endTime + 1);
 
       await expect(
-        predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, ethers.parseUnits("100", 18))
+        predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, ethers.parseEther("1"))
       ).to.be.revertedWith("Market ended");
     });
 
@@ -970,25 +921,17 @@ describe("PredictionMarket", function () {
     });
 
     it("should verify initial constructor values", async function () {
-      expect(await predictionMarket.usdt()).to.equal(await usdt.getAddress());
-      expect(await predictionMarket.marketCreationFee()).to.equal(ethers.parseUnits("10", 18));
+      expect(await predictionMarket.marketCreationFee()).to.equal(ethers.parseEther("0.01"));
       expect(await predictionMarket.maxMarketsPerDay()).to.equal(3);
       expect(await predictionMarket.nextMarketId()).to.equal(0);
     });
 
-    it("should revert constructor with zero address USDT", async function () {
-      const PredictionMarketFactory = await ethers.getContractFactory("PredictionMarket");
-      await expect(
-        PredictionMarketFactory.deploy(ethers.ZeroAddress)
-      ).to.be.revertedWith("Invalid USDT address");
-    });
-
     it("should correctly emit PositionTaken event", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Event test market", endTime);
 
-      const amount = ethers.parseUnits("100", 18);
+      const amount = ethers.parseEther("1");
       await expect(
         predictionMarket.connect(user1).takePosition(0, true, amount)
       )
@@ -1003,14 +946,14 @@ describe("PredictionMarket", function () {
     });
 
     it("should update market totals correctly after multiple positions", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Totals test market", endTime);
 
-      const amount1 = ethers.parseUnits("100", 18);
-      const amount2 = ethers.parseUnits("250", 18);
-      const amount3 = ethers.parseUnits("150", 18);
+      const amount1 = ethers.parseEther("1");
+      const amount2 = ethers.parseEther("2.5");
+      const amount3 = ethers.parseEther("1.5");
 
       await predictionMarket.connect(user1).takePosition(0, true, amount1);
       await predictionMarket.connect(user2).takePosition(0, false, amount2);
@@ -1019,6 +962,1310 @@ describe("PredictionMarket", function () {
       const market = await predictionMarket.getMarket(0);
       expect(market.totalYes).to.equal(amount1 + amount3);
       expect(market.totalNo).to.equal(amount2);
+    });
+
+    it("should revert when sending BNB directly to receive()", async function () {
+      const contractAddress = await predictionMarket.getAddress();
+      await expect(
+        user1.sendTransaction({ to: contractAddress, value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Use deposit()");
+    });
+  });
+
+  describe("Bug Fix Validations", function () {
+    it("should emit FeesWithdrawn event when withdrawing fees", async function () {
+      const CREATION_FEE = ethers.parseEther("0.01");
+      const endTime = (await time.latest()) + 7200;
+      await predictionMarket.connect(user1).createUserMarket("FeesWithdrawn event test", endTime, 0, { value: CREATION_FEE });
+
+      await expect(predictionMarket.withdrawFees(CREATION_FEE))
+        .to.emit(predictionMarket, "FeesWithdrawn")
+        .withArgs(owner.address, CREATION_FEE);
+    });
+
+    it("should revert withdrawFees with zero amount", async function () {
+      await expect(predictionMarket.withdrawFees(0)).to.be.revertedWith("Amount must be > 0");
+    });
+
+    it("should revert setNFAContract with zero address", async function () {
+      await expect(
+        predictionMarket.setNFAContract(ethers.ZeroAddress)
+      ).to.be.revertedWith("Invalid NFA address");
+    });
+
+    it("should handle claimWinnings correctly when loser pool is zero", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("One-sided market test", endTime);
+
+      const betAmount = ethers.parseEther("5");
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await predictionMarket.connect(user1).claimWinnings(0);
+      const balance = await predictionMarket.balances(user1.address);
+      // CTF: 5 * 5 / 5 = 5 (gets back exactly what they put in)
+      expect(balance).to.equal(DEPOSIT_AMOUNT - betAmount + betAmount);
+    });
+
+    it("should handle user with positions on both sides", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Both sides claim test", endTime);
+
+      const yesAmount = ethers.parseEther("3");
+      const noAmount = ethers.parseEther("2");
+      await predictionMarket.connect(user1).takePosition(0, true, yesAmount);
+      await predictionMarket.connect(user1).takePosition(0, false, noAmount);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      // CTF: totalCollateral=5, yesSupply=3, YES wins
+      // user1 has 3 YES tokens: 3 * 5 / 3 = 5
+      await predictionMarket.connect(user1).claimWinnings(0);
+      const balance = await predictionMarket.balances(user1.address);
+      expect(balance).to.equal(ethers.parseEther("5") + ethers.parseEther("5"));
+
+      // Cannot claim again (tokens burned)
+      await expect(
+        predictionMarket.connect(user1).claimWinnings(0)
+      ).to.be.revertedWith("No winning position");
+    });
+
+    it("should handle agentClaimWinnings correctly", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent claim test", endTime);
+
+      const agentBet = ethers.parseEther("3");
+      const userBet = ethers.parseEther("5");
+
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, agentBet);
+      await predictionMarket.connect(user1).takePosition(0, false, userBet);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      const nfaBalanceBefore = await predictionMarket.balances(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).agentClaimWinnings(1, 0);
+      const nfaBalanceAfter = await predictionMarket.balances(nfaSigner.address);
+
+      // CTF: totalCollateral=8, yesSupply=3, agentTokens=3
+      // reward = 3 * 8 / 3 = 8
+      const expectedReward = agentBet + userBet; // 3 + 5 = 8
+      expect(nfaBalanceAfter - nfaBalanceBefore).to.equal(expectedReward);
+    });
+
+    it("should revert agentClaimWinnings when already claimed", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent double claim", endTime);
+
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, ethers.parseEther("1"));
+      await predictionMarket.connect(user1).takePosition(0, false, ethers.parseEther("1"));
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await predictionMarket.connect(nfaSigner).agentClaimWinnings(1, 0);
+
+      // Double claim: sub-ledger zeroed -> "No winning position"
+      await expect(
+        predictionMarket.connect(nfaSigner).agentClaimWinnings(1, 0)
+      ).to.be.revertedWith("No winning position");
+    });
+
+    it("should revert agentClaimWinnings when no winning position", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent losing test", endTime);
+
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, ethers.parseEther("1"));
+      await predictionMarket.connect(user1).takePosition(0, false, ethers.parseEther("1"));
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, false);
+
+      await expect(
+        predictionMarket.connect(nfaSigner).agentClaimWinnings(1, 0)
+      ).to.be.revertedWith("No winning position");
+    });
+
+    it("should handle oracle market with stale price rejection", async function () {
+      const MockOracleFactory = await ethers.getContractFactory("MockOracle");
+      const mockOracle = await MockOracleFactory.deploy(10000000000000n, 8);
+      await mockOracle.waitForDeployment();
+      const oracleAddress = await mockOracle.getAddress();
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createOracleMarket("Stale oracle test", endTime, oracleAddress, 10000000000000n, 1);
+
+      const staleTime = (await time.latest()) - 7200;
+      await mockOracle.setUpdatedAt(staleTime);
+
+      await time.increaseTo(endTime);
+      await expect(predictionMarket.resolveByOracle(0)).to.be.revertedWith("Stale oracle price");
+    });
+
+    it("should correctly refund overpayment in createUserMarket", async function () {
+      const CREATION_FEE = ethers.parseEther("0.01");
+      const overpay = ethers.parseEther("0.05");
+      const endTime = (await time.latest()) + 7200;
+
+      const balanceBefore = await ethers.provider.getBalance(user1.address);
+      const tx = await predictionMarket.connect(user1).createUserMarket(
+        "Overpay refund test!",
+        endTime,
+        0,
+        { value: overpay }
+      );
+      const receipt = await tx.wait();
+      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+      const balanceAfter = await ethers.provider.getBalance(user1.address);
+
+      expect(balanceBefore - balanceAfter - gasUsed).to.equal(CREATION_FEE);
+    });
+
+    it("should prevent resolveMarket on oracle-enabled market", async function () {
+      const MockOracleFactory = await ethers.getContractFactory("MockOracle");
+      const mockOracle = await MockOracleFactory.deploy(10000000000000n, 8);
+      await mockOracle.waitForDeployment();
+      const oracleAddress = await mockOracle.getAddress();
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createOracleMarket("Oracle market manual resolve", endTime, oracleAddress, 10000000000000n, 1);
+
+      await time.increaseTo(endTime);
+
+      await expect(
+        predictionMarket.resolveMarket(0, true)
+      ).to.be.revertedWith("Use resolveByOracle for oracle markets");
+    });
+
+    it("should handle rounding correctly with uneven bets", async function () {
+      const user3 = (await ethers.getSigners())[3];
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user3).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Rounding test market", endTime);
+
+      const bet1 = ethers.parseEther("1");
+      const bet2 = ethers.parseEther("2");
+      const bet3 = ethers.parseEther("7");
+
+      await predictionMarket.connect(user1).takePosition(0, true, bet1);
+      await predictionMarket.connect(user2).takePosition(0, true, bet2);
+      await predictionMarket.connect(user3).takePosition(0, false, bet3);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await predictionMarket.connect(user1).claimWinnings(0);
+      await predictionMarket.connect(user2).claimWinnings(0);
+
+      // CTF: totalCollateral=10, yesSupply=3
+      // user1: 1 * 10 / 3 = 3 (rounded down from 3.333)
+      // user2: 2 * 7 / 2 = 7 ... wait, after user1 claims:
+      //   totalCollateral_remaining = 10 - 3 = 7, yesSupply_remaining = 3 - 1 = 2
+      //   user2: 2 * 7 / 2 = 7
+      // Total distributed: 3 + 7 = 10 = total pool
+      const bal1 = await predictionMarket.balances(user1.address);
+      const bal2 = await predictionMarket.balances(user2.address);
+
+      const user1Reward = (bet1 * (bet1 + bet2 + bet3)) / (bet1 + bet2);
+      expect(bal1).to.equal(DEPOSIT_AMOUNT - bet1 + user1Reward);
+
+      // After user1 claimed: remaining collateral and supply
+      const remainingCollateral = (bet1 + bet2 + bet3) - user1Reward;
+      const remainingSupply = (bet1 + bet2) - bet1;
+      const user2Reward = (bet2 * remainingCollateral) / remainingSupply;
+      expect(bal2).to.equal(DEPOSIT_AMOUNT - bet2 + user2Reward);
+    });
+
+    it("should not allow withdrawFees to exceed accumulated fees", async function () {
+      const CREATION_FEE = ethers.parseEther("0.01");
+      const endTime = (await time.latest()) + 7200;
+      await predictionMarket.connect(user1).createUserMarket("Fee limit test market", endTime, 0, { value: CREATION_FEE });
+
+      await expect(
+        predictionMarket.withdrawFees(ethers.parseEther("1"))
+      ).to.be.revertedWith("Exceeds accumulated fees");
+    });
+  });
+
+  // ─── Round 4 Bug Fix Tests ────────────────────────────────────
+  describe("Round 4: resolveByOracle emits MarketResolved", function () {
+    it("should emit MarketResolved event in resolveByOracle", async function () {
+      const MockOracleFactory = await ethers.getContractFactory("MockOracle");
+      const mockOracle = await MockOracleFactory.deploy(10000000000000n, 8);
+      await mockOracle.waitForDeployment();
+      const oracleAddress = await mockOracle.getAddress();
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createOracleMarket("Oracle event test", endTime, oracleAddress, 10000000000000n, 1);
+
+      await time.increaseTo(endTime);
+
+      await expect(predictionMarket.resolveByOracle(0))
+        .to.emit(predictionMarket, "MarketResolved")
+        .withArgs(0, true);
+    });
+  });
+
+  describe("Round 4: Market Cancellation", function () {
+    const betAmount = ethers.parseEther("5");
+
+    beforeEach(async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+    });
+
+    it("should cancel a market and emit MarketCancelled", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Cancel test market", endTime);
+
+      await expect(predictionMarket.cancelMarket(0))
+        .to.emit(predictionMarket, "MarketCancelled")
+        .withArgs(0);
+
+      expect(await predictionMarket.isMarketCancelled(0)).to.equal(true);
+    });
+
+    it("should revert cancel on non-existent market", async function () {
+      await expect(predictionMarket.cancelMarket(999)).to.be.revertedWith("Market does not exist");
+    });
+
+    it("should revert cancel on already resolved market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Already resolved cancel", endTime);
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await expect(predictionMarket.cancelMarket(0)).to.be.revertedWith("Market already resolved");
+    });
+
+    it("should only allow owner to cancel", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Non-owner cancel test", endTime);
+
+      await expect(
+        predictionMarket.connect(user1).cancelMarket(0)
+      ).to.be.revertedWithCustomError(predictionMarket, "OwnableUnauthorizedAccount");
+    });
+
+    it("should allow claimRefund after cancellation", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Refund test after cancel", endTime);
+
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+      await predictionMarket.connect(user2).takePosition(0, false, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      // user1 gets back their position
+      await predictionMarket.connect(user1).claimRefund(0);
+      expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT);
+
+      // user2 gets back their position
+      await predictionMarket.connect(user2).claimRefund(0);
+      expect(await predictionMarket.balances(user2.address)).to.equal(DEPOSIT_AMOUNT);
+    });
+
+    it("should refund both YES and NO positions for a user who bet both sides", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Both sides refund test", endTime);
+
+      const yesAmt = ethers.parseEther("3");
+      const noAmt = ethers.parseEther("2");
+      await predictionMarket.connect(user1).takePosition(0, true, yesAmt);
+      await predictionMarket.connect(user1).takePosition(0, false, noAmt);
+
+      await predictionMarket.cancelMarket(0);
+
+      await predictionMarket.connect(user1).claimRefund(0);
+      expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT);
+    });
+
+    it("should revert claimRefund on non-cancelled market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Non-cancelled refund test", endTime);
+
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await expect(
+        predictionMarket.connect(user1).claimRefund(0)
+      ).to.be.revertedWith("Market not cancelled");
+    });
+
+    it("should revert claimWinnings on cancelled market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Cancelled no winnings test", endTime);
+
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+      await predictionMarket.connect(user2).takePosition(0, false, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      await expect(
+        predictionMarket.connect(user1).claimWinnings(0)
+      ).to.be.revertedWith("Market cancelled, use claimRefund");
+    });
+
+    it("should revert double claimRefund (tokens already burned)", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Double refund test", endTime);
+
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      await predictionMarket.connect(user1).claimRefund(0);
+      await expect(
+        predictionMarket.connect(user1).claimRefund(0)
+      ).to.be.revertedWith("No position");
+    });
+
+    it("should revert claimRefund with no position", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("No position refund test", endTime);
+
+      await predictionMarket.cancelMarket(0);
+
+      await expect(
+        predictionMarket.connect(user1).claimRefund(0)
+      ).to.be.revertedWith("No position");
+    });
+
+    it("should revert agentClaimWinnings on cancelled market", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent cancel test", endTime);
+
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, betAmount);
+      await predictionMarket.connect(user1).takePosition(0, false, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      await expect(
+        predictionMarket.connect(nfaSigner).agentClaimWinnings(1, 0)
+      ).to.be.revertedWith("Market cancelled");
+    });
+  });
+
+  describe("Round 4: getAgentPosition view", function () {
+    it("should return agent position data", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent pos view test", endTime);
+
+      const amount = ethers.parseEther("2");
+      await predictionMarket.connect(nfaSigner).agentTakePosition(42, 0, true, amount);
+
+      const pos = await predictionMarket.getAgentPosition(0, 42);
+      expect(pos.yesAmount).to.equal(amount);
+      expect(pos.noAmount).to.equal(0n);
+      expect(pos.claimed).to.equal(false);
+    });
+
+    it("should return empty position for non-existent agent", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Empty agent pos test", endTime);
+
+      const pos = await predictionMarket.getAgentPosition(0, 999);
+      expect(pos.yesAmount).to.equal(0n);
+      expect(pos.noAmount).to.equal(0n);
+      expect(pos.claimed).to.equal(false);
+    });
+  });
+
+  describe("Round 4: isMarketCancelled view", function () {
+    it("should return false for non-cancelled market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Not cancelled test", endTime);
+
+      expect(await predictionMarket.isMarketCancelled(0)).to.equal(false);
+    });
+
+    it("should return true for cancelled market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Is cancelled test", endTime);
+      await predictionMarket.cancelMarket(0);
+
+      expect(await predictionMarket.isMarketCancelled(0)).to.equal(true);
+    });
+
+    it("should revert for non-existent market", async function () {
+      await expect(predictionMarket.isMarketCancelled(999)).to.be.revertedWith("Market does not exist");
+    });
+  });
+
+  // ─── Round 5 Final Hardening Tests ────────────────────────────────────
+  describe("Round 5: getMarket returns cancelled field", function () {
+    it("should return cancelled=false for active market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Cancelled field test", endTime);
+
+      const market = await predictionMarket.getMarket(0);
+      expect(market.cancelled).to.equal(false);
+    });
+
+    it("should return cancelled=true for cancelled market", async function () {
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Cancelled field true test", endTime);
+      await predictionMarket.cancelMarket(0);
+
+      const market = await predictionMarket.getMarket(0);
+      expect(market.cancelled).to.equal(true);
+      expect(market.resolved).to.equal(true);
+    });
+  });
+
+  describe("Round 5: RefundClaimed event", function () {
+    it("should emit RefundClaimed (not WinningsClaimed) on claimRefund", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("RefundClaimed event test", endTime);
+
+      const betAmount = ethers.parseEther("3");
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      await expect(predictionMarket.connect(user1).claimRefund(0))
+        .to.emit(predictionMarket, "RefundClaimed")
+        .withArgs(0, user1.address, betAmount);
+    });
+  });
+
+  describe("Round 5: agentClaimRefund", function () {
+    const betAmount = ethers.parseEther("5");
+
+    it("should allow agent to claim refund on cancelled market", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent refund test", endTime);
+
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      const balBefore = await predictionMarket.balances(nfaSigner.address);
+      await expect(predictionMarket.connect(nfaSigner).agentClaimRefund(1, 0))
+        .to.emit(predictionMarket, "AgentRefundClaimed")
+        .withArgs(0, 1, betAmount);
+      const balAfter = await predictionMarket.balances(nfaSigner.address);
+
+      expect(balAfter - balBefore).to.equal(betAmount);
+    });
+
+    it("should revert agentClaimRefund on non-cancelled market", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent refund non-cancel", endTime);
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, betAmount);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await expect(
+        predictionMarket.connect(nfaSigner).agentClaimRefund(1, 0)
+      ).to.be.revertedWith("Market not cancelled");
+    });
+
+    it("should revert agentClaimRefund from non-NFA caller", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent refund wrong caller", endTime);
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      await expect(
+        predictionMarket.connect(user1).agentClaimRefund(1, 0)
+      ).to.be.revertedWith("Only NFA contract");
+    });
+
+    it("should revert double agentClaimRefund", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent double refund", endTime);
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, betAmount);
+
+      await predictionMarket.cancelMarket(0);
+
+      await predictionMarket.connect(nfaSigner).agentClaimRefund(1, 0);
+      await expect(
+        predictionMarket.connect(nfaSigner).agentClaimRefund(1, 0)
+      ).to.be.revertedWith("No position");
+    });
+
+    it("should revert agentClaimRefund with no position", async function () {
+      const nfaSigner = (await ethers.getSigners())[3];
+      await predictionMarket.setNFAContract(nfaSigner.address);
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent no pos refund", endTime);
+      await predictionMarket.cancelMarket(0);
+
+      await expect(
+        predictionMarket.connect(nfaSigner).agentClaimRefund(999, 0)
+      ).to.be.revertedWith("No position");
+    });
+  });
+
+  describe("Round 5: UserMarket also emits MarketCreated", function () {
+    it("should emit both MarketCreated and UserMarketCreated for user markets", async function () {
+      const CREATION_FEE = ethers.parseEther("0.01");
+      const endTime = (await time.latest()) + 7200;
+      const title = "User market MarketCreated event test";
+
+      const tx = predictionMarket.connect(user1).createUserMarket(title, endTime, 0, { value: CREATION_FEE });
+
+      await expect(tx)
+        .to.emit(predictionMarket, "MarketCreated")
+        .withArgs(0, title, endTime);
+
+      await expect(tx)
+        .to.emit(predictionMarket, "UserMarketCreated")
+        .withArgs(0, user1.address, title, CREATION_FEE);
+    });
+  });
+
+  describe("Arbitration State Machine", function () {
+    let endTime: number;
+    const betAmount = ethers.parseEther("5");
+
+    beforeEach(async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Arbitration test market", endTime);
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+      await predictionMarket.connect(user2).takePosition(0, false, betAmount);
+    });
+
+    it("should block direct resolveMarket when strict arbitration mode is enabled", async function () {
+      await predictionMarket.setStrictArbitrationMode(true);
+      await time.increaseTo(endTime);
+      await expect(
+        predictionMarket.resolveMarket(0, true)
+      ).to.be.revertedWith("Direct manual resolve disabled");
+    });
+
+    it("should allow owner to proposeResolution and emit event", async function () {
+      await time.increaseTo(endTime);
+      const tx = await predictionMarket.proposeResolution(0, true);
+      await expect(tx).to.emit(predictionMarket, "ResolutionProposed");
+    });
+
+    it("should allow market creator to proposeResolution", async function () {
+      const fee = ethers.parseEther("0.01");
+      const userEndTime = (await time.latest()) + 7200;
+      await predictionMarket.connect(user1).createUserMarket(
+        "Creator arbitration test",
+        userEndTime,
+        0,
+        { value: fee }
+      );
+      await time.increaseTo(userEndTime);
+      await expect(
+        predictionMarket.connect(user1).proposeResolution(1, false)
+      ).to.emit(predictionMarket, "ResolutionProposed");
+    });
+
+    it("should reject proposeResolution from non-owner non-creator", async function () {
+      await time.increaseTo(endTime);
+      await expect(
+        predictionMarket.connect(user2).proposeResolution(0, true)
+      ).to.be.revertedWith("Only owner or market creator");
+    });
+
+    it("should reject proposeResolution before market ended", async function () {
+      await expect(
+        predictionMarket.proposeResolution(0, true)
+      ).to.be.revertedWith("Market not ended");
+    });
+
+    it("should reject duplicate proposeResolution", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await expect(
+        predictionMarket.proposeResolution(0, false)
+      ).to.be.revertedWith("Proposal already exists");
+    });
+
+    it("should allow challengeResolution and emit event", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      const tx = await predictionMarket.connect(user1).challengeResolution(0);
+      await expect(tx).to.emit(predictionMarket, "ResolutionChallenged");
+    });
+
+    it("should reject challengeResolution from proposer", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await expect(
+        predictionMarket.challengeResolution(0)
+      ).to.be.revertedWith("Proposer cannot challenge");
+    });
+
+    it("should reject challengeResolution after window closed", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await time.increase(6 * 3600 + 1);
+      await expect(
+        predictionMarket.connect(user1).challengeResolution(0)
+      ).to.be.revertedWith("Challenge window closed");
+    });
+
+    it("should extend challenge window on each challenge", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      const user3 = (await ethers.getSigners())[3];
+      await predictionMarket.connect(user1).challengeResolution(0);
+      await predictionMarket.connect(user3).challengeResolution(0);
+      await time.increase(2 * 3600);
+      await expect(
+        predictionMarket.finalizeResolution(0, true)
+      ).to.be.revertedWith("Challenge window not closed");
+    });
+
+    it("should reject finalizeResolution before window closes", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await expect(
+        predictionMarket.finalizeResolution(0, true)
+      ).to.be.revertedWith("Challenge window not closed");
+    });
+
+    it("should finalizeResolution after window closes (no challenge)", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await time.increase(6 * 3600 + 1);
+      const tx = await predictionMarket.finalizeResolution(0, true);
+      await expect(tx).to.emit(predictionMarket, "MarketResolved").withArgs(0, true);
+      await expect(tx).to.emit(predictionMarket, "ResolutionFinalized").withArgs(0, true);
+      const market = await predictionMarket.getMarket(0);
+      expect(market.resolved).to.equal(true);
+      expect(market.outcome).to.equal(true);
+    });
+
+    it("should finalizeResolution after challenged window closes", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await predictionMarket.connect(user1).challengeResolution(0);
+      await time.increase(3 * 3600 + 1);
+      await expect(predictionMarket.finalizeResolution(0, false))
+        .to.emit(predictionMarket, "ResolutionFinalized")
+        .withArgs(0, false);
+      const market = await predictionMarket.getMarket(0);
+      expect(market.resolved).to.equal(true);
+      expect(market.outcome).to.equal(false);
+    });
+
+    it("should reject resolveMarket when arbitration is active (PROPOSED)", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await expect(
+        predictionMarket.resolveMarket(0, true)
+      ).to.be.revertedWith("Active arbitration in progress");
+    });
+
+    it("should reject resolveMarket when arbitration is active (CHALLENGED)", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await predictionMarket.connect(user1).challengeResolution(0);
+      await expect(
+        predictionMarket.resolveMarket(0, false)
+      ).to.be.revertedWith("Active arbitration in progress");
+    });
+
+    it("should only allow owner to finalizeResolution", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await time.increase(6 * 3600 + 1);
+      await expect(
+        predictionMarket.connect(user1).finalizeResolution(0, true)
+      ).to.be.revertedWithCustomError(predictionMarket, "OwnableUnauthorizedAccount");
+    });
+
+    it("should allow claimWinnings after finalizeResolution", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+      await time.increase(6 * 3600 + 1);
+      await predictionMarket.finalizeResolution(0, true);
+      await predictionMarket.connect(user1).claimWinnings(0);
+      const balance = await predictionMarket.balances(user1.address);
+      expect(balance).to.equal(DEPOSIT_AMOUNT - betAmount + betAmount * 2n);
+    });
+
+    it("should reject duplicate challenge from same address", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+
+      // First challenge from user1 succeeds
+      await predictionMarket.connect(user1).challengeResolution(0);
+
+      // Second challenge from same user1 should revert
+      await expect(
+        predictionMarket.connect(user1).challengeResolution(0)
+      ).to.be.revertedWith("Already challenged this market");
+    });
+
+    it("should enforce MAX_CHALLENGES = 5", async function () {
+      const signers = await ethers.getSigners();
+      // Use signers[3] through signers[8] as 6 distinct challengers
+      const challengers = signers.slice(3, 9);
+
+      // Deposit for all 6 challengers so they can interact
+      for (const challenger of challengers) {
+        await predictionMarket.connect(challenger).deposit({ value: DEPOSIT_AMOUNT });
+      }
+
+      await time.increaseTo(endTime);
+      await predictionMarket.proposeResolution(0, true);
+
+      // 5 different signers challenge successfully (each extends the window by 3 hours)
+      for (let i = 0; i < 5; i++) {
+        await predictionMarket.connect(challengers[i]).challengeResolution(0);
+      }
+
+      // 6th challenger should be rejected
+      await expect(
+        predictionMarket.connect(challengers[5]).challengeResolution(0)
+      ).to.be.revertedWith("Max challenges reached");
+    });
+
+    it("should track hasChallenged per market independently", async function () {
+      // Create a second market (market 1)
+      const now = await time.latest();
+      const endTime2 = now + 86400;
+      await predictionMarket.createMarket("Second Market", endTime2);
+
+      // user1 and user2 take positions on market 1 so it is active
+      await predictionMarket.connect(user1).takePosition(1, true, betAmount);
+      await predictionMarket.connect(user2).takePosition(1, false, betAmount);
+
+      // Advance time past both endTimes
+      await time.increaseTo(endTime2 + 1);
+
+      // Propose resolution for both markets
+      await predictionMarket.proposeResolution(0, true);
+      await predictionMarket.proposeResolution(1, true);
+
+      // user1 challenges market 0
+      await predictionMarket.connect(user1).challengeResolution(0);
+
+      // user1 should still be able to challenge market 1 (different market)
+      await expect(
+        predictionMarket.connect(user1).challengeResolution(1)
+      ).to.not.be.reverted;
+    });
+  });
+
+  // ─── CTF-Specific Tests ────────────────────────────────────
+  describe("CTF: splitPosition", function () {
+    let endTime: number;
+
+    beforeEach(async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Split test market", endTime);
+    });
+
+    it("should split collateral into YES + NO tokens", async function () {
+      const amount = ethers.parseEther("3");
+      await predictionMarket.connect(user1).splitPosition(0, amount);
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const noId = await predictionMarket.getNoTokenId(0);
+
+      expect(await predictionMarket.balanceOf(user1.address, yesId)).to.equal(amount);
+      expect(await predictionMarket.balanceOf(user1.address, noId)).to.equal(amount);
+      expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT - amount);
+    });
+
+    it("should emit PositionSplit event", async function () {
+      const amount = ethers.parseEther("2");
+      await expect(predictionMarket.connect(user1).splitPosition(0, amount))
+        .to.emit(predictionMarket, "PositionSplit")
+        .withArgs(0, user1.address, amount);
+    });
+
+    it("should revert on insufficient balance", async function () {
+      await expect(
+        predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("20"))
+      ).to.be.revertedWith("Insufficient balance");
+    });
+
+    it("should revert on zero amount", async function () {
+      await expect(
+        predictionMarket.connect(user1).splitPosition(0, 0)
+      ).to.be.revertedWith("Amount must be > 0");
+    });
+
+    it("should revert after market ended", async function () {
+      await time.increaseTo(endTime + 1);
+      await expect(
+        predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("1"))
+      ).to.be.revertedWith("Market ended");
+    });
+
+    it("should revert on resolved market", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+      await expect(
+        predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("1"))
+      ).to.be.revertedWith("Market already resolved");
+    });
+  });
+
+  describe("CTF: mergePositions", function () {
+    let endTime: number;
+
+    beforeEach(async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Merge test market", endTime);
+      // Split first to get tokens
+      await predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("5"));
+    });
+
+    it("should merge YES + NO tokens back into collateral", async function () {
+      const amount = ethers.parseEther("3");
+      await predictionMarket.connect(user1).mergePositions(0, amount);
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const noId = await predictionMarket.getNoTokenId(0);
+
+      expect(await predictionMarket.balanceOf(user1.address, yesId)).to.equal(ethers.parseEther("2"));
+      expect(await predictionMarket.balanceOf(user1.address, noId)).to.equal(ethers.parseEther("2"));
+      expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT - ethers.parseEther("5") + amount);
+    });
+
+    it("should emit PositionsMerged event", async function () {
+      const amount = ethers.parseEther("2");
+      await expect(predictionMarket.connect(user1).mergePositions(0, amount))
+        .to.emit(predictionMarket, "PositionsMerged")
+        .withArgs(0, user1.address, amount);
+    });
+
+    it("should revert on insufficient YES tokens", async function () {
+      // Burn some YES tokens by transferring them away
+      const yesId = await predictionMarket.getYesTokenId(0);
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, yesId, ethers.parseEther("4"), "0x"
+      );
+
+      await expect(
+        predictionMarket.connect(user1).mergePositions(0, ethers.parseEther("3"))
+      ).to.be.revertedWith("Insufficient YES tokens");
+    });
+
+    it("should revert on insufficient NO tokens", async function () {
+      const noId = await predictionMarket.getNoTokenId(0);
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, noId, ethers.parseEther("4"), "0x"
+      );
+
+      await expect(
+        predictionMarket.connect(user1).mergePositions(0, ethers.parseEther("3"))
+      ).to.be.revertedWith("Insufficient NO tokens");
+    });
+
+    it("should revert on resolved market", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await expect(
+        predictionMarket.connect(user1).mergePositions(0, ethers.parseEther("1"))
+      ).to.be.revertedWith("Market already resolved");
+    });
+
+    it("should revert on zero amount", async function () {
+      await expect(
+        predictionMarket.connect(user1).mergePositions(0, 0)
+      ).to.be.revertedWith("Amount must be > 0");
+    });
+  });
+
+  describe("CTF: Free Transfer", function () {
+    let endTime: number;
+    const betAmount = ethers.parseEther("5");
+
+    beforeEach(async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Transfer test market", endTime);
+      await predictionMarket.connect(user1).takePosition(0, true, betAmount);
+      await predictionMarket.connect(user2).takePosition(0, false, betAmount);
+    });
+
+    it("should allow free transfer before resolution", async function () {
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const transferAmount = ethers.parseEther("2");
+
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, yesId, transferAmount, "0x"
+      );
+
+      expect(await predictionMarket.balanceOf(user1.address, yesId)).to.equal(betAmount - transferAmount);
+      expect(await predictionMarket.balanceOf(user2.address, yesId)).to.equal(transferAmount);
+    });
+
+    it("should allow free transfer after resolution", async function () {
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const transferAmount = ethers.parseEther("2");
+
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, yesId, transferAmount, "0x"
+      );
+
+      expect(await predictionMarket.balanceOf(user1.address, yesId)).to.equal(betAmount - transferAmount);
+      expect(await predictionMarket.balanceOf(user2.address, yesId)).to.equal(transferAmount);
+    });
+
+    it("should allow new holder to claim winnings after transfer", async function () {
+      const yesId = await predictionMarket.getYesTokenId(0);
+
+      // user1 transfers all YES tokens to user2
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, yesId, betAmount, "0x"
+      );
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      // user2 can claim (has YES tokens)
+      await predictionMarket.connect(user2).claimWinnings(0);
+      // user2 had 5 NO + 5 YES after transfer
+      // CTF: totalCollateral=10, yesSupply=5
+      // user2 YES = 5: 5 * 10 / 5 = 10
+      const user2Balance = await predictionMarket.balances(user2.address);
+      expect(user2Balance).to.equal(DEPOSIT_AMOUNT - betAmount + betAmount * 2n);
+
+      // user1 cannot claim (no YES tokens)
+      await expect(
+        predictionMarket.connect(user1).claimWinnings(0)
+      ).to.be.revertedWith("No winning position");
+    });
+
+    it("should handle partial transfer and claim correctly", async function () {
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const transferAmount = ethers.parseEther("2");
+
+      // user1 transfers 2 of 5 YES to user2
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, yesId, transferAmount, "0x"
+      );
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      // user1 claims with 3 YES: 3 * 10 / 5 = 6
+      await predictionMarket.connect(user1).claimWinnings(0);
+      const bal1 = await predictionMarket.balances(user1.address);
+      expect(bal1).to.equal(DEPOSIT_AMOUNT - betAmount + (ethers.parseEther("3") * ethers.parseEther("10")) / ethers.parseEther("5"));
+
+      // user2 claims with 2 YES: 2 * 4 / 2 = 4
+      await predictionMarket.connect(user2).claimWinnings(0);
+      const bal2 = await predictionMarket.balances(user2.address);
+      // After user1 claimed: remaining collateral = 10-6=4, remaining yes supply = 5-3=2
+      // user2 reward = 2*4/2 = 4
+      expect(bal2).to.equal(DEPOSIT_AMOUNT - betAmount + ethers.parseEther("4"));
+    });
+  });
+
+  describe("CTF: Arbitrage Scenario", function () {
+    it("should allow split -> sell one side -> merge remainder", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Arbitrage test", endTime);
+
+      // user1 splits 5 BNB -> 5 YES + 5 NO
+      await predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("5"));
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const noId = await predictionMarket.getNoTokenId(0);
+
+      // user1 transfers 3 YES to user2 (simulating a sale)
+      await predictionMarket.connect(user1).safeTransferFrom(
+        user1.address, user2.address, yesId, ethers.parseEther("3"), "0x"
+      );
+
+      // user1 has 2 YES + 5 NO, can merge 2 pairs
+      await predictionMarket.connect(user1).mergePositions(0, ethers.parseEther("2"));
+
+      // user1 balance: 10 - 5 (split) + 2 (merge) = 7
+      expect(await predictionMarket.balances(user1.address)).to.equal(ethers.parseEther("7"));
+      // user1 tokens: 0 YES + 3 NO
+      expect(await predictionMarket.balanceOf(user1.address, yesId)).to.equal(0);
+      expect(await predictionMarket.balanceOf(user1.address, noId)).to.equal(ethers.parseEther("3"));
+    });
+  });
+
+  describe("CTF: Token ID Encoding", function () {
+    it("should correctly encode YES and NO token IDs", async function () {
+      expect(await predictionMarket.getYesTokenId(0)).to.equal(0);
+      expect(await predictionMarket.getNoTokenId(0)).to.equal(1);
+      expect(await predictionMarket.getYesTokenId(1)).to.equal(2);
+      expect(await predictionMarket.getNoTokenId(1)).to.equal(3);
+      expect(await predictionMarket.getYesTokenId(100)).to.equal(200);
+      expect(await predictionMarket.getNoTokenId(100)).to.equal(201);
+    });
+
+    it("should handle large market IDs without overflow", async function () {
+      const largeId = 2n ** 127n;
+      expect(await predictionMarket.getYesTokenId(largeId)).to.equal(largeId * 2n);
+      expect(await predictionMarket.getNoTokenId(largeId)).to.equal(largeId * 2n + 1n);
+    });
+  });
+
+  describe("CTF: ERC1155 Compliance", function () {
+    it("should support ERC1155 interface", async function () {
+      // ERC1155 interface ID: 0xd9b67a26
+      expect(await predictionMarket.supportsInterface("0xd9b67a26")).to.equal(true);
+    });
+
+    it("should support ERC165 interface", async function () {
+      // ERC165 interface ID: 0x01ffc9a7
+      expect(await predictionMarket.supportsInterface("0x01ffc9a7")).to.equal(true);
+    });
+
+    it("should handle balanceOfBatch correctly", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Batch balance test", endTime);
+
+      await predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("3"));
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const noId = await predictionMarket.getNoTokenId(0);
+
+      const balances = await predictionMarket.balanceOfBatch(
+        [user1.address, user1.address],
+        [yesId, noId]
+      );
+
+      expect(balances[0]).to.equal(ethers.parseEther("3"));
+      expect(balances[1]).to.equal(ethers.parseEther("3"));
+    });
+  });
+
+  describe("CTF: Agent ERC1155", function () {
+    let nfaSigner: SignerWithAddress;
+    let endTime: number;
+
+    beforeEach(async function () {
+      [, , , nfaSigner] = await ethers.getSigners();
+      await predictionMarket.setNFAContract(nfaSigner.address);
+      endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Agent ERC1155 test", endTime);
+      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+    });
+
+    it("should mint ERC1155 tokens to NFA contract on agentTakePosition", async function () {
+      const amount = ethers.parseEther("3");
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, amount);
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      expect(await predictionMarket.balanceOf(nfaSigner.address, yesId)).to.equal(amount);
+
+      // Agent sub-ledger should track
+      const pos = await predictionMarket.getAgentPosition(0, 1);
+      expect(pos.yesAmount).to.equal(amount);
+    });
+
+    it("should handle agentSplitPosition", async function () {
+      const amount = ethers.parseEther("2");
+      await predictionMarket.connect(nfaSigner).agentSplitPosition(1, 0, amount);
+
+      const yesId = await predictionMarket.getYesTokenId(0);
+      const noId = await predictionMarket.getNoTokenId(0);
+
+      expect(await predictionMarket.balanceOf(nfaSigner.address, yesId)).to.equal(amount);
+      expect(await predictionMarket.balanceOf(nfaSigner.address, noId)).to.equal(amount);
+
+      const pos = await predictionMarket.getAgentPosition(0, 1);
+      expect(pos.yesAmount).to.equal(amount);
+      expect(pos.noAmount).to.equal(amount);
+    });
+
+    it("should correctly claim agent winnings and burn ERC1155", async function () {
+      const agentBet = ethers.parseEther("3");
+      const userBet = ethers.parseEther("5");
+
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, agentBet);
+      await predictionMarket.connect(user1).takePosition(0, false, userBet);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await predictionMarket.connect(nfaSigner).agentClaimWinnings(1, 0);
+
+      // ERC1155 tokens should be burned
+      const yesId = await predictionMarket.getYesTokenId(0);
+      expect(await predictionMarket.balanceOf(nfaSigner.address, yesId)).to.equal(0);
+
+      // Sub-ledger should be zeroed
+      const pos = await predictionMarket.getAgentPosition(0, 1);
+      expect(pos.yesAmount).to.equal(0);
+    });
+
+    it("should correctly claim agent refund and burn ERC1155", async function () {
+      const agentBet = ethers.parseEther("3");
+      await predictionMarket.connect(nfaSigner).agentTakePosition(1, 0, true, agentBet);
+
+      await predictionMarket.cancelMarket(0);
+
+      const balBefore = await predictionMarket.balances(nfaSigner.address);
+      await predictionMarket.connect(nfaSigner).agentClaimRefund(1, 0);
+      const balAfter = await predictionMarket.balances(nfaSigner.address);
+
+      expect(balAfter - balBefore).to.equal(agentBet);
+
+      // ERC1155 tokens should be burned
+      const yesId = await predictionMarket.getYesTokenId(0);
+      expect(await predictionMarket.balanceOf(nfaSigner.address, yesId)).to.equal(0);
+    });
+  });
+
+  describe("CTF: Mathematical Equivalence", function () {
+    it("should produce same result as old pari-mutuel for pure takePosition scenario", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Math equivalence test", endTime);
+
+      const bet1 = ethers.parseEther("5");
+      const bet2 = ethers.parseEther("5");
+
+      await predictionMarket.connect(user1).takePosition(0, true, bet1);
+      await predictionMarket.connect(user2).takePosition(0, false, bet2);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      await predictionMarket.connect(user1).claimWinnings(0);
+      const balance = await predictionMarket.balances(user1.address);
+
+      // Old model: 5 + (5 * 5 / 5) = 10
+      // CTF model: 5 * 10 / 5 = 10
+      expect(balance).to.equal(DEPOSIT_AMOUNT - bet1 + bet1 + bet2);
+    });
+
+    it("should handle split -> claim equivalence", async function () {
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Split claim equiv", endTime);
+
+      // Split 5 BNB -> 5 YES + 5 NO
+      await predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("5"));
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      // Only YES tokens are winners
+      await predictionMarket.connect(user1).claimWinnings(0);
+      const balance = await predictionMarket.balances(user1.address);
+
+      // totalCollateral=5, yesSupply=5, user has 5 YES
+      // reward = 5 * 5 / 5 = 5
+      expect(balance).to.equal(DEPOSIT_AMOUNT - ethers.parseEther("5") + ethers.parseEther("5"));
+    });
+  });
+
+  describe("Round 4: Rounding dust verification (CTF)", function () {
+    it("should verify dust remains in contract (not distributed more than pool)", async function () {
+      const user3 = (await ethers.getSigners())[3];
+      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user3).deposit({ value: DEPOSIT_AMOUNT });
+
+      const endTime = (await time.latest()) + 3600;
+      await predictionMarket.createMarket("Dust verification test", endTime);
+
+      const bet1 = 7n;
+      const bet2 = 4n;
+      const bet3 = 11n;
+
+      await predictionMarket.connect(user1).takePosition(0, true, bet1);
+      await predictionMarket.connect(user2).takePosition(0, true, bet2);
+      await predictionMarket.connect(user3).takePosition(0, false, bet3);
+
+      await time.increaseTo(endTime);
+      await predictionMarket.resolveMarket(0, true);
+
+      const bal1Before = await predictionMarket.balances(user1.address);
+      const bal2Before = await predictionMarket.balances(user2.address);
+
+      await predictionMarket.connect(user1).claimWinnings(0);
+      await predictionMarket.connect(user2).claimWinnings(0);
+
+      const bal1After = await predictionMarket.balances(user1.address);
+      const bal2After = await predictionMarket.balances(user2.address);
+
+      const reward1 = bal1After - bal1Before;
+      const reward2 = bal2After - bal2Before;
+      const totalPool = bet1 + bet2 + bet3;
+
+      // Total rewards should never exceed total pool
+      expect(reward1 + reward2).to.be.lte(totalPool);
+
+      // Dust should be minimal
+      const dust = totalPool - (reward1 + reward2);
+      expect(dust).to.be.lt(2n);
     });
   });
 });

@@ -21,7 +21,8 @@ router.get('/open', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ orders });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    console.error('Open orders error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -39,7 +40,8 @@ router.get('/:marketId/:side', async (req, res) => {
     const orderbook = await getOrderBook(db, marketId, side);
     res.json(orderbook);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    console.error('Orderbook error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -86,6 +88,12 @@ router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) =>
     return;
   }
 
+  // Bug D25 Fix: Cap maximum order amount.
+  if (parsedAmount > 1_000_000) {
+    res.status(400).json({ error: 'amount must not exceed 1,000,000' });
+    return;
+  }
+
   try {
     const db = getDb();
     const result = await placeLimitOrder(db, userAddress, marketId, side, orderSide, parsedPrice, parsedAmount);
@@ -96,7 +104,14 @@ router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) =>
 
     res.json({ success: true, order: result });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    const safeOrderbookMessages = ['Market not found', 'Market is not active', 'Insufficient balance', 'Insufficient shares', 'Side must be', 'Price must be', 'Amount must be', 'Trade too large'];
+    const isSafe = safeOrderbookMessages.some(m => err.message?.includes(m));
+    if (isSafe) {
+      res.status(400).json({ error: err.message });
+    } else {
+      console.error('Limit order error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 
@@ -131,6 +146,12 @@ router.post('/market', authMiddleware, async (req: AuthRequest, res: Response) =
     return;
   }
 
+  // Bug D25 Fix: Cap maximum order amount.
+  if (parsedAmount > 1_000_000) {
+    res.status(400).json({ error: 'amount must not exceed 1,000,000' });
+    return;
+  }
+
   try {
     const db = getDb();
     const result = await placeMarketOrder(db, userAddress, marketId, side, orderSide, parsedAmount);
@@ -141,7 +162,14 @@ router.post('/market', authMiddleware, async (req: AuthRequest, res: Response) =
 
     res.json({ success: true, order: result });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    const safeOrderbookMessages = ['Market not found', 'Market is not active', 'Insufficient balance', 'Insufficient shares', 'Side must be', 'Amount must be', 'Trade too large'];
+    const isSafe = safeOrderbookMessages.some(m => err.message?.includes(m));
+    if (isSafe) {
+      res.status(400).json({ error: err.message });
+    } else {
+      console.error('Market order error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 
@@ -166,7 +194,14 @@ router.delete('/:orderId', authMiddleware, async (req: AuthRequest, res: Respons
 
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    const safeCancelMessages = ['Order not found', 'Not your order', 'Order cannot be cancelled'];
+    const isSafe = safeCancelMessages.some(m => err.message?.includes(m));
+    if (isSafe) {
+      res.status(400).json({ error: err.message });
+    } else {
+      console.error('Cancel order error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 

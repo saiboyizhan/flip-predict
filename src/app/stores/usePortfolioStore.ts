@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Position, Order } from '@/app/types/market.types'
+import { fetchPortfolio } from '@/app/services/api'
 
 export interface PositionPnL {
   unrealizedPnL: number
@@ -13,7 +14,7 @@ interface PortfolioState {
   addPosition: (
     marketId: string,
     marketTitle: string,
-    side: 'yes' | 'no',
+    side: string,
     shares: number,
     avgCost: number,
   ) => void
@@ -25,6 +26,7 @@ interface PortfolioState {
 
   addOrder: (order: Order) => void
   cancelOrder: (orderId: string) => void
+  fetchFromAPI: (address: string) => Promise<void>
 }
 
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
@@ -115,5 +117,24 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         o.id === orderId ? { ...o, status: 'cancelled' as const } : o,
       ),
     })
+  },
+
+  fetchFromAPI: async (address) => {
+    try {
+      const data = await fetchPortfolio(address)
+      const positions: Position[] = (data.positions ?? []).map((p: any) => ({
+        id: String(p.id ?? `pos_${p.market_id ?? p.marketId}_${p.side}_${Date.now()}`),
+        marketId: String(p.market_id ?? p.marketId ?? ''),
+        marketTitle: String(p.market_title ?? p.marketTitle ?? ''),
+        side: p.side,
+        shares: Number(p.shares) || 0,
+        avgCost: Number(p.avg_cost ?? p.avgCost) || 0,
+        currentPrice: Number(p.current_price ?? p.currentPrice ?? p.avg_cost ?? p.avgCost) || 0,
+        timestamp: Number(p.timestamp ?? p.created_at) || Date.now(),
+      }))
+      set({ positions })
+    } catch {
+      // API not available — keep existing positions
+    }
   },
 }))

@@ -1,5 +1,4 @@
 import { Pool } from 'pg';
-import { createHash } from 'crypto';
 
 function generateId(): string {
   return 'pred-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -273,13 +272,10 @@ function generateStyleTags_internal(
   for (const [cat, stats] of Object.entries(categoryBreakdown)) {
     if (stats.total >= 5 && stats.accuracy >= 0.7) {
       const catNames: Record<string, string> = {
-        'meme-arena': 'Meme大师',
-        'btc-weather': 'BTC先知',
-        'four-meme': '内盘之王',
-        'narrative': '叙事高手',
-        'on-chain': '链上侦探',
-        'kol': 'KOL猎人',
-        'rug-alert': '防Rug专家',
+        'four-meme': 'Meme 猎手',
+        'flap': '发射台专家',
+        'nfa': 'Agent 先知',
+        'hackathon': '黑客松预言家',
       };
       if (catNames[cat]) tags.push(catNames[cat]);
     }

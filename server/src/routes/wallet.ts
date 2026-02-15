@@ -11,13 +11,8 @@ const MAX_DEPOSIT_AMOUNT = 1_000_000;
 const MAX_DEPOSITS_PER_DAY = 50;
 const MAX_WITHDRAWAL_AMOUNT = 1_000_000;
 const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
-const TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
 const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
 const DEPOSIT_RPC_URL = process.env.DEPOSIT_RPC_URL || process.env.BSC_RPC_URL || DEFAULT_BSC_RPC;
-
-const ERC20_INTERFACE = new ethers.Interface([
-  'event Transfer(address indexed from, address indexed to, uint256 value)',
-]);
 
 let depositProvider: ethers.JsonRpcProvider | null = null;
 
@@ -26,15 +21,6 @@ function getDepositProvider(): ethers.JsonRpcProvider {
     depositProvider = new ethers.JsonRpcProvider(DEPOSIT_RPC_URL);
   }
   return depositProvider;
-}
-
-function parseTokenDecimals(): number | null {
-  const raw = process.env.DEPOSIT_TOKEN_DECIMALS || '18';
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 36) {
-    return null;
-  }
-  return parsed;
 }
 
 function getDepositReceiverAddress(): string | null {
@@ -56,14 +42,6 @@ async function verifyDepositTransaction(
   }
 
   const provider = getDepositProvider();
-  const tokenAddressRaw = process.env.DEPOSIT_TOKEN_ADDRESS;
-  const tokenAddress = tokenAddressRaw && ethers.isAddress(tokenAddressRaw)
-    ? tokenAddressRaw.toLowerCase()
-    : null;
-
-  if (tokenAddressRaw && !tokenAddress) {
-    return { ok: false, statusCode: 503, error: 'Deposit token contract is misconfigured' };
-  }
 
   try {
     const receipt = await provider.getTransactionReceipt(txHash);
@@ -85,50 +63,14 @@ async function verifyDepositTransaction(
       return { ok: false, statusCode: 400, error: 'Transaction sender does not match your wallet' };
     }
 
-    if (!tokenAddress) {
-      if (!tx.to || tx.to.toLowerCase() !== receiver) {
-        return { ok: false, statusCode: 400, error: 'Transaction receiver address is invalid' };
-      }
-
-      const expectedValue = ethers.parseEther(amount.toString());
-      if (tx.value < expectedValue) {
-        return { ok: false, statusCode: 400, error: 'Transaction amount is lower than requested deposit' };
-      }
-
-      return { ok: true };
+    // Native BNB transfer verification
+    if (!tx.to || tx.to.toLowerCase() !== receiver) {
+      return { ok: false, statusCode: 400, error: 'Transaction receiver address is invalid' };
     }
 
-    if (!tx.to || tx.to.toLowerCase() !== tokenAddress) {
-      return { ok: false, statusCode: 400, error: 'Transaction is not sent to the configured token contract' };
-    }
-
-    const decimals = parseTokenDecimals();
-    if (decimals === null) {
-      return { ok: false, statusCode: 503, error: 'Deposit token decimals are misconfigured' };
-    }
-
-    const expectedValue = ethers.parseUnits(amount.toString(), decimals);
-    const receiverTopic = ethers.zeroPadValue(receiver, 32).toLowerCase();
-    let receivedValue = 0n;
-
-    for (const log of receipt.logs) {
-      if (log.address.toLowerCase() !== tokenAddress) continue;
-      if (!log.topics[0] || log.topics[0].toLowerCase() !== TRANSFER_TOPIC.toLowerCase()) continue;
-      if (!log.topics[2] || log.topics[2].toLowerCase() !== receiverTopic) continue;
-
-      try {
-        const parsed = ERC20_INTERFACE.parseLog({ topics: log.topics, data: log.data });
-        const from = (parsed?.args?.from as string | undefined)?.toLowerCase();
-        const value = parsed?.args?.value as bigint | undefined;
-        if (from !== sender || value === undefined) continue;
-        receivedValue += value;
-      } catch {
-        // Ignore malformed log entries and keep scanning.
-      }
-    }
-
-    if (receivedValue < expectedValue) {
-      return { ok: false, statusCode: 400, error: 'Token transfer amount is lower than requested deposit' };
+    const expectedValue = ethers.parseEther(amount.toString());
+    if (tx.value < expectedValue) {
+      return { ok: false, statusCode: 400, error: 'Transaction amount is lower than requested deposit' };
     }
 
     return { ok: true };
@@ -177,9 +119,11 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
   try {
     await client.query('BEGIN');
 
-    // --- Bug 3 fix: Duplicate txHash check ---
+    // Bug D7 Fix: Use LOWER() to match the unique index on LOWER(tx_hash).
+    // Without this, '0xABC...' and '0xabc...' could bypass the application check
+    // but hit the DB unique index, causing a cryptic constraint violation error.
     const existingTx = await client.query(
-      'SELECT id FROM deposits WHERE tx_hash = $1',
+      'SELECT id FROM deposits WHERE LOWER(tx_hash) = $1',
       [normalizedTxHash]
     );
     if (existingTx.rows.length > 0) {
@@ -347,30 +291,30 @@ router.get('/transactions', authMiddleware, async (req: AuthRequest, res: Respon
   try {
     const db = getDb();
 
-    // Fetch deposits
-    const deposits = (await db.query(
-      `SELECT id, amount, tx_hash, status, created_at, 'deposit' as type
+    // Count total for pagination
+    const countRes = await db.query(
+      `SELECT
+        (SELECT COUNT(*) FROM deposits WHERE user_address = $1) +
+        (SELECT COUNT(*) FROM withdrawals WHERE user_address = $1) AS total`,
+      [userAddress]
+    );
+    const total = parseInt(countRes.rows[0].total, 10) || 0;
+
+    // Use SQL UNION ALL with ORDER BY and LIMIT/OFFSET to avoid loading all records into memory
+    const txRes = await db.query(
+      `SELECT id, amount, tx_hash, NULL AS to_address, status, created_at, 'deposit' AS type
        FROM deposits WHERE user_address = $1
-       ORDER BY created_at DESC`,
-      [userAddress]
-    )).rows;
-
-    // Fetch withdrawals
-    const withdrawals = (await db.query(
-      `SELECT id, amount, to_address, status, created_at, 'withdraw' as type
+       UNION ALL
+       SELECT id, amount, NULL AS tx_hash, to_address, status, created_at, 'withdraw' AS type
        FROM withdrawals WHERE user_address = $1
-       ORDER BY created_at DESC`,
-      [userAddress]
-    )).rows;
-
-    // Combine and sort by created_at descending
-    const all = [...deposits, ...withdrawals]
-      .sort((a: any, b: any) => b.created_at - a.created_at)
-      .slice(offset, offset + limit);
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [userAddress, limit, offset]
+    );
 
     res.json({
-      transactions: all,
-      total: deposits.length + withdrawals.length,
+      transactions: txRes.rows,
+      total,
     });
   } catch (err: any) {
     console.error('Transactions error:', err);

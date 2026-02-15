@@ -8,6 +8,7 @@ let intentionalClose = false
 let connectionDead = false
 
 let reconnectCallbacks: Set<() => void> = new Set()
+const notificationCallbacks: Set<(notification: unknown) => void> = new Set()
 
 export function onReconnect(cb: () => void): () => void {
   reconnectCallbacks.add(cb)
@@ -24,6 +25,15 @@ const BASE_RECONNECT_DELAY = 1000 // 1 second
 const MAX_RECONNECT_DELAY = 30000 // 30 seconds
 
 const callbacks: Map<string, Set<(data: unknown) => void>> = new Map()
+const globalCallbacks: Set<(data: any) => void> = new Set()
+
+export function addGlobalListener(cb: (data: any) => void): void {
+  globalCallbacks.add(cb)
+}
+
+export function removeGlobalListener(cb: (data: any) => void): void {
+  globalCallbacks.delete(cb)
+}
 
 function getReconnectDelay(): number {
   // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
@@ -59,12 +69,30 @@ function handleMessage(event: MessageEvent) {
       return
     }
 
-    if (data.type === 'price_update' || data.type === 'new_trade') {
+    // Handle auth errors (expired/invalid token)
+    if (data.type === 'auth_error') {
+      console.warn('[WS] Auth error:', data.error)
+      localStorage.removeItem('jwt_token')
+      return
+    }
+
+    if (data.type === 'price_update' || data.type === 'new_trade' || data.type === 'market_resolved' || data.type === 'multi_price_update') {
       const fns = callbacks.get(data.marketId)
       if (fns) {
         fns.forEach((fn) => fn(data))
       }
     }
+
+    // Handle user-targeted notification messages
+    if (data.type === 'notification') {
+      const fns = notificationCallbacks
+      if (fns.size > 0) {
+        fns.forEach((fn) => fn(data.notification))
+      }
+    }
+
+    // Dispatch to global listeners (e.g. TradingFeed)
+    globalCallbacks.forEach((cb) => cb(data))
   } catch {
     // ignore malformed messages
   }
@@ -85,6 +113,12 @@ export function connectWS(): void {
 
     // Start heartbeat
     startHeartbeat()
+
+    // Re-authenticate if we have a stored token
+    const token = localStorage.getItem('jwt_token')
+    if (token) {
+      ws?.send(JSON.stringify({ type: 'auth', token }))
+    }
 
     // Re-subscribe to all active markets
     callbacks.forEach((_fns, marketId) => {
@@ -149,6 +183,9 @@ export function disconnectWS(): void {
     reconnectTimer = null
   }
   reconnectAttempts = 0
+  reconnectCallbacks.clear()
+  notificationCallbacks.clear()
+  orderbookListenerAttached = false
   if (ws) {
     ws.close()
     ws = null
@@ -258,5 +295,20 @@ export function unsubscribeOrderBook(marketId: string, side: string, callback?: 
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'unsubscribe_orderbook', marketId, side }))
     }
+  }
+}
+
+// --- Notification WebSocket ---
+
+export function authenticateWS(token: string): void {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'auth', token }))
+  }
+}
+
+export function subscribeNotifications(callback: (notification: unknown) => void): () => void {
+  notificationCallbacks.add(callback)
+  return () => {
+    notificationCallbacks.delete(callback)
   }
 }

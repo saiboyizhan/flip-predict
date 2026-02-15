@@ -3,14 +3,15 @@ import { getNonce, verifySignature, setToken } from './api'
 export async function loginWithWallet(
   address: string,
   signMessage: (message: string) => Promise<string>,
-): Promise<boolean> {
+): Promise<{ success: boolean; isAdmin: boolean }> {
   try {
     const { nonce, message } = await getNonce(address)
+    void nonce
     const signature = await signMessage(message)
-    const { token } = await verifySignature(address, signature)
+    const { token, user } = await verifySignature(address, signature)
     setToken(token)
-    return true
+    return { success: true, isAdmin: Boolean(user?.isAdmin) }
   } catch {
-    return false
+    return { success: false, isAdmin: false }
   }
 }
