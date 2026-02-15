@@ -13,14 +13,16 @@ import {
   useWaitForTransactionReceipt,
   useChainId,
 } from 'wagmi';
-import { decodeEventLog, parseEther, formatEther } from 'viem';
+import { decodeEventLog, parseUnits, formatUnits } from 'viem';
 import {
   PREDICTION_MARKET_ABI,
   PREDICTION_MARKET_ADDRESS,
+  USDT_ADDRESS,
+  ERC20_ABI,
 } from '@/app/config/contracts';
 
 // ----------------------------------------------------------------
-// useDeposit  --  calls contract.deposit() with BNB msg.value
+// useDeposit  --  calls contract.deposit() with USDT amount
 // ----------------------------------------------------------------
 
 export function useDeposit() {
@@ -39,13 +41,13 @@ export function useDeposit() {
   } = useWaitForTransactionReceipt({ hash: txHash });
 
   const deposit = useCallback(
-    (amountBNB: string) => {
+    (amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
         functionName: 'deposit',
-        value: parseEther(amountBNB),
+        args: [parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
@@ -82,13 +84,13 @@ export function useWithdraw() {
   } = useWaitForTransactionReceipt({ hash: txHash });
 
   const withdraw = useCallback(
-    (amountBNB: string) => {
+    (amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
         functionName: 'withdraw',
-        args: [parseEther(amountBNB)],
+        args: [parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
@@ -125,13 +127,13 @@ export function useTakePosition() {
   } = useWaitForTransactionReceipt({ hash: txHash });
 
   const takePosition = useCallback(
-    (marketId: bigint, isYes: boolean, amountBNB: string) => {
+    (marketId: bigint, isYes: boolean, amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
         functionName: 'takePosition',
-        args: [marketId, isYes, parseEther(amountBNB)],
+        args: [marketId, isYes, parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
@@ -245,7 +247,6 @@ export function useCreateUserMarket() {
       title: string,
       endTimeUnix: bigint,
       initialLiquidityWei: bigint = 0n,
-      creationFeeWei?: bigint,
     ) => {
       reset();
       setCreatedMarketId(null);
@@ -254,7 +255,6 @@ export function useCreateUserMarket() {
         abi: PREDICTION_MARKET_ABI,
         functionName: 'createUserMarket',
         args: [title, endTimeUnix, initialLiquidityWei],
-        value: creationFeeWei,
       });
     },
     [writeContract, reset],
@@ -285,11 +285,11 @@ export function useMarketCreationFee() {
   });
 
   const feeWei = (data as bigint) ?? 0n;
-  const feeBNB = formatEther(feeWei);
+  const feeUSDT = formatUnits(feeWei, 18);
 
   return {
     feeWei,
-    feeBNB,
+    feeUSDT,
     isLoading,
     error,
     refetch,
@@ -297,30 +297,97 @@ export function useMarketCreationFee() {
 }
 
 // ----------------------------------------------------------------
-// useContractBalance  --  reads balances(address) from contract
+// useContractBalance  --  reads USDT balanceOf(address) from ERC-20
 // ----------------------------------------------------------------
 
 export function useContractBalance(address?: `0x${string}`) {
   const { data, isLoading, error, refetch } = useReadContract({
-    address: PREDICTION_MARKET_ADDRESS,
-    abi: PREDICTION_MARKET_ABI,
-    functionName: 'balances',
+    address: USDT_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
     args: address ? [address] : undefined,
     query: {
       enabled: !!address,
     },
   });
 
-  const balanceBNB = data != null ? formatEther(data as bigint) : '0';
+  const balanceUSDT = data != null ? formatUnits(data as bigint, 18) : '0';
 
   return {
     /** Raw balance in wei (bigint) */
     balanceRaw: (data as bigint) ?? 0n,
-    /** Formatted balance in BNB (string) */
-    balanceBNB,
+    /** Formatted balance in USDT (string) */
+    balanceUSDT,
     isLoading,
     error,
     refetch,
+  };
+}
+
+// ----------------------------------------------------------------
+// useUsdtAllowance  --  reads USDT allowance(owner, spender)
+// ----------------------------------------------------------------
+
+export function useUsdtAllowance(owner?: `0x${string}`, spender?: `0x${string}`) {
+  const { data, isLoading, error, refetch } = useReadContract({
+    address: USDT_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: owner && spender ? [owner, spender] : undefined,
+    query: {
+      enabled: !!owner && !!spender,
+    },
+  });
+
+  return {
+    allowanceRaw: (data as bigint) ?? 0n,
+    allowance: data != null ? formatUnits(data as bigint, 18) : '0',
+    isLoading,
+    error,
+    refetch,
+  };
+}
+
+// ----------------------------------------------------------------
+// useUsdtApprove  --  calls USDT.approve(spender, amount)
+// ----------------------------------------------------------------
+
+export function useUsdtApprove() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const approve = useCallback(
+    (spender: `0x${string}`, amountWei: bigint) => {
+      reset();
+      writeContract({
+        address: USDT_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [spender, amountWei],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    approve,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
   };
 }
 
@@ -340,7 +407,7 @@ export function useContractMarket(marketId?: bigint) {
   });
 
   // data is a tuple: [title, endTime, totalYes, totalNo, resolved, outcome, ...]
-  type MarketTuple = readonly [string, bigint, bigint, bigint, boolean, boolean, boolean, boolean, string, bigint, number, bigint];
+  type MarketTuple = readonly [string, bigint, bigint, bigint, boolean, boolean, boolean, boolean, `0x${string}`, bigint, number, bigint];
   const d = data as MarketTuple | undefined;
   const market = d
     ? {
@@ -410,13 +477,13 @@ export function useSplitPosition() {
   } = useWaitForTransactionReceipt({ hash: txHash });
 
   const splitPosition = useCallback(
-    (marketId: bigint, amountBNB: string) => {
+    (marketId: bigint, amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
         functionName: 'splitPosition',
-        args: [marketId, parseEther(amountBNB)],
+        args: [marketId, parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
@@ -453,13 +520,13 @@ export function useMergePositions() {
   } = useWaitForTransactionReceipt({ hash: txHash });
 
   const mergePositions = useCallback(
-    (marketId: bigint, amountBNB: string) => {
+    (marketId: bigint, amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
         functionName: 'mergePositions',
-        args: [marketId, parseEther(amountBNB)],
+        args: [marketId, parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
@@ -537,8 +604,8 @@ export function useTokenBalance(account?: `0x${string}`, tokenId?: bigint) {
   return {
     /** Raw token balance in wei (bigint) */
     balanceRaw: (data as bigint) ?? 0n,
-    /** Formatted token balance in BNB (string) */
-    balanceBNB: data != null ? formatEther(data as bigint) : '0',
+    /** Formatted token balance (string) */
+    balanceUSDT: data != null ? formatUnits(data as bigint, 18) : '0',
     isLoading,
     error,
     refetch,

@@ -39,8 +39,9 @@ export function createPool(initialLiquidity: number = 10000): Pool {
 }
 
 export function getPrice(yesReserve: number, noReserve: number): { yesPrice: number; noPrice: number } {
+  // P1-5 Fix: Return default price 0.5/0.5 instead of throwing error when reserves are zero
   if (!Number.isFinite(yesReserve) || !Number.isFinite(noReserve) || yesReserve <= 0 || noReserve <= 0) {
-    throw new Error('Invalid AMM reserves');
+    return { yesPrice: 0.5, noPrice: 0.5 };
   }
   const total = yesReserve + noReserve;
   const yesPrice = noReserve / total;
@@ -52,8 +53,8 @@ export function getPrice(yesReserve: number, noReserve: number): { yesPrice: num
 
 /**
  * Calculate buying shares of a given side
- * When buying YES: user puts BNB into the NO reserve, gets YES shares out
- * When buying NO: user puts BNB into the YES reserve, gets NO shares out
+ * When buying YES: user puts USDT into the NO reserve, gets YES shares out
+ * When buying NO: user puts USDT into the YES reserve, gets NO shares out
  */
 export function calculateBuy(
   yesReserve: number,
@@ -90,7 +91,8 @@ export function calculateBuy(
   // Bug D1 Fix: Guard against reserve depletion causing extreme values.
   // After a buy, the output reserve must stay above a minimum floor to prevent
   // floating-point overflow in subsequent k/reserve calculations.
-  const MIN_RESERVE = 0.001;
+  // P0-1 Fix: MIN_RESERVE increased from 0.001 to 1.0 (0.01% of initial 10000 liquidity)
+  const MIN_RESERVE = 1.0;
   if (newYesReserve < MIN_RESERVE || newNoReserve < MIN_RESERVE) {
     throw new Error('Trade too large: would deplete AMM reserves');
   }
@@ -100,9 +102,12 @@ export function calculateBuy(
   if (!Number.isFinite(sharesOut) || sharesOut <= 0 || !Number.isFinite(pricePerShare)) {
     throw new Error('AMM buy calculation failed');
   }
+  // P1-4 Fix: Unified price impact calculation with divide-by-zero protection
   const oldSidePrice = side === 'yes' ? oldPrice.yesPrice : oldPrice.noPrice;
   const newSidePrice = side === 'yes' ? newPrice.yesPrice : newPrice.noPrice;
-  const priceImpact = Math.abs(newSidePrice - oldSidePrice) / oldSidePrice;
+  const priceImpact = oldSidePrice > 0
+    ? Math.abs(newSidePrice - oldSidePrice) / oldSidePrice * 100
+    : 0;
 
   return {
     sharesOut,
@@ -117,8 +122,8 @@ export function calculateBuy(
 
 /**
  * Calculate selling shares of a given side
- * When selling YES: put YES shares back into yesReserve, get BNB from noReserve
- * When selling NO: put NO shares back into noReserve, get BNB from yesReserve
+ * When selling YES: put YES shares back into yesReserve, get USDT from noReserve
+ * When selling NO: put NO shares back into noReserve, get USDT from yesReserve
  */
 export function calculateSell(
   yesReserve: number,
@@ -140,19 +145,20 @@ export function calculateSell(
   let amountOut: number;
 
   if (side === 'yes') {
-    // Selling YES: add shares to yesReserve, remove BNB from noReserve
+    // Selling YES: add shares to yesReserve, remove USDT from noReserve
     newYesReserve = yesReserve + shares;
     newNoReserve = k / newYesReserve;
     amountOut = noReserve - newNoReserve;
   } else {
-    // Selling NO: add shares to noReserve, remove BNB from yesReserve
+    // Selling NO: add shares to noReserve, remove USDT from yesReserve
     newNoReserve = noReserve + shares;
     newYesReserve = k / newNoReserve;
     amountOut = yesReserve - newYesReserve;
   }
 
   // Bug D15 Fix: Guard against sell draining reserve below minimum.
-  const MIN_RESERVE = 0.001;
+  // P0-1 Fix: MIN_RESERVE increased from 0.001 to 1.0 (0.01% of initial 10000 liquidity)
+  const MIN_RESERVE = 1.0;
   if (newYesReserve < MIN_RESERVE || newNoReserve < MIN_RESERVE) {
     throw new Error('Trade too large: would deplete AMM reserves');
   }

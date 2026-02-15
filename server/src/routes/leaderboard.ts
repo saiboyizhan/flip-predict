@@ -10,7 +10,9 @@ router.get('/', async (req: Request, res: Response) => {
     const db = getDb();
     const period = req.query.period as string | undefined;
 
-    // Calculate time filter based on period
+    // P2-7 fix: Calculate time filter based on period
+    // SAFETY: timeFilter and settlementTimeFilter are hardcoded based on strict equality checks
+    // against whitelisted values ('week', 'month'). No user input is directly interpolated.
     let timeFilter = '';
     const params: any[] = [];
 
@@ -23,6 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
       timeFilter = 'AND o.created_at >= $1';
       params.push(monthAgo);
     }
+    // All other values (including undefined, null, or any string not 'week'/'month') result in empty filter
 
     const settlementTimeFilter = period === 'week' || period === 'month'
       ? 'AND s.created_at >= $1'

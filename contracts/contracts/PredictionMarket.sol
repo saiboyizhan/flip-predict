@@ -5,12 +5,13 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IBinanceOracle.sol";
 
 /// @title PredictionMarket - CTF-style binary prediction market on BSC
 /// @notice Polymarket/Gnosis CTF model: splitPosition mints YES+NO tokens,
 ///         mergePositions burns them back, free transfer, redeem on resolution.
-/// @dev Uses native BNB for collateral. ERC1155 tokens represent positions.
+/// @dev Uses USDT (ERC-20) for collateral. ERC1155 tokens represent positions.
 ///      YES tokenId = marketId * 2, NO tokenId = marketId * 2 + 1.
 contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
@@ -19,7 +20,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     struct Market {
         string title;
         uint256 endTime;
-        uint256 totalCollateral;  // Total BNB locked in this market
+        uint256 totalCollateral;  // Total USDT locked in this market
         bool resolved;
         bool outcome; // true = Yes wins, false = No wins
         bool exists;
@@ -37,6 +38,8 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         uint256 challengeWindowEnd;
         uint256 challengeCount;
     }
+
+    IERC20 public usdtToken;
 
     mapping(address => uint256) public balances;
     mapping(uint256 => Market) internal markets;
@@ -86,8 +89,10 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     event PositionsMerged(uint256 indexed marketId, address indexed user, uint256 amount);
     event WinningsRedeemed(uint256 indexed marketId, address indexed user, uint256 amount);
 
-    constructor() ERC1155("") Ownable(msg.sender) {
-        marketCreationFee = 0.01 ether;
+    constructor(address _usdtToken) ERC1155("") Ownable(msg.sender) {
+        require(_usdtToken != address(0), "Invalid USDT address");
+        usdtToken = IERC20(_usdtToken);
+        marketCreationFee = 10 * 1e18; // 10 USDT (18 decimals)
         maxMarketsPerDay = 3;
         strictArbitrationMode = true;
     }
@@ -110,21 +115,22 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
     // --- Deposit / Withdraw ---
 
-    /// @notice Deposit BNB into the prediction market balance
-    function deposit() external payable nonReentrant whenNotPaused {
-        require(msg.value > 0, "Must send BNB");
-        balances[msg.sender] += msg.value;
-        emit Deposit(msg.sender, msg.value);
+    /// @notice Deposit USDT into the prediction market balance
+    /// @param amount Amount of USDT to deposit (18 decimals)
+    function deposit(uint256 amount) external nonReentrant whenNotPaused {
+        require(amount > 0, "Amount must be > 0");
+        require(usdtToken.transferFrom(msg.sender, address(this), amount), "USDT transfer failed");
+        balances[msg.sender] += amount;
+        emit Deposit(msg.sender, amount);
     }
 
-    /// @notice Withdraw BNB from the prediction market balance
-    /// @param amount Amount of BNB to withdraw (in wei)
+    /// @notice Withdraw USDT from the prediction market balance
+    /// @param amount Amount of USDT to withdraw (18 decimals)
     function withdraw(uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         require(balances[msg.sender] >= amount, "Insufficient balance");
         balances[msg.sender] -= amount;
-        (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "BNB transfer failed");
+        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
         emit Withdraw(msg.sender, amount);
     }
 
@@ -279,7 +285,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
     /// @notice Split collateral into YES + NO tokens (1:1:1)
     /// @param marketId The market to split into
-    /// @param amount Amount of BNB (from balance) to split
+    /// @param amount Amount of USDT (from balance) to split
     function splitPosition(uint256 marketId, uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         Market storage market = markets[marketId];
@@ -472,12 +478,13 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
     // --- User Market Creation ---
 
-    /// @notice Create a user-generated market with a BNB creation fee
+    /// @notice Create a user-generated market with a USDT creation fee
+    /// @dev Caller must approve this contract for at least marketCreationFee USDT before calling
     function createUserMarket(
         string calldata title,
         uint256 endTime,
         uint256 initialLiquidity
-    ) external payable nonReentrant whenNotPaused returns (uint256) {
+    ) external nonReentrant whenNotPaused returns (uint256) {
         require(bytes(title).length >= 10, "Title too short");
         require(bytes(title).length <= 200, "Title too long");
         require(endTime > block.timestamp + 1 hours, "End time too soon");
@@ -492,13 +499,9 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         require(dailyMarketCount[msg.sender] < maxMarketsPerDay, "Daily market limit reached");
         dailyMarketCount[msg.sender]++;
 
-        // Collect creation fee in BNB
-        require(msg.value >= marketCreationFee, "Insufficient creation fee");
+        // Collect creation fee in USDT
+        require(usdtToken.transferFrom(msg.sender, address(this), marketCreationFee), "Fee transfer failed");
         accumulatedFees += marketCreationFee;
-        if (msg.value > marketCreationFee) {
-            (bool refundSuccess, ) = msg.sender.call{value: msg.value - marketCreationFee}("");
-            require(refundSuccess, "Refund failed");
-        }
 
         // Create market
         uint256 marketId = nextMarketId++;
@@ -709,14 +712,11 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         require(amount > 0, "Amount must be > 0");
         require(amount <= accumulatedFees, "Exceeds accumulated fees");
         accumulatedFees -= amount;
-        (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "BNB transfer failed");
+        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
         emit FeesWithdrawn(msg.sender, amount);
     }
 
-    receive() external payable {
-        revert("Use deposit()");
-    }
+    // No receive() -- contract does not accept native BNB, all payments in USDT
 
     // --- ERC1155 Override ---
 

@@ -63,18 +63,18 @@ const MARKETS: SeedMarket[] = [
 
   // ==================== nfa: NFA Agent 生态预测 (10) ====================
   // --- 日预测 ---
-  { id: 'nf-001', title: '今日 NFA Agent 总交易量是否超过 500 笔？', description: 'NFA (Non-Fungible Agent) 系统中的 ERC-721 Agent 支持 5 种策略类型，日均交易量约 200-600 笔。500 笔是中等偏高水平。以 Synapse Platform Dashboard 当日数据为准。', category: 'nfa', yesPrice: 0.55, volume: 640000, endDays: 1, createdDays: 0 },
-  { id: 'nf-002', title: '今日 NFA Agent 预测总数是否超过 200 次？', description: 'NFA Agent 可以对市场进行自动预测记录。当前平台共有约 80 个活跃 Agent，日均预测约 120-250 次。200 次需要大部分 Agent 处于活跃状态。以 Synapse Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.48, volume: 420000, endDays: 1, createdDays: 0 },
+  { id: 'nf-001', title: '今日 NFA Agent 总交易量是否超过 500 笔？', description: 'NFA (Non-Fungible Agent) 系统中的 ERC-721 Agent 支持 5 种策略类型，日均交易量约 200-600 笔。500 笔是中等偏高水平。以 Flip Platform Dashboard 当日数据为准。', category: 'nfa', yesPrice: 0.55, volume: 640000, endDays: 1, createdDays: 0 },
+  { id: 'nf-002', title: '今日 NFA Agent 预测总数是否超过 200 次？', description: 'NFA Agent 可以对市场进行自动预测记录。当前平台共有约 80 个活跃 Agent，日均预测约 120-250 次。200 次需要大部分 Agent 处于活跃状态。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.48, volume: 420000, endDays: 1, createdDays: 0 },
   // --- 周预测 ---
-  { id: 'nf-003', title: '本周 NFA Agent 排行榜 Top1 准确率是否超过 70%？', description: '排行榜 Top1 Agent 通常准确率在 55%-75% 之间。超过 70% 意味着表现极为出色，接近最优策略水平。以 Synapse Platform Dashboard 本周排行数据为准。', category: 'nfa', yesPrice: 0.40, volume: 820000, endDays: 1, createdDays: 2 },
-  { id: 'nf-004', title: '本周新铸造 NFA Agent 数量是否超过 50 个？', description: 'NFA Agent 采用 Free Mint 模式，每个地址最多 3 个。本周黑客松期间 BSC 生态关注度提升，可能带动 Agent 铸造量。以 Synapse Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.35, volume: 510000, endDays: 1, createdDays: 1 },
-  { id: 'nf-005', title: '本周 Swarm 共识预测准确率是否超过 65%？', description: 'Swarm 共识由 4 个 Agent 通过 16 次 GLM 调用达成。理论上集体智慧应优于单个 Agent。历史平均准确率约 58%-68%。以 Synapse Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.52, volume: 710000, endDays: 1, createdDays: 2 },
-  { id: 'nf-006', title: '本周 NFA 跟单交易关注者是否超过 100 人？', description: 'NFA Agent 支持跟单功能，用户可以自动复制 Top Agent 的交易策略。当前跟单总人数约 60 人。黑客松期间新用户涌入可能推高这个数字。以 Synapse Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.30, volume: 380000, endDays: 1, createdDays: 1 },
-  { id: 'nf-007', title: '本周是否有 NFA Agent 达成 5 连胜？', description: '5 连胜要求 Agent 连续 5 次预测全部正确。按平均 60% 准确率计算，5 连胜概率约 7.8%。但高水平 Agent 准确率可达 70%+。以 Synapse Platform Dashboard 连胜记录为准。', category: 'nfa', yesPrice: 0.42, volume: 560000, endDays: 1, createdDays: 2 },
-  { id: 'nf-008', title: 'NFA Agent 市场上架总数是否超过 30 个？', description: 'NFA Agent 支持出售和出租。当前市场上架约 15 个 Agent。随着平台用户增长和 Agent 价值被认可，上架数量可能增加。以 Synapse Platform Dashboard Agent 市场数据为准。', category: 'nfa', yesPrice: 0.25, volume: 290000, endDays: 4, createdDays: 1 },
+  { id: 'nf-003', title: '本周 NFA Agent 排行榜 Top1 准确率是否超过 70%？', description: '排行榜 Top1 Agent 通常准确率在 55%-75% 之间。超过 70% 意味着表现极为出色，接近最优策略水平。以 Flip Platform Dashboard 本周排行数据为准。', category: 'nfa', yesPrice: 0.40, volume: 820000, endDays: 1, createdDays: 2 },
+  { id: 'nf-004', title: '本周新铸造 NFA Agent 数量是否超过 50 个？', description: 'NFA Agent 采用 Free Mint 模式，每个地址最多 3 个。本周黑客松期间 BSC 生态关注度提升，可能带动 Agent 铸造量。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.35, volume: 510000, endDays: 1, createdDays: 1 },
+  { id: 'nf-005', title: '本周 NFA Agent 平均收益率是否为正？', description: '所有活跃 NFA Agent 在本周的平均收益率。正收益意味着 Agent 策略整体有效。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.52, volume: 710000, endDays: 1, createdDays: 2 },
+  { id: 'nf-006', title: '本周 NFA 跟单交易关注者是否超过 100 人？', description: 'NFA Agent 支持跟单功能，用户可以自动复制 Top Agent 的交易策略。当前跟单总人数约 60 人。黑客松期间新用户涌入可能推高这个数字。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.30, volume: 380000, endDays: 1, createdDays: 1 },
+  { id: 'nf-007', title: '本周是否有 NFA Agent 达成 5 连胜？', description: '5 连胜要求 Agent 连续 5 次预测全部正确。按平均 60% 准确率计算，5 连胜概率约 7.8%。但高水平 Agent 准确率可达 70%+。以 Flip Platform Dashboard 连胜记录为准。', category: 'nfa', yesPrice: 0.42, volume: 560000, endDays: 1, createdDays: 2 },
+  { id: 'nf-008', title: 'NFA Agent 市场上架总数是否超过 30 个？', description: 'NFA Agent 支持出售和出租。当前市场上架约 15 个 Agent。随着平台用户增长和 Agent 价值被认可，上架数量可能增加。以 Flip Platform Dashboard Agent 市场数据为准。', category: 'nfa', yesPrice: 0.25, volume: 290000, endDays: 4, createdDays: 1 },
   // --- 下周预测 ---
-  { id: 'nf-009', title: '下周 (2/17-2/23) NFA Agent 总交易量是否超过 3000 笔？', description: '黑客松结束后用户可能更多关注 NFA Agent 交易功能。日均 500 笔计算，7 天 3500 笔。但黑客松后可能有用户流失。以 Synapse Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.45, volume: 480000, endDays: 8, createdDays: 1 },
-  { id: 'nf-010', title: '下周 (2/17-2/23) 激进策略 Agent 收益率是否跑赢稳健策略？', description: '激进策略偏好高风险高回报，稳健策略追求稳定收益。在波动较大的市场中激进策略通常占优。黑客松结束后市场波动方向不确定。以 Synapse Platform Dashboard 策略对比数据为准。', category: 'nfa', yesPrice: 0.58, volume: 590000, endDays: 8, createdDays: 1 },
+  { id: 'nf-009', title: '下周 (2/17-2/23) NFA Agent 总交易量是否超过 3000 笔？', description: '黑客松结束后用户可能更多关注 NFA Agent 交易功能。日均 500 笔计算，7 天 3500 笔。但黑客松后可能有用户流失。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.45, volume: 480000, endDays: 8, createdDays: 1 },
+  { id: 'nf-010', title: '下周 (2/17-2/23) 激进策略 Agent 收益率是否跑赢稳健策略？', description: '激进策略偏好高风险高回报，稳健策略追求稳定收益。在波动较大的市场中激进策略通常占优。黑客松结束后市场波动方向不确定。以 Flip Platform Dashboard 策略对比数据为准。', category: 'nfa', yesPrice: 0.58, volume: 590000, endDays: 8, createdDays: 1 },
 
   // ==================== hackathon: Good Vibes Only 黑客松预测 (8) ====================
   { id: 'hk-001', title: 'Good Vibes Only 黑客松总提交项目数是否超过 200 个？', description: 'Good Vibes Only 是 BNB Chain 上的黑客松活动，截止日期 2026-02-19。BSC 生态近期活跃度较高，但 200 个提交是较高目标。以 DoraHacks 官方数据为准。', category: 'hackathon', yesPrice: 0.45, volume: 930000, endDays: 4, createdDays: 3 },
@@ -508,7 +508,7 @@ const SEED_COMMENTS: SeedComment[] = [
     comments: [
       '70% 准确率相当高了，目前 Top1 的 Alpha猎手也才 68%',
       '稳赢机器人的策略虽然保守但胜率一直很稳，有可能冲上去',
-      'Swarm 共识如果准的话可能带动 Top Agent 准确率提升',
+      '如果整体市场走势明朗，Top Agent 准确率也会跟着提升',
       '关键看这周剩下的市场结算结果，如果大盘走稳准确率就容易高',
       '这种市场很有意思，押注别人是否能做得好',
     ],
@@ -516,10 +516,10 @@ const SEED_COMMENTS: SeedComment[] = [
   {
     marketId: 'nf-005',
     comments: [
-      'Swarm 共识 16 次 GLM 调用，理论上应该比单 Agent 强',
-      '65% 准确率不算太高，Swarm 历史上有几周都超过了',
-      '问题是 Swarm 样本量小，一周可能只有 10-15 次共识',
-      '如果这周有几个市场结果特别反直觉，Swarm 也会翻车',
+      '平均收益率为正说明 Agent 策略整体有效',
+      '关键看激进策略和稳健策略的平衡',
+      '如果市场波动太大，大部分 Agent 都可能亏',
+      '本周黑客松带来新用户，交易量上升有利于策略执行',
     ],
   },
   {

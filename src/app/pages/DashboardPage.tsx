@@ -23,10 +23,10 @@ interface PlatformStats {
 
 function StatCardSkeleton() {
   return (
-    <div className="bg-secondary border border-border p-6 animate-pulse">
-      <div className="h-4 bg-muted rounded w-20 mb-3" />
-      <div className="h-8 bg-muted rounded w-28 mb-2" />
-      <div className="h-3 bg-muted rounded w-16" />
+    <div className="bg-secondary border border-border p-4 animate-pulse">
+      <div className="h-3 bg-muted rounded w-16 mb-2" />
+      <div className="h-6 bg-muted rounded w-20 mb-1" />
+      <div className="h-2.5 bg-muted rounded w-12" />
     </div>
   );
 }
@@ -116,16 +116,16 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-3"
         >
-          <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
+          <TrendingUp className="w-5 h-5 text-blue-400" />
           <div>
-            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">{t('dashboard.title')}</h1>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t('dashboard.title')}</h1>
             <p className="text-muted-foreground text-sm mt-1">{t('dashboard.subtitle')}</p>
           </div>
         </motion.div>
 
         {/* Stats Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             {[...Array(6)].map((_, i) => (
               <StatCardSkeleton key={i} />
             ))}
@@ -154,28 +154,28 @@ export default function DashboardPage() {
             </button>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             {statCards.map((card, i) => (
               <motion.div
                 key={card.label}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.08 }}
-                className={`bg-gradient-to-br ${card.bgGradient} border ${card.borderColor} p-6 sm:p-8 hover:scale-[1.02] transition-transform`}
+                transition={{ delay: i * 0.05 }}
+                className={`bg-gradient-to-br ${card.bgGradient} border ${card.borderColor} p-4 hover:scale-[1.01] transition-transform`}
               >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 bg-muted/50 border border-border flex items-center justify-center">
-                    <card.icon className={`w-5 h-5 ${card.iconColor}`} />
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-muted/50 border border-border flex items-center justify-center rounded">
+                    <card.icon className={`w-4 h-4 ${card.iconColor}`} />
                   </div>
-                  <span className="text-muted-foreground text-sm tracking-wider uppercase">
+                  <span className="text-muted-foreground text-xs tracking-wider uppercase">
                     {card.label}
                   </span>
                 </div>
-                <div className="text-3xl sm:text-4xl font-bold text-foreground mb-1">
+                <div className="text-xl font-bold text-foreground">
                   {card.value}
                 </div>
                 {card.sub && (
-                  <div className="text-muted-foreground text-sm">{card.sub}</div>
+                  <div className="text-muted-foreground text-xs mt-0.5">{card.sub}</div>
                 )}
               </motion.div>
             ))}

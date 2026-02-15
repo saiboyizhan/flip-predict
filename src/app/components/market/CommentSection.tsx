@@ -300,6 +300,7 @@ export function CommentSection({ marketId }: CommentSectionProps) {
           body: JSON.stringify({ content, parentId }),
         }
       );
+      if (!data.ok) throw new Error("Request failed");
       const json = await data.json();
       if (json.comment) {
         const newComment = normalizeComment(json.comment, address);

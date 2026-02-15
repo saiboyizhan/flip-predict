@@ -4,6 +4,7 @@ import { setToken, getToken, clearToken, fetchBalance } from '@/app/services/api
 import { useTradeStore } from './useTradeStore'
 import { usePortfolioStore } from './usePortfolioStore'
 import { useAgentStore } from './useAgentStore'
+import { disconnectWS } from '@/app/services/ws'
 
 /** Decode JWT payload and check if expired (client-side only, no verification) */
 function isTokenExpired(token: string): boolean {
@@ -130,14 +131,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           .catch(() => {
             // API not available — keep balance at 0
           })
-        // Fetch user's agents, prompt mint if none (guard against disconnect)
-        useAgentStore.getState().fetchMyAgents().then(() => {
-          if (get().address !== address) return
-          const agentState = useAgentStore.getState()
-          if (!agentState.hasAgent) {
-            agentState.setShowMintModal(true)
-          }
-        })
+        // Fetch user's agents (no forced popup)
+        useAgentStore.getState().fetchMyAgents()
         return true
       }
       return false
@@ -148,20 +143,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: () => {
     clearToken()
+    // Disconnect WebSocket to prevent receiving notifications for logged-out user
+    disconnectWS()
     set({ token: null, isAuthenticated: false, isAdmin: false })
   },
 
   restoreToken: () => {
     const token = getValidToken()
     set({ token, isAuthenticated: !!token, isAdmin: getTokenAdminFlag(token) })
-    // If authenticated, fetch agents and prompt mint if none
+    // If authenticated, fetch agents (no forced popup)
     if (token) {
-      useAgentStore.getState().fetchMyAgents().then(() => {
-        const agentState = useAgentStore.getState()
-        if (!agentState.hasAgent) {
-          agentState.setShowMintModal(true)
-        }
-      })
+      useAgentStore.getState().fetchMyAgents()
     }
   },
 }))

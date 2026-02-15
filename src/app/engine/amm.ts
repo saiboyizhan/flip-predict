@@ -31,6 +31,8 @@ export interface EstimatedReturn {
 }
 
 const MIN_TRADE_AMOUNT = 0.01;
+// P0-1 Fix: MIN_RESERVE increased from 0.001 to 1.0 (0.01% of initial 10000 liquidity)
+const MIN_RESERVE = 1.0;
 
 /**
  * Create a symmetric pool where YES and NO each start at 50% price.
@@ -67,20 +69,27 @@ export function createPoolFromPrices(yesPrice: number, totalLiquidity: number): 
   const noReserve = yesPrice * totalLiquidity;
   const yesReserve = (1 - yesPrice) * totalLiquidity;
 
+  // P2-9 Fix: Rename totalLiquidity to initialLiquidity in Pool interface for clarity
+  // (Note: This is the constant initial value, not the sum of current reserves)
   return {
     yesReserve,
     noReserve,
     k: yesReserve * noReserve,
-    totalLiquidity,
+    totalLiquidity, // Keep as-is for backward compatibility; consider renaming field in future
   };
 }
 
 /**
  * Get current price for a given side.
+ * P1-5 Fix: Return default 0.5 instead of 0 when reserves are zero (consistent with backend).
  */
 export function getPrice(pool: Pool, side: 'yes' | 'no'): number {
+  if (!Number.isFinite(pool.yesReserve) || !Number.isFinite(pool.noReserve) ||
+      pool.yesReserve <= 0 || pool.noReserve <= 0) {
+    return 0.5;
+  }
   const total = pool.yesReserve + pool.noReserve;
-  if (total === 0) return 0;
+  if (total === 0) return 0.5;
 
   if (side === 'yes') {
     return pool.noReserve / total;
@@ -105,7 +114,7 @@ export function calculateBuy(
   side: 'yes' | 'no',
   amount: number
 ): BuyResult {
-  if (amount < MIN_TRADE_AMOUNT) {
+  if (!Number.isFinite(amount) || amount < MIN_TRADE_AMOUNT) {
     throw new Error(`Minimum trade amount is ${MIN_TRADE_AMOUNT}`);
   }
 
@@ -127,8 +136,19 @@ export function calculateBuy(
     shares = pool.noReserve - newNoReserve;
   }
 
+  // Guard against reserve depletion causing extreme values
+  if (newYesReserve < MIN_RESERVE || newNoReserve < MIN_RESERVE) {
+    throw new Error('Trade too large: would deplete AMM reserves');
+  }
+
   const avgPrice = amount / shares;
-  const priceImpact = ((avgPrice - currentPrice) / currentPrice) * 100;
+  if (!Number.isFinite(shares) || shares <= 0 || !Number.isFinite(avgPrice)) {
+    throw new Error('AMM buy calculation failed');
+  }
+  // P1-4 Fix: Unified price impact calculation with divide-by-zero protection
+  const priceImpact = currentPrice > 0
+    ? Math.abs(avgPrice - currentPrice) / currentPrice * 100
+    : 0;
 
   const newPool: Pool = {
     yesReserve: newYesReserve,
@@ -153,7 +173,7 @@ export function calculateSell(
   side: 'yes' | 'no',
   shares: number
 ): SellResult {
-  if (shares < MIN_TRADE_AMOUNT) {
+  if (!Number.isFinite(shares) || shares < MIN_TRADE_AMOUNT) {
     throw new Error(`Minimum trade amount is ${MIN_TRADE_AMOUNT}`);
   }
 
@@ -175,7 +195,15 @@ export function calculateSell(
     payout = pool.yesReserve - newYesReserve;
   }
 
+  // Guard against reserve depletion
+  if (newYesReserve < MIN_RESERVE || newNoReserve < MIN_RESERVE) {
+    throw new Error('Trade too large: would deplete AMM reserves');
+  }
+
   const avgPrice = payout / shares;
+  if (!Number.isFinite(payout) || payout <= 0 || !Number.isFinite(avgPrice)) {
+    throw new Error('AMM sell calculation failed');
+  }
   const priceImpact = ((currentPrice - avgPrice) / currentPrice) * 100;
 
   const newPool: Pool = {

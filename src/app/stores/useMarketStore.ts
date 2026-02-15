@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { Market, MarketCategory } from '@/app/types/market.types'
 import { fetchMarkets } from '@/app/services/api'
-import { MOCK_MARKETS } from '@/app/data/mockMarkets'
 
 type SortBy = 'volume' | 'newest' | 'ending-soon' | 'popular'
 export type TimeWindow = 'all' | 'today' | 'week' | 'month' | 'quarter'
@@ -15,6 +14,7 @@ interface MarketState {
   timeWindow: TimeWindow
   apiMode: boolean
   error: boolean
+  loading: boolean
 
   setCategory: (category: MarketCategory | 'all') => void
   setSearch: (query: string) => void
@@ -114,6 +114,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   timeWindow: 'all',
   apiMode: false,
   error: false,
+  loading: false,
 
   setCategory: (category) => {
     const { markets, searchQuery, sortBy, timeWindow } = get()
@@ -152,33 +153,38 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   updateMarketPrices: (id, yesPrice, noPrice, volume) => {
-    const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
-    const updated = markets.map(m =>
-      m.id === id ? { ...m, yesPrice, noPrice, volume } : m,
-    )
-    set({
-      markets: updated,
-      filteredMarkets: applyFilters(updated, selectedCategory, searchQuery, sortBy, timeWindow),
+    // P0-3 fix: Use atomic setState to prevent race conditions
+    set((state) => {
+      const updated = state.markets.map(m =>
+        m.id === id ? { ...m, yesPrice, noPrice, volume } : m,
+      )
+      return {
+        markets: updated,
+        filteredMarkets: applyFilters(updated, state.selectedCategory, state.searchQuery, state.sortBy, state.timeWindow),
+      }
     })
   },
 
   updateMultiOptionPrices: (id, prices) => {
-    const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
-    const updated = markets.map(m => {
-      if (m.id !== id || !m.options) return m
-      const updatedOptions = m.options.map(opt => {
-        const priceUpdate = prices.find(p => p.optionId === opt.id)
-        return priceUpdate ? { ...opt, price: priceUpdate.price } : opt
+    // P0-3 fix: Use atomic setState to prevent race conditions
+    set((state) => {
+      const updated = state.markets.map(m => {
+        if (m.id !== id || !m.options) return m
+        const updatedOptions = m.options.map(opt => {
+          const priceUpdate = prices.find(p => p.optionId === opt.id)
+          return priceUpdate ? { ...opt, price: priceUpdate.price } : opt
+        })
+        return { ...m, options: updatedOptions }
       })
-      return { ...m, options: updatedOptions }
-    })
-    set({
-      markets: updated,
-      filteredMarkets: applyFilters(updated, selectedCategory, searchQuery, sortBy, timeWindow),
+      return {
+        markets: updated,
+        filteredMarkets: applyFilters(updated, state.selectedCategory, state.searchQuery, state.sortBy, state.timeWindow),
+      }
     })
   },
 
   fetchFromAPI: async () => {
+    set({ loading: true })
     try {
       const apiMarkets = await fetchMarkets()
       const { selectedCategory, searchQuery, sortBy, timeWindow } = get()
@@ -187,15 +193,17 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         filteredMarkets: applyFilters(apiMarkets, selectedCategory, searchQuery, sortBy, timeWindow),
         apiMode: true,
         error: false,
+        loading: false,
       })
     } catch {
-      // API not available — fall back to mock data
-      const { selectedCategory, searchQuery, sortBy, timeWindow } = get()
+      // API failed — keep current data and expose error state
+      const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
       set({
-        markets: MOCK_MARKETS,
-        filteredMarkets: applyFilters(MOCK_MARKETS, selectedCategory, searchQuery, sortBy, timeWindow),
+        markets,
+        filteredMarkets: applyFilters(markets, selectedCategory, searchQuery, sortBy, timeWindow),
         apiMode: false,
-        error: false,
+        error: true,
+        loading: false,
       })
     }
   },

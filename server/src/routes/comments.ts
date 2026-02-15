@@ -27,10 +27,14 @@ router.get('/:marketId', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const { marketId } = req.params;
+    const rawLimit = Number.parseInt(String(req.query.limit ?? ''), 10);
+    const rawOffset = Number.parseInt(String(req.query.offset ?? ''), 10);
+    const limit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 50, 100));
+    const offset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
 
     const result = await db.query(
-      'SELECT * FROM comments WHERE market_id = $1 ORDER BY created_at ASC LIMIT 100',
-      [marketId]
+      'SELECT * FROM comments WHERE market_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3',
+      [marketId, limit, offset]
     );
 
     res.json({ comments: result.rows });

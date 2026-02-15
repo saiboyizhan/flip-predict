@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
 import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight } from "lucide-react";
 import { PositionCard } from "./PositionCard";
@@ -47,7 +47,7 @@ const STAT_COLOR_CLASS: Record<string, { badge: string; icon: string }> = {
 };
 
 export function PositionList({ history = [] }: PositionListProps) {
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<"positions" | "history">("positions");
 

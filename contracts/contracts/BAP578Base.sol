@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IBAP578.sol";
 
 /// @title BAP578Base - Non-Fungible Agent Standard (BNB Agent Protocol 578)
@@ -18,6 +19,7 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     uint256 public constant MAX_AGENTS_PER_ADDRESS = 3;
 
     // ─── State ───────────────────────────────────────────────────
+    IERC20 public usdtToken;
     uint256 internal _nextTokenId;
     string internal _baseTokenURI;
 
@@ -45,8 +47,12 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     // ─── Constructor ─────────────────────────────────────────────
     constructor(
         string memory name_,
-        string memory symbol_
-    ) ERC721(name_, symbol_) Ownable(msg.sender) {}
+        string memory symbol_,
+        address _usdtToken
+    ) ERC721(name_, symbol_) Ownable(msg.sender) {
+        require(_usdtToken != address(0), "Invalid USDT address");
+        usdtToken = IERC20(_usdtToken);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // MINTING
@@ -110,15 +116,16 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     // FUNDING (BAP-578)
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Fund an active agent with BNB (anyone can fund)
-    function fundAgent(uint256 tokenId) external payable onlyActiveAgent(tokenId) {
-        require(msg.value > 0, "Must send BNB");
-        _agentBalances[tokenId] += msg.value;
-        totalAgentBalances += msg.value;
-        emit AgentFunded(tokenId, msg.value);
+    /// @notice Fund an active agent with USDT (anyone can fund)
+    function fundAgent(uint256 tokenId, uint256 amount) external onlyActiveAgent(tokenId) {
+        require(amount > 0, "Amount must be > 0");
+        require(usdtToken.transferFrom(msg.sender, address(this), amount), "USDT transfer failed");
+        _agentBalances[tokenId] += amount;
+        totalAgentBalances += amount;
+        emit AgentFunded(tokenId, amount);
     }
 
-    /// @notice Withdraw BNB from an agent (token owner only, works when terminated)
+    /// @notice Withdraw USDT from an agent (token owner only, works when terminated)
     function withdrawFromAgent(uint256 tokenId, uint256 amount)
         external
         onlyTokenOwner(tokenId)
@@ -128,12 +135,11 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
         require(_agentBalances[tokenId] >= amount, "Insufficient agent balance");
         _agentBalances[tokenId] -= amount;
         totalAgentBalances -= amount;
-        (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Transfer failed");
+        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
         emit AgentWithdrawn(tokenId, amount);
     }
 
-    /// @notice Get the BNB balance of an agent
+    /// @notice Get the USDT balance of an agent
     function getAgentBalance(uint256 tokenId) external view returns (uint256) {
         _requireOwned(tokenId);
         return _agentBalances[tokenId];
@@ -218,15 +224,13 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
-    /// @notice Withdraw surplus BNB not belonging to agent balances
+    /// @notice Withdraw surplus USDT not belonging to agent balances
     function withdrawSurplus(uint256 amount) external onlyOwner nonReentrant {
         require(amount > 0, "Amount must be > 0");
-        require(address(this).balance >= totalAgentBalances, "Balance inconsistency");
-        uint256 available = address(this).balance - totalAgentBalances;
+        uint256 usdtBalance = usdtToken.balanceOf(address(this));
+        require(usdtBalance >= totalAgentBalances, "Balance inconsistency");
+        uint256 available = usdtBalance - totalAgentBalances;
         require(amount <= available, "Exceeds available surplus");
-        (bool success, ) = owner().call{value: amount}("");
-        require(success, "Transfer failed");
+        require(usdtToken.transfer(owner(), amount), "USDT transfer failed");
     }
-
-    receive() external payable {}
 }

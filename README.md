@@ -42,7 +42,6 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 |  PredictionMarket.sol  -- Markets, positions, deposits, claims     |
 |  NFA.sol               -- ERC-721 agents (BAP-578 standard)       |
 |  BAP578Base.sol        -- Agent lifecycle, metadata, funding       |
-|  SwarmConsensus.sol     -- On-chain consensus anchoring            |
 |  MockOracle.sol        -- Binance Oracle adapter for testing       |
 +------------------------------------------------------------------+
                                |

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { motion } from "motion/react";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -54,12 +54,13 @@ function toCardMarket(m: Market) {
     resolvedOutcome: m.resolvedOutcome,
     marketType: m.marketType,
     options: m.options,
+    totalLiquidity: m.totalLiquidity ?? 0,
   };
 }
 
 export default function HomePage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const {
     markets,
     filteredMarkets,
@@ -70,6 +71,7 @@ export default function HomePage() {
     timeWindow,
     setTimeWindow,
     error: marketError,
+    loading: marketLoading,
     fetchFromAPI,
   } = useMarketStore(
     useShallow((s) => ({
@@ -82,6 +84,7 @@ export default function HomePage() {
       timeWindow: s.timeWindow,
       setTimeWindow: s.setTimeWindow,
       error: s.error,
+      loading: s.loading,
       fetchFromAPI: s.fetchFromAPI,
     }))
   );
@@ -105,45 +108,6 @@ export default function HomePage() {
       {/* Decorative blur */}
       <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-blue-500/5 rounded-full blur-3xl" />
 
-      {/* Agent Mint Banner */}
-      {showMintBanner && (
-        <div className="px-4 sm:px-6 mb-6">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden bg-gradient-to-r from-blue-500/15 via-blue-500/5 to-transparent border border-blue-500/30 rounded-xl p-5 sm:p-6"
-          >
-            <div className="flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="w-5 h-5 text-blue-400" />
-                  <h3 className="text-lg font-bold">{t("agent.mintModalTitle")}</h3>
-                </div>
-                <p className="text-muted-foreground text-sm mb-3">
-                  {t("agent.mintSubtitle")}
-                </p>
-                {/* Avatar preview strip */}
-                <div className="flex items-center gap-1.5">
-                  {PRESET_AVATARS.slice(0, 6).map((av) => (
-                    <div key={av.id} className="w-8 h-8 border border-border overflow-hidden rounded-sm bg-secondary">
-                      <img src={av.src} alt="" className="w-full h-full object-cover" />
-                    </div>
-                  ))}
-                  <span className="text-xs text-muted-foreground ml-1">+6</span>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowMintModal(true)}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white font-bold text-sm transition-colors whitespace-nowrap"
-              >
-                <Sparkles className="w-4 h-4" />
-                {t("agent.mintFree")}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
 
       {/* Featured Market Banner */}
       {featuredMarkets.length > 0 && (
@@ -164,7 +128,7 @@ export default function HomePage() {
                   {t("common.trading")}
                 </span>
               </div>
-              <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-3">
+              <h2 className="text-lg sm:text-xl font-bold mb-3">
                 {featuredMarkets[0].title}
               </h2>
               <p className="text-muted-foreground text-sm mb-4 sm:mb-6 max-w-2xl">
@@ -172,14 +136,14 @@ export default function HomePage() {
               </p>
               <div className="flex flex-wrap items-center gap-4 sm:gap-8">
                 <div>
-                  <span className="text-emerald-400 text-2xl sm:text-3xl font-bold font-mono tabular-nums tracking-tight">
+                  <span className="text-emerald-400 text-xl sm:text-2xl font-bold font-mono tabular-nums tracking-tight">
                     {Math.round(featuredMarkets[0].yesPrice * 100)}%
                   </span>
                   <span className="text-muted-foreground text-sm ml-2">{t("market.yes")}</span>
                 </div>
                 <div className="w-px h-8 bg-border hidden sm:block" />
                 <div>
-                  <span className="text-red-400 text-2xl sm:text-3xl font-bold font-mono tabular-nums tracking-tight">
+                  <span className="text-red-400 text-xl sm:text-2xl font-bold font-mono tabular-nums tracking-tight">
                     {100 - Math.round(featuredMarkets[0].yesPrice * 100)}%
                   </span>
                   <span className="text-muted-foreground text-sm ml-2">{t("market.no")}</span>
@@ -247,9 +211,9 @@ export default function HomePage() {
 
       {/* Sidebar + Market Grid */}
       <div className="px-4 sm:px-6 pb-12">
-        <div className="flex gap-6">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left Sidebar - Time Filter (desktop only) */}
-          <aside className="hidden lg:block w-44 shrink-0">
+          <aside className="hidden lg:block lg:w-44 shrink-0">
             <div className="sticky top-20">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">
                 {t("timeFilter.label")}
@@ -259,32 +223,35 @@ export default function HomePage() {
           </aside>
 
           {/* Main Content */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 overflow-hidden">
             {/* Mobile Time Filter */}
-            <div className="lg:hidden mb-4 flex items-center gap-2 overflow-x-auto scrollbar-hide">
-              <TimeFilter selected={timeWindow} onChange={setTimeWindow} markets={markets} />
+            <div className="lg:hidden mb-4 -mx-2 px-2 overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-2 min-w-max">
+                <TimeFilter selected={timeWindow} onChange={setTimeWindow} markets={markets} />
+              </div>
             </div>
 
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg sm:text-xl font-bold">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
+              <h2 className="text-base sm:text-lg md:text-xl font-bold">
                 {t(`category.${selectedCategory}`)}
               </h2>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-foreground"
+                  className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 sm:px-3 py-1.5 text-xs sm:text-sm text-foreground flex-1 sm:flex-none min-w-0"
                 >
                   <option value="volume">{t("sort.volume")}</option>
                   <option value="newest">{t("sort.newest")}</option>
                   <option value="ending-soon">{t("sort.endingSoon")}</option>
                   <option value="popular">{t("sort.popular")}</option>
                 </select>
-                <span className="text-muted-foreground text-xs sm:text-sm">{t("common.marketsCount", { count: filteredMarkets.length })}</span>
+                <span className="text-muted-foreground text-xs whitespace-nowrap">{t("common.marketsCount", { count: filteredMarkets.length })}</span>
               </div>
             </div>
             <MarketGrid
               markets={cardMarkets}
+              loading={marketLoading}
               error={marketError}
               onMarketClick={handleMarketClick}
               onRetry={fetchFromAPI}

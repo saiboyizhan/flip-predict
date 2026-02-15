@@ -27,7 +27,7 @@ export interface Market {
   status: MarketStatus
   yesPrice: number      // 0.01 - 0.99
   noPrice: number       // 自动计算 1 - yesPrice
-  volume: number        // 交易量 (BNB)
+  volume: number        // 交易量 (USDT)
   totalShares: number
   participants: number
   createdAt: string

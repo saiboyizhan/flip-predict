@@ -24,7 +24,7 @@ interface IBAP578 {
     event LogicAddressUpdated(uint256 indexed tokenId, address newLogic);
 
     function executeAction(uint256 tokenId, bytes calldata data) external returns (bytes memory);
-    function fundAgent(uint256 tokenId) external payable;
+    function fundAgent(uint256 tokenId, uint256 amount) external;
     function withdrawFromAgent(uint256 tokenId, uint256 amount) external;
     function pauseAgent(uint256 tokenId) external;
     function unpauseAgent(uint256 tokenId) external;

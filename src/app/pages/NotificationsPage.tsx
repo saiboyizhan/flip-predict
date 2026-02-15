@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { Bell, CheckCheck, Info, TrendingUp, Gavel, Loader2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import {
   fetchNotifications,
@@ -51,7 +51,7 @@ function formatTimestamp(ts: number): string {
 
 export default function NotificationsPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,8 +61,8 @@ export default function NotificationsPage() {
     try {
       const data = await fetchNotifications();
       setNotifications(data.notifications);
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.error("Failed to load notifications:", err);
     } finally {
       setLoading(false);
     }
@@ -82,8 +82,8 @@ export default function NotificationsPage() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true } : n))
       );
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.error("Failed to mark notification as read:", err);
     }
   }, []);
 
@@ -92,14 +92,14 @@ export default function NotificationsPage() {
     try {
       await markAllNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.error("Failed to mark all notifications as read:", err);
     } finally {
       setMarkingAll(false);
     }
   }, []);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notification.filter((n) => !n.read).length;
 
   if (!isAuthenticated) {
     return (
@@ -108,12 +108,12 @@ export default function NotificationsPage() {
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
             <Bell className="w-16 h-16 text-muted-foreground mb-4" />
             <h2 className="text-xl font-bold text-muted-foreground mb-2">
-              {t("notifications.connectRequired", {
+              {t("notification.connectRequired", {
                 defaultValue: "Connect wallet to view notifications",
               })}
             </h2>
             <p className="text-muted-foreground text-sm mb-6">
-              {t("notifications.connectRequiredDesc", {
+              {t("notification.connectRequiredDesc", {
                 defaultValue:
                   "Sign in with your wallet to see trade confirmations, market settlements, and other updates.",
               })}
@@ -141,16 +141,16 @@ export default function NotificationsPage() {
           className="flex items-center justify-between mb-6"
         >
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
-              {t("notifications.title", { defaultValue: "Notifications" })}
+            <h1 className="text-lg sm:text-xl font-bold text-foreground">
+              {t("notification.title", { defaultValue: "Notifications" })}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               {unreadCount > 0
-                ? t("notifications.unreadCount", {
+                ? t("notification.unreadCount", {
                     count: unreadCount,
                     defaultValue: `${unreadCount} unread`,
                   })
-                : t("notifications.allRead", {
+                : t("notification.allRead", {
                     defaultValue: "All caught up",
                   })}
             </p>
@@ -166,7 +166,7 @@ export default function NotificationsPage() {
               ) : (
                 <CheckCheck className="w-4 h-4" />
               )}
-              {t("notifications.markAllRead", {
+              {t("notification.markAllRead", {
                 defaultValue: "Mark all read",
               })}
             </button>
@@ -178,7 +178,7 @@ export default function NotificationsPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
           </div>
-        ) : notifications.length === 0 ? (
+        ) : notification.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -186,12 +186,12 @@ export default function NotificationsPage() {
           >
             <Bell className="w-16 h-16 text-muted-foreground/30 mb-4" />
             <p className="text-muted-foreground text-sm">
-              {t("notifications.empty", {
+              {t("notification.empty", {
                 defaultValue: "No notifications yet",
               })}
             </p>
             <p className="text-muted-foreground/60 text-xs mt-1">
-              {t("notifications.emptyDesc", {
+              {t("notification.emptyDesc", {
                 defaultValue:
                   "Trade in markets to receive updates on your orders and settlements.",
               })}
@@ -199,7 +199,7 @@ export default function NotificationsPage() {
           </motion.div>
         ) : (
           <div className="space-y-2">
-            {notifications.map((notification, index) => (
+            {notification.map((notification, index) => (
               <motion.div
                 key={notification.id}
                 initial={{ opacity: 0, y: 10 }}

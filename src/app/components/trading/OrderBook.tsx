@@ -77,20 +77,20 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
     }
   }, [marketId, side]);
 
+  // WebSocket update handler (stable reference via useCallback)
+  const handleWsUpdate = useCallback((msg: unknown) => {
+    const d = msg as OrderBookData & { type: string };
+    wsConnected.current = true;
+    setData({
+      bids: d.bids,
+      asks: d.asks,
+      spread: d.spread,
+      midPrice: d.midPrice,
+    });
+  }, []);
+
   useEffect(() => {
     fetchData();
-
-    // Try WebSocket first
-    const handleWsUpdate = (msg: unknown) => {
-      const d = msg as OrderBookData & { type: string };
-      wsConnected.current = true;
-      setData({
-        bids: d.bids,
-        asks: d.asks,
-        spread: d.spread,
-        midPrice: d.midPrice,
-      });
-    };
 
     subscribeOrderBook(marketId, side, handleWsUpdate);
 
@@ -106,7 +106,7 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
       if (pollRef.current) clearInterval(pollRef.current);
       wsConnected.current = false;
     };
-  }, [marketId, side, fetchData]);
+  }, [marketId, side, fetchData, handleWsUpdate]);
 
   // Calculate cumulative amounts
   const asks = data?.asks ?? [];

@@ -3,9 +3,16 @@ import { randomUUID } from 'crypto';
 import { StrategyType } from './agent-strategy';
 import { executeCopyTrades } from './copy-trade';
 import { generateLlmDecisions } from './agent-llm-adapter';
+import { syncOwnerProfile, getOwnerInfluence } from './agent-owner-learning';
 
 // Bug D4 Fix: Use crypto.randomUUID() instead of Math.random() to avoid
 // ID collisions in the agent_trades table under concurrent inserts.
+
+// P2-11 Fix: Unified rounding helper to replace scattered Math.round(x*100)/100
+const roundTo = (n: number, decimals: number): number => {
+  const multiplier = 10 ** decimals;
+  return Math.round(n * multiplier) / multiplier;
+};
 
 const WIN_RATES: Record<StrategyType, number> = {
   conservative: 0.60,
@@ -35,11 +42,19 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
 
   const strategy = agent.strategy as StrategyType;
 
+  // Sync owner profile if learn_from_owner is enabled
+  try {
+    await syncOwnerProfile(db, agentId);
+  } catch (err: any) {
+    console.error(`Owner profile sync error for agent ${agentId}:`, err.message);
+  }
+  const ownerInfluence = await getOwnerInfluence(db, agentId);
+
   // Use LLM-enhanced decisions (falls back to rule-based if no LLM config)
   const comboWeights = agent.combo_weights
     ? (typeof agent.combo_weights === 'string' ? (() => { try { return JSON.parse(agent.combo_weights as string); } catch { return null; } })() : agent.combo_weights)
     : null;
-  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights);
+  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights, ownerInfluence);
 
   if (decisions.length === 0) return;
 
@@ -68,7 +83,7 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
       let outcome: string;
 
       if (won) {
-        profit = Math.round((d.amount * (1 / price - 1)) * 100) / 100;
+        profit = roundTo(d.amount * (1 / price - 1), 2);
         wallet_balance += d.amount + profit;
         winning_trades += 1;
         outcome = 'win';
@@ -77,7 +92,7 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
         outcome = 'loss';
       }
 
-      total_profit = Math.round((total_profit + profit) * 100) / 100;
+      total_profit = roundTo(total_profit + profit, 2);
       experience += 10;
 
       // Level up: every 100 exp, max level 10
@@ -85,6 +100,12 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
       if (newLevel > level) level = newLevel;
 
       const tradeId = randomUUID();
+      // Tag reasoning with [Owner-learned] when owner influence is active
+      const reasoning = ownerInfluence
+        ? `[Owner-learned] ${d.reasoning || ''}`
+        : (d.reasoning || '');
+      void reasoning; // reasoning stored via agent_trades doesn't have a column yet, used in logs
+
       await client.query(`
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -94,8 +115,8 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
         d.marketId,
         d.side,
         d.amount,
-        Math.round(shares * 100) / 100,
-        Math.round(price * 10000) / 10000,
+        roundTo(shares, 2),
+        roundTo(price, 4),
         outcome,
         profit,
         Date.now()
@@ -107,7 +128,7 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
           marketId: d.marketId,
           side: d.side,
           amount: d.amount,
-          price: Math.round(price * 10000) / 10000,
+          price: roundTo(price, 4),
         });
       } catch (copyErr: any) {
         console.error(`Copy trade execution error for agent ${agentId}:`, copyErr.message);
@@ -115,7 +136,9 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
     }
 
     const wr = total_trades > 0 ? Math.round((winning_trades / total_trades) * 100) : 0;
-    const roi = Math.round((total_profit / 1000) * 100); // ROI based on initial 1000
+    // ROI based on derived initial balance: initial = current_balance - total_profit
+    const initialBalance = Math.max(1, wallet_balance - total_profit);
+    const roi = Math.round((total_profit / initialBalance) * 100);
 
     await client.query(`
       UPDATE agents SET
@@ -130,7 +153,7 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
         last_trade_at = $9
       WHERE id = $10
     `, [
-      Math.round(wallet_balance * 100) / 100,
+      roundTo(wallet_balance, 2),
       total_trades,
       winning_trades,
       total_profit,

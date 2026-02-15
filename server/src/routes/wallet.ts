@@ -14,6 +14,11 @@ const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
 const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
 const DEPOSIT_RPC_URL = process.env.DEPOSIT_RPC_URL || process.env.BSC_RPC_URL || DEFAULT_BSC_RPC;
 
+// BSC USDT contract address (18 decimals on BSC)
+const USDT_ADDRESS = (process.env.USDT_ADDRESS || '0x55d398326f99059fF775485246999027B3197955').toLowerCase();
+// ERC-20 Transfer(address,address,uint256) event topic
+const TRANSFER_EVENT_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
 let depositProvider: ethers.JsonRpcProvider | null = null;
 
 function getDepositProvider(): ethers.JsonRpcProvider {
@@ -63,14 +68,38 @@ async function verifyDepositTransaction(
       return { ok: false, statusCode: 400, error: 'Transaction sender does not match your wallet' };
     }
 
-    // Native BNB transfer verification
-    if (!tx.to || tx.to.toLowerCase() !== receiver) {
-      return { ok: false, statusCode: 400, error: 'Transaction receiver address is invalid' };
+    // USDT ERC-20 Transfer event verification
+    // Parse receipt logs to find Transfer(from, to, amount) event from the USDT contract
+    const expectedValue = ethers.parseUnits(amount.toString(), 18); // BSC USDT uses 18 decimals
+    let transferFound = false;
+
+    for (const log of receipt.logs) {
+      // Check that this log is from the USDT contract
+      if (log.address.toLowerCase() !== USDT_ADDRESS) continue;
+
+      // Check that this is a Transfer event (topic[0])
+      if (!log.topics || log.topics.length < 3) continue;
+      if (log.topics[0] !== TRANSFER_EVENT_TOPIC) continue;
+
+      // topic[1] = from address (padded to 32 bytes)
+      // topic[2] = to address (padded to 32 bytes)
+      const fromAddr = '0x' + log.topics[1].slice(26).toLowerCase();
+      const toAddr = '0x' + log.topics[2].slice(26).toLowerCase();
+
+      // Verify: from = user, to = deposit receiver
+      if (fromAddr !== userAddress.toLowerCase()) continue;
+      if (toAddr !== receiver) continue;
+
+      // data = transfer amount (uint256)
+      const transferAmount = BigInt(log.data);
+      if (transferAmount >= expectedValue) {
+        transferFound = true;
+        break;
+      }
     }
 
-    const expectedValue = ethers.parseEther(amount.toString());
-    if (tx.value < expectedValue) {
-      return { ok: false, statusCode: 400, error: 'Transaction amount is lower than requested deposit' };
+    if (!transferFound) {
+      return { ok: false, statusCode: 400, error: 'No matching USDT Transfer event found in transaction' };
     }
 
     return { ok: true };
@@ -286,7 +315,7 @@ router.get('/transactions', authMiddleware, async (req: AuthRequest, res: Respon
   const rawLimit = Number.parseInt(String(req.query.limit ?? ''), 10);
   const rawOffset = Number.parseInt(String(req.query.offset ?? ''), 10);
   const limit = Math.max(1, Math.min(Number.isFinite(rawLimit) ? rawLimit : 20, 100));
-  const offset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
+  const offset = Math.max(0, Math.min(Number.isFinite(rawOffset) ? rawOffset : 0, 100000));
 
   try {
     const db = getDb();

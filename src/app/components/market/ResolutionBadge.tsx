@@ -13,7 +13,7 @@ function formatPrice(price: number): string {
   return price.toLocaleString("en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
-  }) + " BNB";
+  }) + " USDT";
 }
 
 export function ResolutionBadge({

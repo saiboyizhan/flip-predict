@@ -17,7 +17,7 @@
     "toggleTheme": "切换主题",
     "toggleMenu": "切换导航菜单",
     "myProfile": "我的主页",
-    "siteName": "Synapse",
+    "siteName": "Flip",
     "recentSearches": "最近搜索",
     "removeSearch": "删除",
     "clearHistory": "清除所有历史"
@@ -77,7 +77,8 @@
       "settled": "已结算",
       "pending": "等待结算",
       "resolved": "已结算",
-      "settling": "结算中"
+      "settling": "结算中",
+      "expired": "已过期"
     },
     "noMarkets": "暂无市场",
     "noMarketsDesc": "当前分类下没有可用的预测市场",
@@ -117,14 +118,27 @@
     "binary": "二选一",
     "multi": "多选项",
     "selectOption": "选择一个选项",
-    "moreOptions": "+{{count}} 个选项"
+    "moreOptions": "+{{count}} 个选项",
+    "pendingApproval": "待审核",
+    "submitForReview": "市场已提交，等待管理员审核",
+    "approved": "市场已批准",
+    "rejected": "市场已拒绝"
+  },
+  "admin": {
+    "pendingMarkets": "待审核市场",
+    "approve": "批准",
+    "reject": "拒绝",
+    "rejectReason": "拒绝原因",
+    "loadFailed": "加载待审核市场失败",
+    "approveFailed": "批准失败",
+    "rejectFailed": "拒绝失败"
   },
   "agent": {
     "title": "预测 Agent (NFA)",
-    "subtitle": "记录预测风格 · 交易建议 · 授权交易",
+    "subtitle": "观察你的交易，学习你的风格，逐步成为你的 AI 交易搭档",
     "mintAgent": "Mint Agent",
-    "mintTitle": "铸造你的预测 Agent (NFA)",
-    "mintSubtitle": "Agent 将记录你的预测风格，为你提供个性化交易建议。",
+    "mintTitle": "铸造你的交易 Agent",
+    "mintSubtitle": "你的 Agent 会观察并学习你的交易习惯，逐步给出个性化建议，最终可以替你自动交易。",
     "agentName": "Agent 名称",
     "agentNamePlaceholder": "给你的 Agent 起个名字...",
     "persona": "Agent 个性描述",
@@ -148,7 +162,7 @@
     "enterName": "请输入 Agent 名称",
     "selectStrategy": "请选择策略",
     "preview": "实时预览",
-    "initialInfo": "初始余额 $1,000 · observe 模式 · 可升级为建议/自动交易模式",
+    "initialInfo": "初始余额 $1,000 · 先观察学习 · 再建议 · 最终自动交易",
     "noAgentYet": "还没有 Agent? 立即 Mint 一个!",
     "mintModalTitle": "铸造你的预测 Agent",
     "nameYourAgent": "给 Agent 起个名字",
@@ -241,6 +255,10 @@
     "subtitle": "创建一个 Yes/No 预测市场，让社区来预测结果",
     "back": "返回",
     "creationFee": "创建费用",
+    "submissionType": "提交方式",
+    "freeProposal": "免费提议",
+    "reviewStatus": "审核机制",
+    "adminReview": "管理员审核",
     "currentBalance": "当前余额",
     "createdToday": "今日已创建",
     "marketTitle": "市场标题",
@@ -261,9 +279,9 @@
     "daysHoursEnd": "{{days}}天 {{hours}}小时后结束",
     "preview": "预览",
     "dailyLimitReached": "今日创建数量已达上限，请明天再试",
-    "insufficientBalance": "余额不足，需要 {{fee}} BNB",
+    "insufficientBalance": "余额不足，需要 {{fee}} USDT",
     "creating": "创建中...",
-    "createButton": "创建市场 ({{fee}} BNB)",
+    "createButton": "提交提议",
     "createSuccess": "市场创建成功！",
     "createFailed": "创建失败",
     "marketTypeLabel": "市场类型",
@@ -277,7 +295,7 @@
     "minOptions": "至少需要 2 个选项",
     "maxOptions": "最多 10 个选项",
     "optionLabelRequired": "所有选项都需要填写名称",
-    "footer": "创建费 {{fee}} BNB · 每日限 {{max}} 个 · 市场将由社区验证",
+    "footer": "免费提议 · 每日限 {{max}} 个 · 管理员审核后上线",
     "categories": {
       "four-meme": "Four.meme",
       "flap": "Flap",
@@ -324,7 +342,8 @@
     "today": "今日"
   },
   "wallet": {
-    "title": "钱包管理",
+    "title": "钱包",
+    "description": "管理你的资金和交易",
     "connected": "已连接",
     "connectTitle": "连接您的钱包",
     "connectDesc": "连接 MetaMask 或其他 Web3 钱包，使用钱包余额直接进行预测",
@@ -334,7 +353,7 @@
     "connectButton": "连接钱包",
     "supportedWallets": "支持 MetaMask、WalletConnect、Coinbase Wallet 等主流钱包",
     "platformBalance": "平台余额",
-    "bnbBalance": "BNB 余额",
+    "bnbBalance": "USDT 余额",
     "bscMainnet": "BSC 主网",
     "bscBep20": "BSC (BEP-20)",
     "totalWinnings": "累计奖金",
@@ -370,15 +389,21 @@
     "manualApi": "手动 (API)",
     "depositToContract": "充值到合约",
     "withdrawFromContract": "从合约提现",
-    "walletBnb": "钱包 BNB",
+    "walletBnb": "钱包 USDT",
     "contractBalanceLabel": "合约余额",
-    "insufficientBnb": "钱包 BNB 余额不足",
+    "insufficientBnb": "钱包 USDT 余额不足",
     "insufficientContractBalance": "合约余额不足",
     "refreshBalance": "刷新合约余额"
   },
+  "agents": {
+    "title": "AI Agents",
+    "description": "铸造你的 AI Agent，让它观察学习你的交易风格"
+  },
   "auth": {
     "loginSuccess": "登录成功",
-    "signFailed": "签名验证失败，请重试"
+    "signFailed": "签名验证失败，请重试",
+    "connectRequired": "请连接钱包",
+    "connectDescription": "请连接钱包以访问此页面"
   },
   "profile": {
     "title": "我的主页",
@@ -448,7 +473,7 @@
     "sell": "卖出",
     "price": "价格",
     "currentPrice": "当前价格: {{price}}",
-    "amount": "数量 (BNB)",
+    "amount": "数量 (USDT)",
     "estShares": "预估份额",
     "shares": "{{count}} 份",
     "processing": "处理中...",
@@ -456,8 +481,8 @@
     "instantTrade": "立即成交",
     "enterAmount": "请输入交易数量",
     "priceRange": "限价范围: 0.01 ~ 0.99",
-    "limitBuySuccess": "限价{{side}}挂单成功 — {{amount}} BNB @ {{price}}",
-    "marketBuySuccess": "市价{{side}}成功 — {{amount}} BNB",
+    "limitBuySuccess": "限价{{side}}挂单成功 — {{amount}} USDT @ {{price}}",
+    "marketBuySuccess": "市价{{side}}成功 — {{amount}} USDT",
     "tradeFailed": "交易失败",
     "insufficientBalance": "余额不足，请先充值"
   },
@@ -490,7 +515,7 @@
     "confirmSell": "确认卖出 {{side}}",
     "onChainTrade": "链上交易",
     "contractBalance": "合约余额",
-    "amountBnb": "金额 (BNB)",
+    "amountBnb": "金额 (USDT)",
     "confirmingOnChain": "链上确认中...",
     "confirmInWallet": "请在钱包中确认...",
     "onChainBuy": "链上买入 {{side}}",
@@ -504,7 +529,7 @@
     "onChainConfirmed": "链上交易已确认！已开{{side}}仓位。",
     "viewOnBscScan": "在 BSCScan 查看",
     "invalidMarketId": "无效的市场 ID，无法进行链上交易",
-    "insufficientContractBalance": "合约余额不足。您已存入 {{balance}} BNB。",
+    "insufficientContractBalance": "USDT 余额不足。您有 {{balance}} USDT。",
     "riskWarningTitle": "风险提示",
     "riskWarningMessage": "预测市场存在风险，您可能损失全部投入资金。请确认您已了解相关风险后再继续。",
     "riskAccept": "我已了解，继续"
@@ -567,7 +592,8 @@
     "currentPrice": "当前价格",
     "sell": "卖出",
     "connectRequired": "连接钱包查看投资组合",
-    "connectRequiredDesc": "连接钱包后可以查看你的持仓、交易历史和盈亏情况。"
+    "connectRequiredDesc": "连接钱包后可以查看你的持仓、交易历史和盈亏情况。",
+    "description": "追踪你的持仓和交易历史"
   },
   "notification": {
     "title": "通知",

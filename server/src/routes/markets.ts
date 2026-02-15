@@ -1,5 +1,22 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
+import { ethers } from 'ethers';
+import { JWT_SECRET, ADMIN_ADDRESSES } from '../config';
 import { getDb } from '../db';
+
+function extractAdminAddress(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7);
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { address?: unknown };
+    if (typeof decoded.address !== 'string' || !ethers.isAddress(decoded.address)) return null;
+    const address = decoded.address.toLowerCase();
+    return ADMIN_ADDRESSES.has(address) ? address : null;
+  } catch {
+    return null;
+  }
+}
 
 const router = Router();
 
@@ -18,9 +35,30 @@ router.get('/', async (req: Request, res: Response) => {
     const { category, search, sort } = req.query;
     const db = getDb();
 
+    const { status } = req.query;
     let query = 'SELECT * FROM markets WHERE 1=1';
     const params: any[] = [];
     let paramIndex = 1;
+
+    // Allow admin to filter by status (e.g. ?status=pending_approval)
+    // Non-admin users cannot query pending_approval or rejected markets
+    const isProtectedStatus = status === 'pending_approval' || status === 'rejected';
+    if (status && !isProtectedStatus) {
+      query += ` AND status = $${paramIndex++}`;
+      params.push(status);
+    } else if (isProtectedStatus) {
+      const adminAddr = extractAdminAddress(req);
+      if (adminAddr) {
+        query += ` AND status = $${paramIndex++}`;
+        params.push(status);
+      } else {
+        // Non-admin: ignore the protected status filter, default to public listing
+        query += ` AND status NOT IN ('pending_approval', 'rejected')`;
+      }
+    } else {
+      // Public listing: exclude pending_approval and rejected markets
+      query += ` AND status NOT IN ('pending_approval', 'rejected')`;
+    }
 
     if (category && category !== 'all') {
       query += ` AND category = $${paramIndex++}`;

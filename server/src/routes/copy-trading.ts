@@ -9,7 +9,7 @@ const router = Router();
 router.post('/start', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { agentId, copyPercentage, maxPerTrade, dailyLimit } = req.body;
+    const { agentId, copyPercentage, maxPerTrade, dailyLimit, onChain = false } = req.body;
     const followerAddress = req.userAddress!;
 
     if (!agentId || typeof agentId !== 'string') {
@@ -60,10 +60,11 @@ router.post('/start', authMiddleware, async (req: AuthRequest, res: Response) =>
     }
 
     const id = randomUUID();
+    const onChainFlag = onChain ? 1 : 0;
     await db.query(`
-      INSERT INTO agent_followers (id, agent_id, follower_address, copy_percentage, max_per_trade, daily_limit, daily_used, revenue_share_pct, status, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 0, 10, 'active', $7)
-    `, [id, agentId, followerAddress, pct, mpt, dl, Date.now()]);
+      INSERT INTO agent_followers (id, agent_id, follower_address, copy_percentage, max_per_trade, daily_limit, daily_used, revenue_share_pct, status, on_chain, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, 0, 10, 'active', $8, $7)
+    `, [id, agentId, followerAddress, pct, mpt, dl, Date.now(), onChainFlag]);
 
     const record = (await db.query('SELECT * FROM agent_followers WHERE id = $1', [id])).rows[0];
     res.json({ follower: record });
@@ -106,7 +107,7 @@ router.post('/stop', authMiddleware, async (req: AuthRequest, res: Response) => 
 router.put('/settings', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const { agentId, copyPercentage, maxPerTrade, dailyLimit } = req.body;
+    const { agentId, copyPercentage, maxPerTrade, dailyLimit, onChain } = req.body;
     const followerAddress = req.userAddress!;
 
     if (!agentId) {
@@ -156,6 +157,12 @@ router.put('/settings', authMiddleware, async (req: AuthRequest, res: Response) 
       }
       updates.push(`daily_limit = $${idx++}`);
       params.push(dl);
+    }
+
+    if (onChain !== undefined) {
+      const onChainFlag = onChain ? 1 : 0;
+      updates.push(`on_chain = $${idx++}`);
+      params.push(onChainFlag);
     }
 
     if (updates.length === 0) {
@@ -255,6 +262,60 @@ router.get('/earnings/:agentId', authMiddleware, async (req: AuthRequest, res: R
   }
 });
 
+// GET /api/copy-trading/pending-on-chain
+router.get('/pending-on-chain', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const followerAddress = req.userAddress!;
+
+    // Get pending on-chain trades that haven't been executed
+    const trades = (await db.query(
+      `SELECT ct.*, m.title as market_title, m.on_chain_market_id
+       FROM copy_trades ct
+       JOIN markets m ON ct.market_id = m.id
+       WHERE ct.follower_address = $1 AND ct.on_chain = 1 AND ct.tx_hash IS NULL
+       ORDER BY ct.created_at DESC
+       LIMIT 20`,
+      [followerAddress]
+    )).rows;
+
+    res.json({ trades });
+  } catch (err: any) {
+    console.error('Pending on-chain trades error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/copy-trading/confirm-on-chain
+router.post('/confirm-on-chain', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const { tradeId, txHash } = req.body;
+    const followerAddress = req.userAddress!;
+
+    if (!tradeId || !txHash) {
+      res.status(400).json({ error: 'tradeId and txHash are required' });
+      return;
+    }
+
+    // Update trade with tx hash
+    const result = await db.query(
+      'UPDATE copy_trades SET tx_hash = $1 WHERE id = $2 AND follower_address = $3 RETURNING *',
+      [txHash, tradeId, followerAddress]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Trade not found' });
+      return;
+    }
+
+    res.json({ success: true, trade: result.rows[0] });
+  } catch (err: any) {
+    console.error('Confirm on-chain trade error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /api/copy-trading/claim
 router.post('/claim', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
@@ -300,8 +361,7 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res: Response) =>
         [agentId]
       );
 
-      // Credit to owner balance (earnings are already credited via processRevenueShare,
-      // so we just mark as claimed here without double-crediting)
+      // Mark as claimed (no double-crediting)
 
       await client.query('COMMIT');
 

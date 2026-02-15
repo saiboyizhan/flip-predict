@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { generateLlmSuggestion } from './agent-llm-adapter';
+import { getOwnerInfluence } from './agent-owner-learning';
 
 function generateId(): string {
   return 'sug-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -85,6 +86,20 @@ export async function generateSuggestion(db: Pool, agentId: string, marketId: st
       reasoning = `随机策略: 抛硬币决定 ${suggestedSide}`;
   }
   } // end fallback
+
+  // Apply owner influence if enabled
+  const ownerInfluence = await getOwnerInfluence(db, agentId);
+  if (ownerInfluence) {
+    // Nudge side towards owner preference
+    if (ownerInfluence.sideBias && ownerInfluence.sideBiasStrength > 0.2) {
+      if (suggestedSide !== ownerInfluence.sideBias && Math.random() < ownerInfluence.sideBiasStrength) {
+        suggestedSide = ownerInfluence.sideBias;
+        reasoning = `[Owner-learned] ${reasoning}`;
+      }
+    }
+    // Adjust confidence based on owner risk profile
+    confidence = Math.max(0, Math.min(1, confidence + ownerInfluence.riskAdjustment * 0.05));
+  }
 
   // Calculate risk
   const potentialLoss = agent.wallet_balance * 0.1; // max 10% of balance

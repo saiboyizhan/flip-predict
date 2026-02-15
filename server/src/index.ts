@@ -60,6 +60,14 @@ const tradingLimiter = rateLimit({
   message: { error: 'Too many trading requests, please try again later.' },
 });
 
+const publicReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
 async function main() {
   // Initialize database
   const pool = await initDatabase();
@@ -70,16 +78,25 @@ async function main() {
   // Create Express app
   const app = express();
 
-  // JWT secret check - refuse to start with insecure secret
-  const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret || jwtSecret === 'prediction-market-dev-secret') {
-    console.error('FATAL: JWT_SECRET is not set or uses the default value. Set a secure JWT_SECRET in .env');
-    process.exit(1);
-  }
+  // JWT secret check is handled by config.ts, which throws error in production
 
   // Middleware
+  const IS_PRODUCTION = process.env.NODE_ENV === 'production';
   app.use(cors({
     origin: function (origin, callback) {
+      // Production: strict CORS policy
+      if (IS_PRODUCTION) {
+        const allowed = process.env.CORS_ORIGIN;
+        if (!allowed) {
+          return callback(new Error('CORS_ORIGIN not configured in production'));
+        }
+        if (origin === allowed) {
+          return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+      }
+
+      // Development: relaxed CORS policy
       // Allow requests with no origin (mobile apps, curl, etc.)
       if (!origin) return callback(null, true);
       // Allow all localhost ports in development
@@ -97,22 +114,22 @@ async function main() {
 
   // Routes
   app.use('/api/auth', authLimiter, authRoutes);
-  app.use('/api/markets', marketCreationRoutes);
-  app.use('/api/markets', marketsRoutes);
+  app.use('/api/markets', publicReadLimiter, marketCreationRoutes);
+  app.use('/api/markets', publicReadLimiter, marketsRoutes);
   app.use('/api/orders', tradingLimiter, tradingRoutes);
   app.use('/api', portfolioRoutes);
-  app.use('/api/orderbook', orderbookRoutes);
-  app.use('/api/settlement', settlementRoutes);
-  app.use('/api/agents', agentRoutes);
-  app.use('/api/leaderboard', leaderboardRoutes);
+  app.use('/api/orderbook', publicReadLimiter, orderbookRoutes);
+  app.use('/api/settlement', publicReadLimiter, settlementRoutes);
+  app.use('/api/agents', publicReadLimiter, agentRoutes);
+  app.use('/api/leaderboard', publicReadLimiter, leaderboardRoutes);
   app.use('/api/comments', commentsRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/rewards', rewardRoutes);
   app.use('/api/fees', feeRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/achievements', achievementRoutes);
-  app.use('/api/social', socialRoutes);
-  app.use('/api/profile', profileRoutes);
+  app.use('/api/social', publicReadLimiter, socialRoutes);
+  app.use('/api/profile', publicReadLimiter, profileRoutes);
   app.use('/api/copy-trading', copyTradingRoutes);
 
   app.use('/api/favorites', favoritesRoutes);

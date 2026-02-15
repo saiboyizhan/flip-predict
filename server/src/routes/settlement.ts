@@ -9,11 +9,12 @@ import { broadcastMarketResolved } from '../ws';
 import { resolvePredictions } from '../engine/agent-prediction';
 import { getOraclePrice, SUPPORTED_PAIRS } from '../engine/oracle';
 import { fetchTokenPrice } from '../engine/dexscreener';
+import { ADMIN_ADDRESSES } from '../config';
 
 const router = Router();
 const DEFAULT_CHALLENGE_WINDOW_MS = Math.max(
   1 * 60 * 60 * 1000,
-  Number(process.env.SETTLEMENT_CHALLENGE_WINDOW_MS || 6 * 60 * 60 * 1000),
+  Number(process.env.SETTLEMENT_CHALLENGE_WINDOW_MS || 2 * 60 * 60 * 1000),
 );
 const MAX_CHALLENGES_PER_PROPOSAL = Math.max(
   1,
@@ -26,12 +27,6 @@ const RAW_SETTLEMENT_CONTRACT_ADDRESS =
   process.env.PREDICTION_MARKET_ADDRESS ||
   process.env.VITE_PREDICTION_MARKET_ADDRESS ||
   '';
-const ADMIN_ADDRESSES = new Set(
-  (process.env.ADMIN_ADDRESSES || '')
-    .split(',')
-    .map((addr) => addr.trim().toLowerCase())
-    .filter(Boolean),
-);
 const SETTLEMENT_CONTRACT_ADDRESS = ethers.isAddress(RAW_SETTLEMENT_CONTRACT_ADDRESS)
   ? RAW_SETTLEMENT_CONTRACT_ADDRESS.toLowerCase()
   : null;
@@ -297,7 +292,7 @@ router.get('/resolved', async (_req: Request, res: Response) => {
 });
 
 // GET /api/settlement/:marketId/preview — pre-resolution verification snapshot
-router.get('/:marketId/preview', async (req: Request, res: Response) => {
+router.get('/:marketId/preview', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { marketId } = req.params;
     const db = getDb();
@@ -426,7 +421,7 @@ router.get('/:marketId/preview', async (req: Request, res: Response) => {
 });
 
 // GET /api/settlement/:marketId/proof — settlement reproducibility proof
-router.get('/:marketId/proof', async (req: Request, res: Response) => {
+router.get('/:marketId/proof', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { marketId } = req.params;
     const db = getDb();
@@ -514,8 +509,18 @@ router.get('/:marketId/proof', async (req: Request, res: Response) => {
     const epsilon = 0.01;
     const challengeCount = Number(latestProposal?.challenge_count || 0);
     const resolvedTxHash = (resolution?.resolve_tx_hash || latestProposal?.resolve_tx_hash || null) as string | null;
+    const expectedOnChainMarketId = market.on_chain_market_id != null
+      ? String(market.on_chain_market_id)
+      : null;
+    const expectedOutcomeForVerification = market.market_type === 'multi'
+      ? null
+      : (String(resolution?.outcome || latestProposal?.proposed_outcome || '').trim().toLowerCase() || null);
     const resolveTxVerification = resolvedTxHash
-      ? await verifyResolveTxHashOnChain(String(resolvedTxHash).toLowerCase())
+      ? await verifyResolveTxHashOnChain(
+        String(resolvedTxHash).toLowerCase(),
+        expectedOnChainMarketId,
+        expectedOutcomeForVerification,
+      )
       : { ok: false, error: 'resolveTxHash missing' };
     const hasEvidence = Boolean(
       resolvedTxHash ||
@@ -573,6 +578,19 @@ router.get('/:marketId/proof', async (req: Request, res: Response) => {
           : 'Oracle path: no manual resolve tx required',
       },
       {
+        key: 'resolve_tx_method_expected',
+        pass: isManualResolution
+          ? (latestProposal
+            ? resolveTxVerification.decodedMethod === 'finalizeResolution'
+            : true)
+          : true,
+        message: isManualResolution
+          ? (latestProposal
+            ? `Decoded method is ${resolveTxVerification.decodedMethod || 'unknown'}, expected finalizeResolution`
+            : 'No active proposal snapshot; skip finalize method strict check')
+          : 'Oracle path: no manual resolve tx required',
+      },
+      {
         key: 'arbitration_window_respected',
         pass: isManualResolution
           ? Boolean(
@@ -590,7 +608,7 @@ router.get('/:marketId/proof', async (req: Request, res: Response) => {
     ];
 
     const mandatoryChecks = isManualResolution
-      ? ['market_resolved', 'resolution_outcome_present', 'settlement_not_overpaid', 'resolution_evidence_present', 'resolve_tx_on_chain_verified', 'arbitration_window_respected']
+      ? ['market_resolved', 'resolution_outcome_present', 'settlement_not_overpaid', 'resolution_evidence_present', 'resolve_tx_on_chain_verified', 'resolve_tx_method_expected', 'arbitration_window_respected']
       : ['market_resolved', 'resolution_outcome_present', 'settlement_not_overpaid', 'settlement_within_tolerance'];
     const overallPass = checks
       .filter(c => mandatoryChecks.includes(c.key))
@@ -989,9 +1007,16 @@ router.post('/:marketId/challenge', authMiddleware, async (req: AuthRequest, res
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `, [challengeId, marketId, proposal.id, userAddress, normalizedReason, normalizedEvidenceUrl, normalizedEvidenceHash, now]);
 
-    const extendedChallengeWindowEndsAt = Math.max(
-      Number(proposal.challenge_window_ends_at || 0),
-      now + DEFAULT_CHALLENGE_WINDOW_MS,
+    const MAX_CHALLENGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    const marketRes = await client.query('SELECT end_time FROM markets WHERE id = $1', [marketId]);
+    const marketEndTime = marketRes.rows[0]?.end_time ? Number(marketRes.rows[0].end_time) : now;
+    const absoluteMax = marketEndTime + MAX_CHALLENGE_WINDOW_MS;
+    const extendedChallengeWindowEndsAt = Math.min(
+      Math.max(
+        Number(proposal.challenge_window_ends_at || 0),
+        now + DEFAULT_CHALLENGE_WINDOW_MS,
+      ),
+      absoluteMax
     );
     await client.query(
       "UPDATE resolution_proposals SET status = 'challenged', challenge_window_ends_at = $2 WHERE id = $1",
@@ -1678,9 +1703,13 @@ router.post('/:marketId/claim', authMiddleware, async (req: AuthRequest, res: Re
     `, [marketId]);
     const netDeposits = Math.max(0, Number(netDepositRes.rows[0].net_deposits));
 
-    const claimAmount = totalWinnerShares > 0
-      ? (Number(position.shares) / totalWinnerShares) * netDeposits
-      : 0;
+    if (totalWinnerShares <= 0) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'No eligible winners' });
+      return;
+    }
+
+    const claimAmount = (Number(position.shares) / totalWinnerShares) * netDeposits;
 
     const now = Date.now();
 

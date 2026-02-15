@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
 import { FollowButton } from "./FollowButton";
 
@@ -18,7 +18,7 @@ interface FollowListProps {
 
 export function FollowList({ addresses, type }: FollowListProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
 
   if (addresses.length === 0) {
     return (

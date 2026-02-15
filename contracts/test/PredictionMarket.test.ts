@@ -1,59 +1,94 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { PredictionMarket, MockOracle } from "../typechain-types";
+import { PredictionMarket, MockOracle, MockUSDT } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("PredictionMarket", function () {
   let predictionMarket: PredictionMarket;
+  let mockUSDT: MockUSDT;
   let owner: SignerWithAddress;
   let user1: SignerWithAddress;
   let user2: SignerWithAddress;
 
   const DEPOSIT_AMOUNT = ethers.parseEther("10");
+  // Contract default creation fee is 10 USDT (18 decimals)
+  const CREATION_FEE = ethers.parseEther("10");
+  const INITIAL_USDT_BALANCE = ethers.parseEther("10000");
+
+  // Helper: mint USDT to a user and approve the prediction market contract
+  async function mintAndApproveUSDT(user: SignerWithAddress, amount: bigint) {
+    await mockUSDT.mint(user.address, amount);
+    const pmAddress = await predictionMarket.getAddress();
+    await mockUSDT.connect(user).approve(pmAddress, amount);
+  }
+
+  // Helper: deposit USDT into prediction market for a user
+  async function depositUSDT(user: SignerWithAddress, amount: bigint) {
+    const pmAddress = await predictionMarket.getAddress();
+    await mockUSDT.connect(user).approve(pmAddress, amount);
+    await predictionMarket.connect(user).deposit(amount);
+  }
 
   beforeEach(async function () {
     [owner, user1, user2] = await ethers.getSigners();
 
-    // Deploy PredictionMarket (uses native BNB, no constructor args)
+    // Deploy MockUSDT and mint initial balances
+    const MockUSDTFactory = await ethers.getContractFactory("MockUSDT");
+    mockUSDT = await MockUSDTFactory.deploy();
+    await mockUSDT.waitForDeployment();
+    const usdtAddress = await mockUSDT.getAddress();
+
+    // Mint USDT to test users
+    await mockUSDT.mint(user1.address, INITIAL_USDT_BALANCE);
+    await mockUSDT.mint(user2.address, INITIAL_USDT_BALANCE);
+    await mockUSDT.mint(owner.address, INITIAL_USDT_BALANCE);
+
+    // Deploy PredictionMarket with USDT address
     const PredictionMarketFactory = await ethers.getContractFactory("PredictionMarket");
-    predictionMarket = await PredictionMarketFactory.deploy();
+    predictionMarket = await PredictionMarketFactory.deploy(usdtAddress);
     await predictionMarket.waitForDeployment();
     // Keep legacy tests stable; strict mode behavior is covered in dedicated tests below.
     await predictionMarket.setStrictArbitrationMode(false);
+
+    // Pre-approve large amount for test users
+    const pmAddress = await predictionMarket.getAddress();
+    await mockUSDT.connect(user1).approve(pmAddress, INITIAL_USDT_BALANCE);
+    await mockUSDT.connect(user2).approve(pmAddress, INITIAL_USDT_BALANCE);
+    await mockUSDT.connect(owner).approve(pmAddress, INITIAL_USDT_BALANCE);
   });
 
   describe("Deposit", function () {
-    it("should deposit BNB successfully", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+    it("should deposit USDT successfully", async function () {
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT);
     });
 
     it("should emit Deposit event", async function () {
-      await expect(predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT }))
+      await expect(predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT))
         .to.emit(predictionMarket, "Deposit")
         .withArgs(user1.address, DEPOSIT_AMOUNT);
     });
 
-    it("should transfer BNB from user to contract", async function () {
+    it("should transfer USDT from user to contract", async function () {
       const contractAddress = await predictionMarket.getAddress();
-      const balanceBefore = await ethers.provider.getBalance(contractAddress);
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      const balanceAfter = await ethers.provider.getBalance(contractAddress);
+      const balanceBefore = await mockUSDT.balanceOf(contractAddress);
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      const balanceAfter = await mockUSDT.balanceOf(contractAddress);
       expect(balanceAfter - balanceBefore).to.equal(DEPOSIT_AMOUNT);
     });
 
     it("should revert on zero amount", async function () {
-      await expect(predictionMarket.connect(user1).deposit({ value: 0 })).to.be.revertedWith("Must send BNB");
+      await expect(predictionMarket.connect(user1).deposit(0)).to.be.revertedWith("Amount must be > 0");
     });
   });
 
   describe("Withdraw", function () {
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
     });
 
-    it("should withdraw BNB successfully", async function () {
+    it("should withdraw USDT successfully", async function () {
       const withdrawAmount = ethers.parseEther("5");
       await predictionMarket.connect(user1).withdraw(withdrawAmount);
       expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT - withdrawAmount);
@@ -115,8 +150,8 @@ describe("PredictionMarket", function () {
     let endTime: number;
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Will BTC reach 100k?", endTime);
     });
@@ -211,8 +246,8 @@ describe("PredictionMarket", function () {
     const betAmount = ethers.parseEther("5");
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Will BTC reach 100k?", endTime);
 
@@ -299,9 +334,9 @@ describe("PredictionMarket", function () {
       await mockOracle.waitForDeployment();
       oracleAddress = await mockOracle.getAddress();
 
-      // Deposit for users
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      // Deposit USDT for users
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
     });
 
     describe("Create Oracle Market", function () {
@@ -517,11 +552,11 @@ describe("PredictionMarket", function () {
     it("should pause and unpause", async function () {
       await predictionMarket.pause();
       await expect(
-        predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT })
+        predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT)
       ).to.be.revertedWithCustomError(predictionMarket, "EnforcedPause");
 
       await predictionMarket.unpause();
-      await expect(predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT })).to.not.be.reverted;
+      await expect(predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT)).to.not.be.reverted;
     });
 
     it("should only allow owner to pause", async function () {
@@ -533,14 +568,12 @@ describe("PredictionMarket", function () {
   });
 
   describe("User Market Creation", function () {
-    const CREATION_FEE = ethers.parseEther("0.01");
-
-    it("should create a user market with 0.01 BNB fee", async function () {
+    it("should create a user market with USDT fee", async function () {
       const endTime = (await time.latest()) + 7200;
       const title = "Will DOGE reach $1 this month?";
 
       await expect(
-        predictionMarket.connect(user1).createUserMarket(title, endTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket(title, endTime, 0)
       )
         .to.emit(predictionMarket, "UserMarketCreated")
         .withArgs(0, user1.address, title, CREATION_FEE);
@@ -555,19 +588,19 @@ describe("PredictionMarket", function () {
     it("should limit to max 3 markets per day", async function () {
       const endTime = (await time.latest()) + 7200;
 
-      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0, { value: CREATION_FEE });
-      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0, { value: CREATION_FEE });
-      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0);
 
       await expect(
-        predictionMarket.connect(user1).createUserMarket("Market four test title", endTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket("Market four test title", endTime, 0)
       ).to.be.revertedWith("Daily market limit reached");
     });
 
     it("should reject title too short", async function () {
       const endTime = (await time.latest()) + 7200;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("Short", endTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket("Short", endTime, 0)
       ).to.be.revertedWith("Title too short");
     });
 
@@ -575,40 +608,40 @@ describe("PredictionMarket", function () {
       const endTime = (await time.latest()) + 7200;
       const longTitle = "A".repeat(201);
       await expect(
-        predictionMarket.connect(user1).createUserMarket(longTitle, endTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket(longTitle, endTime, 0)
       ).to.be.revertedWith("Title too long");
     });
 
     it("should reject end time too soon (less than 1 hour)", async function () {
       const endTime = (await time.latest()) + 1800;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0)
       ).to.be.revertedWith("End time too soon");
     });
 
     it("should reject end time too far (more than 90 days)", async function () {
       const endTime = (await time.latest()) + 91 * 86400;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket("A valid title for the market", endTime, 0)
       ).to.be.revertedWith("End time too far");
     });
 
     it("should reset daily count on a new day", async function () {
       const endTime = (await time.latest()) + 7200;
 
-      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0, { value: CREATION_FEE });
-      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0, { value: CREATION_FEE });
-      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Market one - test title", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Market two - test title", endTime, 0);
+      await predictionMarket.connect(user1).createUserMarket("Market three test title", endTime, 0);
 
       await time.increase(86400);
       const newEndTime = (await time.latest()) + 7200;
       await expect(
-        predictionMarket.connect(user1).createUserMarket("Market on new day!!", newEndTime, 0, { value: CREATION_FEE })
+        predictionMarket.connect(user1).createUserMarket("Market on new day!!", newEndTime, 0)
       ).to.not.be.reverted;
     });
 
     it("should create market with initial liquidity (CTF split)", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 7200;
       const liquidity = ethers.parseEther("1");
@@ -616,8 +649,7 @@ describe("PredictionMarket", function () {
       await predictionMarket.connect(user1).createUserMarket(
         "Market with liquidity test",
         endTime,
-        liquidity,
-        { value: CREATION_FEE }
+        liquidity
       );
 
       const market = await predictionMarket.getMarket(0);
@@ -636,11 +668,14 @@ describe("PredictionMarket", function () {
       expect(await predictionMarket.balanceOf(user1.address, noId)).to.equal(liquidity - half);
     });
 
-    it("should revert if insufficient BNB fee sent", async function () {
+    it("should revert if insufficient USDT approval for fee", async function () {
       const endTime = (await time.latest()) + 7200;
+      // Revoke approval so transferFrom fails
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(user1).approve(pmAddress, 0);
       await expect(
-        predictionMarket.connect(user1).createUserMarket("A valid title for no fee test!", endTime, 0, { value: 0 })
-      ).to.be.revertedWith("Insufficient creation fee");
+        predictionMarket.connect(user1).createUserMarket("A valid title for no fee test!", endTime, 0)
+      ).to.be.reverted;
     });
   });
 
@@ -656,7 +691,11 @@ describe("PredictionMarket", function () {
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent test market", endTime);
 
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      // Mint USDT to nfaSigner and deposit
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
     });
 
     it("should allow NFA contract to take position", async function () {
@@ -675,7 +714,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should reject non-NFA contract caller", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const amount = ethers.parseEther("1");
       await expect(
         predictionMarket.connect(user1).agentTakePosition(1, 0, true, amount)
@@ -692,7 +731,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should set market creation fee", async function () {
-      const newFee = ethers.parseEther("0.02");
+      const newFee = ethers.parseEther("20");
       await expect(predictionMarket.setMarketCreationFee(newFee))
         .to.emit(predictionMarket, "MarketCreationFeeUpdated")
         .withArgs(newFee);
@@ -707,16 +746,13 @@ describe("PredictionMarket", function () {
     });
 
     it("should withdraw fees", async function () {
-      const CREATION_FEE = ethers.parseEther("0.01");
       const endTime = (await time.latest()) + 7200;
-      await predictionMarket.connect(user1).createUserMarket("Withdraw fee test market", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Withdraw fee test market", endTime, 0);
 
-      const ownerBalanceBefore = await ethers.provider.getBalance(owner.address);
-      const tx = await predictionMarket.withdrawFees(CREATION_FEE);
-      const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
-      const ownerBalanceAfter = await ethers.provider.getBalance(owner.address);
-      expect(ownerBalanceAfter - ownerBalanceBefore + gasUsed).to.equal(CREATION_FEE);
+      const ownerUsdtBefore = await mockUSDT.balanceOf(owner.address);
+      await predictionMarket.withdrawFees(CREATION_FEE);
+      const ownerUsdtAfter = await mockUSDT.balanceOf(owner.address);
+      expect(ownerUsdtAfter - ownerUsdtBefore).to.equal(CREATION_FEE);
     });
 
     it("should reject non-owner for admin functions", async function () {
@@ -742,12 +778,12 @@ describe("PredictionMarket", function () {
     it("should revert deposit when paused", async function () {
       await predictionMarket.pause();
       await expect(
-        predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT })
+        predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT)
       ).to.be.revertedWithCustomError(predictionMarket, "EnforcedPause");
     });
 
     it("should revert withdraw when paused", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       await predictionMarket.pause();
       await expect(
         predictionMarket.connect(user1).withdraw(DEPOSIT_AMOUNT)
@@ -755,7 +791,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition when paused", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Pause test market", endTime);
       await predictionMarket.pause();
@@ -766,8 +802,8 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert claimWinnings when paused", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Pause claim test", endTime);
 
@@ -785,7 +821,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition on non-existent market", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       await expect(
         predictionMarket.connect(user1).takePosition(999, true, ethers.parseEther("1"))
       ).to.be.revertedWith("Market does not exist");
@@ -798,7 +834,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition on resolved market", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Resolved position test", endTime);
 
@@ -811,7 +847,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert takePosition with zero amount", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Zero amount test", endTime);
 
@@ -831,8 +867,8 @@ describe("PredictionMarket", function () {
       const amount2 = ethers.parseEther("2");
       const withdrawAmount = ethers.parseEther("4");
 
-      await predictionMarket.connect(user1).deposit({ value: amount1 });
-      await predictionMarket.connect(user1).deposit({ value: amount2 });
+      await predictionMarket.connect(user1).deposit(amount1);
+      await predictionMarket.connect(user1).deposit(amount2);
       expect(await predictionMarket.balances(user1.address)).to.equal(amount1 + amount2);
 
       await predictionMarket.connect(user1).withdraw(withdrawAmount);
@@ -840,7 +876,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle user taking both YES and NO positions on the same market", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Both sides test", endTime);
 
@@ -859,10 +895,13 @@ describe("PredictionMarket", function () {
 
     it("should correctly distribute winnings with multiple YES bettors", async function () {
       const user3 = (await ethers.getSigners())[3];
+      await mockUSDT.mint(user3.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(user3).approve(pmAddress, INITIAL_USDT_BALANCE);
 
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user3).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user3).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Multi winner test", endTime);
@@ -899,7 +938,10 @@ describe("PredictionMarket", function () {
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent expired test", endTime);
 
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
 
       await time.increaseTo(endTime + 1);
 
@@ -921,13 +963,13 @@ describe("PredictionMarket", function () {
     });
 
     it("should verify initial constructor values", async function () {
-      expect(await predictionMarket.marketCreationFee()).to.equal(ethers.parseEther("0.01"));
+      expect(await predictionMarket.marketCreationFee()).to.equal(ethers.parseEther("10"));
       expect(await predictionMarket.maxMarketsPerDay()).to.equal(3);
       expect(await predictionMarket.nextMarketId()).to.equal(0);
     });
 
     it("should correctly emit PositionTaken event", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Event test market", endTime);
 
@@ -946,8 +988,8 @@ describe("PredictionMarket", function () {
     });
 
     it("should update market totals correctly after multiple positions", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Totals test market", endTime);
 
@@ -964,19 +1006,18 @@ describe("PredictionMarket", function () {
       expect(market.totalNo).to.equal(amount2);
     });
 
-    it("should revert when sending BNB directly to receive()", async function () {
+    it("should revert when sending BNB directly (no receive function)", async function () {
       const contractAddress = await predictionMarket.getAddress();
       await expect(
         user1.sendTransaction({ to: contractAddress, value: ethers.parseEther("1") })
-      ).to.be.revertedWith("Use deposit()");
+      ).to.be.reverted;
     });
   });
 
   describe("Bug Fix Validations", function () {
     it("should emit FeesWithdrawn event when withdrawing fees", async function () {
-      const CREATION_FEE = ethers.parseEther("0.01");
       const endTime = (await time.latest()) + 7200;
-      await predictionMarket.connect(user1).createUserMarket("FeesWithdrawn event test", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("FeesWithdrawn event test", endTime, 0);
 
       await expect(predictionMarket.withdrawFees(CREATION_FEE))
         .to.emit(predictionMarket, "FeesWithdrawn")
@@ -994,7 +1035,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle claimWinnings correctly when loser pool is zero", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("One-sided market test", endTime);
 
@@ -1011,7 +1052,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle user with positions on both sides", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Both sides claim test", endTime);
 
@@ -1039,8 +1080,11 @@ describe("PredictionMarket", function () {
       const nfaSigner = (await ethers.getSigners())[3];
       await predictionMarket.setNFAContract(nfaSigner.address);
 
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent claim test", endTime);
@@ -1068,8 +1112,11 @@ describe("PredictionMarket", function () {
       const nfaSigner = (await ethers.getSigners())[3];
       await predictionMarket.setNFAContract(nfaSigner.address);
 
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent double claim", endTime);
@@ -1092,8 +1139,11 @@ describe("PredictionMarket", function () {
       const nfaSigner = (await ethers.getSigners())[3];
       await predictionMarket.setNFAContract(nfaSigner.address);
 
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent losing test", endTime);
@@ -1125,25 +1175,6 @@ describe("PredictionMarket", function () {
       await expect(predictionMarket.resolveByOracle(0)).to.be.revertedWith("Stale oracle price");
     });
 
-    it("should correctly refund overpayment in createUserMarket", async function () {
-      const CREATION_FEE = ethers.parseEther("0.01");
-      const overpay = ethers.parseEther("0.05");
-      const endTime = (await time.latest()) + 7200;
-
-      const balanceBefore = await ethers.provider.getBalance(user1.address);
-      const tx = await predictionMarket.connect(user1).createUserMarket(
-        "Overpay refund test!",
-        endTime,
-        0,
-        { value: overpay }
-      );
-      const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
-      const balanceAfter = await ethers.provider.getBalance(user1.address);
-
-      expect(balanceBefore - balanceAfter - gasUsed).to.equal(CREATION_FEE);
-    });
-
     it("should prevent resolveMarket on oracle-enabled market", async function () {
       const MockOracleFactory = await ethers.getContractFactory("MockOracle");
       const mockOracle = await MockOracleFactory.deploy(10000000000000n, 8);
@@ -1162,9 +1193,13 @@ describe("PredictionMarket", function () {
 
     it("should handle rounding correctly with uneven bets", async function () {
       const user3 = (await ethers.getSigners())[3];
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user3).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(user3.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(user3).approve(pmAddress, INITIAL_USDT_BALANCE);
+
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user3).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Rounding test market", endTime);
@@ -1203,17 +1238,16 @@ describe("PredictionMarket", function () {
     });
 
     it("should not allow withdrawFees to exceed accumulated fees", async function () {
-      const CREATION_FEE = ethers.parseEther("0.01");
       const endTime = (await time.latest()) + 7200;
-      await predictionMarket.connect(user1).createUserMarket("Fee limit test market", endTime, 0, { value: CREATION_FEE });
+      await predictionMarket.connect(user1).createUserMarket("Fee limit test market", endTime, 0);
 
       await expect(
-        predictionMarket.withdrawFees(ethers.parseEther("1"))
+        predictionMarket.withdrawFees(ethers.parseEther("1000"))
       ).to.be.revertedWith("Exceeds accumulated fees");
     });
   });
 
-  // ─── Round 4 Bug Fix Tests ────────────────────────────────────
+  // --- Round 4 Bug Fix Tests ---
   describe("Round 4: resolveByOracle emits MarketResolved", function () {
     it("should emit MarketResolved event in resolveByOracle", async function () {
       const MockOracleFactory = await ethers.getContractFactory("MockOracle");
@@ -1236,8 +1270,8 @@ describe("PredictionMarket", function () {
     const betAmount = ethers.parseEther("5");
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
     });
 
     it("should cancel a market and emit MarketCancelled", async function () {
@@ -1362,7 +1396,10 @@ describe("PredictionMarket", function () {
     it("should revert agentClaimWinnings on cancelled market", async function () {
       const nfaSigner = (await ethers.getSigners())[3];
       await predictionMarket.setNFAContract(nfaSigner.address);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent cancel test", endTime);
@@ -1382,7 +1419,10 @@ describe("PredictionMarket", function () {
     it("should return agent position data", async function () {
       const nfaSigner = (await ethers.getSigners())[3];
       await predictionMarket.setNFAContract(nfaSigner.address);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent pos view test", endTime);
@@ -1428,7 +1468,7 @@ describe("PredictionMarket", function () {
     });
   });
 
-  // ─── Round 5 Final Hardening Tests ────────────────────────────────────
+  // --- Round 5 Final Hardening Tests ---
   describe("Round 5: getMarket returns cancelled field", function () {
     it("should return cancelled=false for active market", async function () {
       const endTime = (await time.latest()) + 3600;
@@ -1451,7 +1491,7 @@ describe("PredictionMarket", function () {
 
   describe("Round 5: RefundClaimed event", function () {
     it("should emit RefundClaimed (not WinningsClaimed) on claimRefund", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("RefundClaimed event test", endTime);
@@ -1470,10 +1510,19 @@ describe("PredictionMarket", function () {
   describe("Round 5: agentClaimRefund", function () {
     const betAmount = ethers.parseEther("5");
 
-    it("should allow agent to claim refund on cancelled market", async function () {
+    // Helper to setup nfaSigner for agent tests
+    async function setupNfaSigner() {
       const nfaSigner = (await ethers.getSigners())[3];
       await predictionMarket.setNFAContract(nfaSigner.address);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      return nfaSigner;
+    }
+
+    it("should allow agent to claim refund on cancelled market", async function () {
+      const nfaSigner = await setupNfaSigner();
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent refund test", endTime);
@@ -1492,9 +1541,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert agentClaimRefund on non-cancelled market", async function () {
-      const nfaSigner = (await ethers.getSigners())[3];
-      await predictionMarket.setNFAContract(nfaSigner.address);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      const nfaSigner = await setupNfaSigner();
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent refund non-cancel", endTime);
@@ -1509,9 +1556,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert agentClaimRefund from non-NFA caller", async function () {
-      const nfaSigner = (await ethers.getSigners())[3];
-      await predictionMarket.setNFAContract(nfaSigner.address);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      const nfaSigner = await setupNfaSigner();
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent refund wrong caller", endTime);
@@ -1525,9 +1570,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert double agentClaimRefund", async function () {
-      const nfaSigner = (await ethers.getSigners())[3];
-      await predictionMarket.setNFAContract(nfaSigner.address);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
+      const nfaSigner = await setupNfaSigner();
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent double refund", endTime);
@@ -1542,8 +1585,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should revert agentClaimRefund with no position", async function () {
-      const nfaSigner = (await ethers.getSigners())[3];
-      await predictionMarket.setNFAContract(nfaSigner.address);
+      const nfaSigner = await setupNfaSigner();
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent no pos refund", endTime);
@@ -1557,11 +1599,10 @@ describe("PredictionMarket", function () {
 
   describe("Round 5: UserMarket also emits MarketCreated", function () {
     it("should emit both MarketCreated and UserMarketCreated for user markets", async function () {
-      const CREATION_FEE = ethers.parseEther("0.01");
       const endTime = (await time.latest()) + 7200;
       const title = "User market MarketCreated event test";
 
-      const tx = predictionMarket.connect(user1).createUserMarket(title, endTime, 0, { value: CREATION_FEE });
+      const tx = predictionMarket.connect(user1).createUserMarket(title, endTime, 0);
 
       await expect(tx)
         .to.emit(predictionMarket, "MarketCreated")
@@ -1578,8 +1619,8 @@ describe("PredictionMarket", function () {
     const betAmount = ethers.parseEther("5");
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Arbitration test market", endTime);
       await predictionMarket.connect(user1).takePosition(0, true, betAmount);
@@ -1601,13 +1642,11 @@ describe("PredictionMarket", function () {
     });
 
     it("should allow market creator to proposeResolution", async function () {
-      const fee = ethers.parseEther("0.01");
       const userEndTime = (await time.latest()) + 7200;
       await predictionMarket.connect(user1).createUserMarket(
         "Creator arbitration test",
         userEndTime,
-        0,
-        { value: fee }
+        0
       );
       await time.increaseTo(userEndTime);
       await expect(
@@ -1759,9 +1798,12 @@ describe("PredictionMarket", function () {
       // Use signers[3] through signers[8] as 6 distinct challengers
       const challengers = signers.slice(3, 9);
 
-      // Deposit for all 6 challengers so they can interact
+      // Deposit USDT for all 6 challengers so they can interact
       for (const challenger of challengers) {
-        await predictionMarket.connect(challenger).deposit({ value: DEPOSIT_AMOUNT });
+        await mockUSDT.mint(challenger.address, INITIAL_USDT_BALANCE);
+        const pmAddress = await predictionMarket.getAddress();
+        await mockUSDT.connect(challenger).approve(pmAddress, INITIAL_USDT_BALANCE);
+        await predictionMarket.connect(challenger).deposit(DEPOSIT_AMOUNT);
       }
 
       await time.increaseTo(endTime);
@@ -1805,12 +1847,12 @@ describe("PredictionMarket", function () {
     });
   });
 
-  // ─── CTF-Specific Tests ────────────────────────────────────
+  // --- CTF-Specific Tests ---
   describe("CTF: splitPosition", function () {
     let endTime: number;
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Split test market", endTime);
     });
@@ -1866,7 +1908,7 @@ describe("PredictionMarket", function () {
     let endTime: number;
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Merge test market", endTime);
       // Split first to get tokens
@@ -1936,8 +1978,8 @@ describe("PredictionMarket", function () {
     const betAmount = ethers.parseEther("5");
 
     beforeEach(async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Transfer test market", endTime);
       await predictionMarket.connect(user1).takePosition(0, true, betAmount);
@@ -2024,13 +2066,13 @@ describe("PredictionMarket", function () {
 
   describe("CTF: Arbitrage Scenario", function () {
     it("should allow split -> sell one side -> merge remainder", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Arbitrage test", endTime);
 
-      // user1 splits 5 BNB -> 5 YES + 5 NO
+      // user1 splits 5 USDT -> 5 YES + 5 NO
       await predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("5"));
 
       const yesId = await predictionMarket.getYesTokenId(0);
@@ -2081,7 +2123,7 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle balanceOfBatch correctly", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Batch balance test", endTime);
 
@@ -2109,8 +2151,12 @@ describe("PredictionMarket", function () {
       await predictionMarket.setNFAContract(nfaSigner.address);
       endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Agent ERC1155 test", endTime);
-      await predictionMarket.connect(nfaSigner).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      // Setup nfaSigner with USDT
+      await mockUSDT.mint(nfaSigner.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(nfaSigner).approve(pmAddress, INITIAL_USDT_BALANCE);
+      await predictionMarket.connect(nfaSigner).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
     });
 
     it("should mint ERC1155 tokens to NFA contract on agentTakePosition", async function () {
@@ -2181,8 +2227,8 @@ describe("PredictionMarket", function () {
 
   describe("CTF: Mathematical Equivalence", function () {
     it("should produce same result as old pari-mutuel for pure takePosition scenario", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Math equivalence test", endTime);
@@ -2205,12 +2251,12 @@ describe("PredictionMarket", function () {
     });
 
     it("should handle split -> claim equivalence", async function () {
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Split claim equiv", endTime);
 
-      // Split 5 BNB -> 5 YES + 5 NO
+      // Split 5 USDT -> 5 YES + 5 NO
       await predictionMarket.connect(user1).splitPosition(0, ethers.parseEther("5"));
 
       await time.increaseTo(endTime);
@@ -2229,9 +2275,13 @@ describe("PredictionMarket", function () {
   describe("Round 4: Rounding dust verification (CTF)", function () {
     it("should verify dust remains in contract (not distributed more than pool)", async function () {
       const user3 = (await ethers.getSigners())[3];
-      await predictionMarket.connect(user1).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user2).deposit({ value: DEPOSIT_AMOUNT });
-      await predictionMarket.connect(user3).deposit({ value: DEPOSIT_AMOUNT });
+      await mockUSDT.mint(user3.address, INITIAL_USDT_BALANCE);
+      const pmAddress = await predictionMarket.getAddress();
+      await mockUSDT.connect(user3).approve(pmAddress, INITIAL_USDT_BALANCE);
+
+      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user2).deposit(DEPOSIT_AMOUNT);
+      await predictionMarket.connect(user3).deposit(DEPOSIT_AMOUNT);
 
       const endTime = (await time.latest()) + 3600;
       await predictionMarket.createMarket("Dust verification test", endTime);

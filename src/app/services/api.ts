@@ -85,6 +85,8 @@ interface RawMarket {
   market_type?: string
   marketType?: string
   options?: any[]
+  totalLiquidity?: number
+  total_liquidity?: number
 }
 
 function toIsoTime(value: unknown): string {
@@ -716,6 +718,7 @@ export interface Agent {
   mint_tx_hash?: string | null
   created_at: string
   last_trade_at: string | null
+  reputation_score?: number
 }
 
 export interface AgentDetail extends Agent {
@@ -796,9 +799,10 @@ export async function listAgentForRent(id: string, pricePerDay: number): Promise
   })
 }
 
-export async function buyAgent(id: string): Promise<{ success: boolean }> {
+export async function buyAgent(id: string, txHash?: string): Promise<{ success: boolean }> {
   return request(`/api/agents/${id}/buy`, {
     method: 'POST',
+    body: txHash ? JSON.stringify({ txHash }) : undefined,
   })
 }
 
@@ -906,6 +910,19 @@ export async function getAgentLearningMetrics(agentId: string): Promise<any> {
   return data.metrics
 }
 
+// --- Owner Learning ---
+
+export async function toggleLearnFromOwner(agentId: string, enabled: boolean): Promise<{ success: boolean; learnFromOwner: number }> {
+  return request<{ success: boolean; learnFromOwner: number }>(`/api/agents/${agentId}/learn-from-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  })
+}
+
+export async function getOwnerProfile(agentId: string): Promise<{ profile: any; influence: any; enabled: boolean }> {
+  return request<{ profile: any; influence: any; enabled: boolean }>(`/api/agents/${agentId}/owner-profile`)
+}
+
 // ============================================
 // User Market Creation API
 // ============================================
@@ -967,6 +984,24 @@ export async function getMarketCreationStats(): Promise<{
 export async function flagMarket(marketId: string): Promise<{ flagCount: number; status: string }> {
   return request(`/api/markets/${marketId}/flag`, {
     method: 'POST',
+  })
+}
+
+export async function fetchPendingMarkets(): Promise<Market[]> {
+  const data = await request<{ markets: RawMarket[] }>('/api/markets?status=pending_approval')
+  return (data.markets ?? []).map(normalizeMarket)
+}
+
+export async function approveMarket(marketId: string): Promise<{ success: boolean; message: string }> {
+  return request(`/api/markets/${marketId}/approve`, {
+    method: 'POST',
+  })
+}
+
+export async function rejectMarket(marketId: string, reason: string): Promise<{ success: boolean; message: string }> {
+  return request(`/api/markets/${marketId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   })
 }
 
@@ -1260,6 +1295,7 @@ export async function startCopyTrading(data: {
   copyPercentage: number
   maxPerTrade: number
   dailyLimit: number
+  onChain?: boolean
 }) {
   return request<{ follower: any }>('/api/copy-trading/start', {
     method: 'POST',
@@ -1279,6 +1315,7 @@ export async function updateCopySettings(data: {
   copyPercentage?: number
   maxPerTrade?: number
   dailyLimit?: number
+  onChain?: boolean
 }) {
   return request<{ follower: any }>('/api/copy-trading/settings', {
     method: 'PUT',
@@ -1302,6 +1339,17 @@ export async function getAgentEarnings(agentId: string) {
   return request<{ earnings: any[]; totalEarnings: number; unclaimed: number }>(
     `/api/copy-trading/earnings/${agentId}`
   )
+}
+
+export async function getPendingOnChainTrades() {
+  return request<{ trades: any[] }>('/api/copy-trading/pending-on-chain')
+}
+
+export async function confirmOnChainTrade(tradeId: string, txHash: string) {
+  return request<{ success: boolean; trade: any }>('/api/copy-trading/confirm-on-chain', {
+    method: 'POST',
+    body: JSON.stringify({ tradeId, txHash }),
+  })
 }
 
 export async function claimEarnings(agentId: string) {

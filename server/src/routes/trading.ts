@@ -1,6 +1,5 @@
 import { Router, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
-import { requireAgent } from './middleware/agentGate';
 import { getDb } from '../db';
 import { executeBuy, executeSell } from '../engine/matching';
 import { executeBuyMulti, executeSellMulti } from '../engine/matching-multi';
@@ -9,8 +8,8 @@ import { createNotification } from './notifications';
 
 const router = Router();
 
-// POST /api/orders — buy shares (requires agent)
-router.post('/', authMiddleware, requireAgent, async (req: AuthRequest, res: Response) => {
+// POST /api/orders — buy shares
+router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { marketId, side, amount, optionId } = req.body;
   const userAddress = req.userAddress!;
 
@@ -115,8 +114,8 @@ router.post('/', authMiddleware, requireAgent, async (req: AuthRequest, res: Res
   }
 });
 
-// POST /api/orders/sell — sell shares (requires agent)
-router.post('/sell', authMiddleware, requireAgent, async (req: AuthRequest, res: Response) => {
+// POST /api/orders/sell — sell shares
+router.post('/sell', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { marketId, side, shares, optionId } = req.body;
   const userAddress = req.userAddress!;
 

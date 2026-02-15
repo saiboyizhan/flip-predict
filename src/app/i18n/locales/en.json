@@ -17,7 +17,7 @@
     "toggleTheme": "Toggle Theme",
     "toggleMenu": "Toggle Navigation Menu",
     "myProfile": "My Profile",
-    "siteName": "Synapse",
+    "siteName": "Flip",
     "recentSearches": "Recent Searches",
     "removeSearch": "Remove",
     "clearHistory": "Clear All History"
@@ -66,8 +66,8 @@
     "title": "Prediction Agent (NFA)",
     "subtitle": "Record style. Trading advice. Authorized trading.",
     "mintAgent": "Mint Agent",
-    "mintTitle": "Mint Your Prediction Agent (NFA)",
-    "mintSubtitle": "Agent records your prediction style and provides personalized trading advice.",
+    "mintTitle": "Mint Your Trading Agent",
+    "mintSubtitle": "Your Agent observes and learns your trading habits, offers personalized advice, and can eventually trade on your behalf.",
     "agentName": "Agent Name",
     "agentNamePlaceholder": "Name your Agent...",
     "persona": "Agent Persona",
@@ -91,7 +91,7 @@
     "enterName": "Please enter Agent name",
     "selectStrategy": "Please select a strategy",
     "preview": "Live Preview",
-    "initialInfo": "Initial balance $1,000 · Observe mode · Upgradeable to advisory/auto-trade",
+    "initialInfo": "Initial balance $1,000 · Observe & Learn · Advise · Auto-trade",
     "noAgentYet": "No Agent yet? Mint one now!",
     "mintModalTitle": "Mint Your Prediction Agent",
     "nameYourAgent": "Name Your Agent",
@@ -184,6 +184,10 @@
     "subtitle": "Create a Yes/No prediction market and let the community forecast the outcome",
     "back": "Back",
     "creationFee": "Creation Fee",
+    "submissionType": "Submission",
+    "freeProposal": "Free Proposal",
+    "reviewStatus": "Review",
+    "adminReview": "Admin Review",
     "currentBalance": "Current Balance",
     "createdToday": "Created Today",
     "marketTitle": "Market Title",
@@ -204,9 +208,9 @@
     "daysHoursEnd": "Ends in {{days}}d {{hours}}h",
     "preview": "Preview",
     "dailyLimitReached": "Daily creation limit reached, try again tomorrow",
-    "insufficientBalance": "Insufficient balance, {{fee}} BNB required",
+    "insufficientBalance": "Insufficient balance, {{fee}} USDT required",
     "creating": "Creating...",
-    "createButton": "Create Market ({{fee}} BNB)",
+    "createButton": "Submit Proposal",
     "createSuccess": "Market created successfully!",
     "createFailed": "Creation failed",
     "marketTypeLabel": "Market Type",
@@ -220,7 +224,7 @@
     "minOptions": "At least 2 options required",
     "maxOptions": "Maximum 10 options",
     "optionLabelRequired": "All options must have a name",
-    "footer": "Fee {{fee}} BNB · Max {{max}} per day · Markets verified by community",
+    "footer": "Free to propose · Max {{max}} per day · Reviewed by admin before going live",
     "categories": {
       "four-meme": "Four.meme",
       "flap": "Flap",
@@ -268,6 +272,7 @@
   },
   "wallet": {
     "title": "Wallet",
+    "description": "Manage your funds and transactions",
     "connected": "Connected",
     "connectTitle": "Connect Your Wallet",
     "connectDesc": "Connect MetaMask or other Web3 wallets to start predicting",
@@ -277,7 +282,7 @@
     "connectButton": "Connect Wallet",
     "supportedWallets": "Supports MetaMask, WalletConnect, Coinbase Wallet and more",
     "platformBalance": "Platform Balance",
-    "bnbBalance": "BNB Balance",
+    "bnbBalance": "USDT Balance",
     "bscMainnet": "BSC Mainnet",
     "bscBep20": "BSC (BEP-20)",
     "totalWinnings": "Total Winnings",
@@ -313,15 +318,21 @@
     "manualApi": "Manual (API)",
     "depositToContract": "Deposit to Contract",
     "withdrawFromContract": "Withdraw from Contract",
-    "walletBnb": "Wallet BNB",
+    "walletBnb": "Wallet USDT",
     "contractBalanceLabel": "Contract Balance",
-    "insufficientBnb": "Insufficient BNB balance in wallet",
+    "insufficientBnb": "Insufficient USDT balance in wallet",
     "insufficientContractBalance": "Insufficient contract balance",
     "refreshBalance": "Refresh contract balance"
   },
+  "agents": {
+    "title": "AI Agents",
+    "description": "Deploy and manage your NFA agents"
+  },
   "auth": {
     "loginSuccess": "Login successful",
-    "signFailed": "Signature verification failed, please retry"
+    "signFailed": "Signature verification failed, please retry",
+    "connectRequired": "Connect Wallet",
+    "connectDescription": "Please connect your wallet to access this page"
   },
   "market": {
     "yes": "YES",
@@ -338,7 +349,8 @@
       "settled": "Settled",
       "pending": "Pending",
       "resolved": "Settled",
-      "settling": "Settling"
+      "settling": "Settling",
+      "expired": "Expired"
     },
     "noMarkets": "No Markets",
     "noMarketsDesc": "No prediction markets available in this category",
@@ -378,7 +390,20 @@
     "binary": "Binary",
     "multi": "Multi-Option",
     "selectOption": "Select an option",
-    "moreOptions": "+{{count}} more"
+    "moreOptions": "+{{count}} more",
+    "pendingApproval": "Pending Review",
+    "submitForReview": "Market submitted for admin review",
+    "approved": "Market approved",
+    "rejected": "Market rejected"
+  },
+  "admin": {
+    "pendingMarkets": "Pending Markets",
+    "approve": "Approve",
+    "reject": "Reject",
+    "rejectReason": "Rejection reason",
+    "loadFailed": "Failed to load pending markets",
+    "approveFailed": "Approve failed",
+    "rejectFailed": "Reject failed"
   },
   "orderbook": {
     "title": "Order Book",
@@ -418,7 +443,7 @@
     "sell": "Sell",
     "price": "Price",
     "currentPrice": "Current Price: {{price}}",
-    "amount": "Amount (BNB)",
+    "amount": "Amount (USDT)",
     "estShares": "Est. Shares",
     "shares": "{{count}} shares",
     "processing": "Processing...",
@@ -426,8 +451,8 @@
     "instantTrade": "Instant Trade",
     "enterAmount": "Please enter amount",
     "priceRange": "Price range: 0.01 ~ 0.99",
-    "limitBuySuccess": "Limit {{side}} order placed - {{amount}} BNB @ {{price}}",
-    "marketBuySuccess": "Market {{side}} filled - {{amount}} BNB",
+    "limitBuySuccess": "Limit {{side}} order placed - {{amount}} USDT @ {{price}}",
+    "marketBuySuccess": "Market {{side}} filled - {{amount}} USDT",
     "tradeFailed": "Trade failed",
     "insufficientBalance": "Insufficient balance, please deposit first"
   },
@@ -460,7 +485,7 @@
     "confirmSell": "Confirm Sell {{side}}",
     "onChainTrade": "On-Chain Trade",
     "contractBalance": "Contract Balance",
-    "amountBnb": "Amount (BNB)",
+    "amountBnb": "Amount (USDT)",
     "confirmingOnChain": "Confirming on-chain...",
     "confirmInWallet": "Confirm in wallet...",
     "onChainBuy": "On-Chain Buy {{side}}",
@@ -474,7 +499,7 @@
     "onChainConfirmed": "On-chain trade confirmed! {{side}} position taken.",
     "viewOnBscScan": "View on BSCScan",
     "invalidMarketId": "Invalid market ID for on-chain trade",
-    "insufficientContractBalance": "Insufficient contract balance. You have {{balance}} BNB deposited.",
+    "insufficientContractBalance": "Insufficient USDT balance. You have {{balance}} USDT.",
     "riskWarningTitle": "Risk Warning",
     "riskWarningMessage": "Prediction markets involve risk, and you may lose all of your invested capital. Please confirm you understand the risks before proceeding.",
     "riskAccept": "I Understand, Continue"
@@ -537,7 +562,8 @@
     "currentPrice": "Current Price",
     "sell": "Sell",
     "connectRequired": "Connect Wallet to View Portfolio",
-    "connectRequiredDesc": "Connect your wallet to see your positions, trade history, and PnL."
+    "connectRequiredDesc": "Connect your wallet to see your positions, trade history, and PnL.",
+    "description": "Track your active positions and trading history"
   },
   "notification": {
     "title": "Notifications",

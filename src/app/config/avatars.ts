@@ -4,7 +4,7 @@ export interface PresetAvatar {
   src: string
 }
 
-export const PRESET_AVATARS: PresetAvatar[] = Array.from({ length: 12 }, (_, i) => ({
+export const PRESET_AVATARS: PresetAvatar[] = Array.from({ length: 4 }, (_, i) => ({
   id: i,
   label: `Avatar ${i + 1}`,
   src: `/avatars/avatar_${i}.svg`,

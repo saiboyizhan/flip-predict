@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { decrypt } from '../utils/crypto';
-import { generateDecisions, comboStrategy, StrategyType, AgentDecision } from './agent-strategy';
+import { generateDecisions, comboStrategy, applyOwnerInfluence, StrategyType, AgentDecision } from './agent-strategy';
+import { OwnerInfluence, formatOwnerInfluenceForLlm } from './agent-owner-learning';
 
 interface LlmConfig {
   agent_id: string;
@@ -32,16 +33,22 @@ async function getAgentLlmConfig(db: Pool, agentId: string): Promise<LlmConfig |
 function buildMarketPrompt(
   markets: { id: string; title: string; yes_price: number; category: string }[],
   strategy: string,
-  walletBalance: number
+  walletBalance: number,
+  ownerInfluence?: OwnerInfluence | null
 ): string {
   const marketList = markets
     .slice(0, 20)
     .map((m, i) => `${i + 1}. [${m.id}] "${m.title}" (YES: ${m.yes_price.toFixed(2)}, NO: ${(1 - m.yes_price).toFixed(2)}, Category: ${m.category})`)
     .join('\n');
 
+  let ownerContext = '';
+  if (ownerInfluence) {
+    ownerContext = `\n\n${formatOwnerInfluenceForLlm(ownerInfluence)}\nAdapt your decisions to align with your owner's trading style while maintaining your core strategy.\n`;
+  }
+
   return `You are a prediction market trading agent with strategy "${strategy}".
 Your wallet balance is $${walletBalance.toFixed(2)}.
-
+${ownerContext}
 Active markets:
 ${marketList}
 
@@ -155,20 +162,28 @@ export async function generateLlmDecisions(
   agentId: string,
   strategy: StrategyType,
   walletBalance: number,
-  comboWeights?: Record<string, number> | null
+  comboWeights?: Record<string, number> | null,
+  ownerInfluence?: OwnerInfluence | null
 ): Promise<AgentDecision[]> {
   // Check for LLM config
   const config = await getAgentLlmConfig(db, agentId);
   if (!config) {
     // No LLM config -- fallback to rule-based
+    let decisions: AgentDecision[];
     if (comboWeights) {
       try {
-        return await comboStrategy(db, comboWeights, walletBalance);
+        decisions = await comboStrategy(db, comboWeights, walletBalance);
       } catch {
-        return await generateDecisions(db, strategy, walletBalance);
+        decisions = await generateDecisions(db, strategy, walletBalance);
       }
+    } else {
+      decisions = await generateDecisions(db, strategy, walletBalance);
     }
-    return await generateDecisions(db, strategy, walletBalance);
+    // Apply owner influence to rule-based decisions
+    if (ownerInfluence) {
+      return applyOwnerInfluence(decisions, ownerInfluence);
+    }
+    return decisions;
   }
 
   try {
@@ -181,7 +196,7 @@ export async function generateLlmDecisions(
 
     if (markets.length === 0 || walletBalance < 1) return [];
 
-    const userPrompt = buildMarketPrompt(markets, strategy, walletBalance);
+    const userPrompt = buildMarketPrompt(markets, strategy, walletBalance, ownerInfluence);
 
     let responseText: string;
 
@@ -233,14 +248,20 @@ export async function generateLlmDecisions(
   }
 
   // Fallback to rule-based
+  let fallbackDecisions: AgentDecision[];
   if (comboWeights) {
     try {
-      return await comboStrategy(db, comboWeights, walletBalance);
+      fallbackDecisions = await comboStrategy(db, comboWeights, walletBalance);
     } catch {
-      return await generateDecisions(db, strategy, walletBalance);
+      fallbackDecisions = await generateDecisions(db, strategy, walletBalance);
     }
+  } else {
+    fallbackDecisions = await generateDecisions(db, strategy, walletBalance);
   }
-  return await generateDecisions(db, strategy, walletBalance);
+  if (ownerInfluence) {
+    return applyOwnerInfluence(fallbackDecisions, ownerInfluence);
+  }
+  return fallbackDecisions;
 }
 
 export async function generateLlmSuggestion(

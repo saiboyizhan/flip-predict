@@ -2,10 +2,11 @@
 
 import { motion } from "motion/react";
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { BarChart3, FileText, Scale, Info, Bot, User, AlertTriangle, Activity, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { useChainId, usePublicClient, useWriteContract } from "wagmi";
 import { MarketHeader } from "./MarketHeader";
 import { MarketCountdown } from "./MarketCountdown";
 import { ResolutionBadge } from "./ResolutionBadge";
@@ -21,6 +22,8 @@ import { challengeSettlement, finalizeSettlement, getSettlement, proposeSettleme
 import type { MarketActivity } from "@/app/services/api";
 import type { Market as MarketType } from "@/app/types/market.types";
 import { useAuthStore } from "@/app/stores/useAuthStore";
+import { PREDICTION_MARKET_ABI, PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
+import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 interface MarketOptionDisplay {
   id: string;
@@ -80,7 +83,7 @@ function truncateAddress(addr: string): string {
 
 export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const authAddress = useAuthStore((s) => s.address);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isAdmin = useAuthStore((s) => s.isAdmin);
@@ -111,21 +114,21 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   const effectiveStatusInfo = (() => {
     if (isResolved) {
       const outcomeLabel = market.resolvedOutcome ? ` (${market.resolvedOutcome})` : "";
-      return { label: `Settled${outcomeLabel}`, className: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30" };
+      return { label: `${t("market.status.resolved")}${outcomeLabel}`, className: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30" };
     }
     if (isPending) {
-      return { label: "Pending Settlement", className: "bg-amber-500/20 text-amber-400 border border-amber-500/30" };
+      return { label: t("market.status.pending"), className: "bg-amber-500/20 text-amber-400 border border-amber-500/30" };
     }
     const now = Date.now();
     const end = new Date(market.endTime).getTime();
     const diff = end - now;
     if (diff <= 0) {
-      return { label: "Expired", className: "bg-amber-500/20 text-amber-400 border border-amber-500/30" };
+      return { label: t("market.status.expired"), className: "bg-amber-500/20 text-amber-400 border border-amber-500/30" };
     }
     if (diff < 24 * 60 * 60 * 1000) {
-      return { label: "Expiring Soon", className: "bg-orange-500/20 text-orange-400 border border-orange-500/30 animate-pulse" };
+      return { label: t("market.status.expiring"), className: "bg-orange-500/20 text-orange-400 border border-orange-500/30 animate-pulse" };
     }
-    return { label: "Trading", className: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" };
+    return { label: t("market.status.active"), className: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" };
   })();
 
   const refreshSettlement = useCallback(() => {
@@ -168,16 +171,16 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
     settlement?.outcome ?? market.resolvedOutcome;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
       {/* Left Column */}
-      <div className="lg:col-span-8 space-y-6">
+      <div className="lg:col-span-8 space-y-4 sm:space-y-6">
         {/* Header */}
         <MarketHeader market={market} />
 
         {/* Status + Countdown + Resolution Badge */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Lifecycle status badge */}
-          <span className={`flex items-center gap-1.5 px-4 py-2 text-sm font-bold ${effectiveStatusInfo.className}`}>
+          <span className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold ${effectiveStatusInfo.className}`}>
             {effectiveStatusInfo.label}
           </span>
           <MarketCountdown
@@ -309,53 +312,40 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
         )}
 
         {/* Price Chart */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-card border border-border p-8"
-        >
-          <div className="flex items-center gap-2 mb-6">
+        <div className="bg-card border border-border p-4 sm:p-5">
+          <div className="flex items-center gap-2 mb-4 sm:mb-6">
             <BarChart3 className="w-5 h-5 text-blue-400" />
-            <h2 className="text-xl font-bold text-foreground">{t('market.probTrend')}</h2>
+            <h2 className="text-sm sm:text-base font-bold text-foreground">{t('market.probTrend')}</h2>
           </div>
-          <PriceChart marketId={market.id} marketType={market.marketType} options={market.options} />
-        </motion.div>
+          <div className="w-full overflow-x-auto">
+            <PriceChart marketId={market.id} marketType={market.marketType} options={market.options} />
+          </div>
+        </div>
 
         {/* Description */}
         {market.description && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-card border border-border p-8"
-          >
+          <div className="bg-card border border-border p-4 sm:p-5">
             <div className="flex items-center gap-2 mb-4">
               <FileText className="w-5 h-5 text-blue-400" />
-              <h2 className="text-xl font-bold text-foreground">{t('market.description')}</h2>
+              <h2 className="text-sm sm:text-base font-bold text-foreground">{t('market.description')}</h2>
             </div>
-            <p className="text-muted-foreground leading-relaxed">
+            <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
               {market.description}
             </p>
-          </motion.div>
+          </div>
         )}
 
         {/* Resolution Rules */}
         {market.resolution && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-card border border-border p-8"
-          >
+          <div className="bg-card border border-border p-4 sm:p-5">
             <div className="flex items-center gap-2 mb-4">
               <Scale className="w-5 h-5 text-blue-400" />
-              <h2 className="text-xl font-bold text-foreground">{t('market.resolutionRules')}</h2>
+              <h2 className="text-sm sm:text-base font-bold text-foreground">{t('market.resolutionRules')}</h2>
             </div>
-            <p className="text-muted-foreground leading-relaxed">
+            <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
               {market.resolution}
             </p>
-          </motion.div>
+          </div>
         )}
 
         {/* Recent Activity */}
@@ -372,7 +362,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
 
       {/* Right Column */}
       <div className="lg:col-span-4">
-        <div className="lg:sticky lg:top-24 space-y-6">
+        <div className="lg:sticky lg:top-24 space-y-4 sm:space-y-6">
           {/* Low liquidity inline warning near trade panel */}
           {isLowLiquidity && !isResolved && (
             <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-400">
@@ -440,14 +430,21 @@ function SettlementActionPanel({
   isAdmin,
   onUpdated,
 }: SettlementActionPanelProps) {
+  const chainId = useChainId();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
   const isMulti = market.marketType === "multi" && Array.isArray(market.options) && market.options.length > 0;
   const [proposeOutcome, setProposeOutcome] = useState<"yes" | "no">("yes");
-  const [proposeWinningOptionId, setProposeWinningOptionId] = useState<string>(market.options?.[0]?.id ?? "");
+  const [proposeWinningOptionId, setProposeWinningOptionId] = useState<string>(
+    (market.options && market.options.length > 0) ? market.options[0].id : ""
+  );
   const [proposeTxHash, setProposeTxHash] = useState("");
   const [proposeEvidenceUrl, setProposeEvidenceUrl] = useState("");
   const [challengeReason, setChallengeReason] = useState("");
   const [finalizeOutcome, setFinalizeOutcome] = useState<"yes" | "no">("yes");
-  const [finalizeWinningOptionId, setFinalizeWinningOptionId] = useState<string>(market.options?.[0]?.id ?? "");
+  const [finalizeWinningOptionId, setFinalizeWinningOptionId] = useState<string>(
+    (market.options && market.options.length > 0) ? market.options[0].id : ""
+  );
   const [finalizeTxHash, setFinalizeTxHash] = useState("");
   const [busy, setBusy] = useState<"" | "propose" | "challenge" | "finalize">("");
 
@@ -473,6 +470,7 @@ function SettlementActionPanel({
   const challengeOpen = challengeWindowEndsAt > Date.now();
   const proposalId = String(activeProposal?.id ?? "");
   const proposalOwner = String(activeProposal?.proposed_by ?? "").toLowerCase();
+  const proposalResolveTxHash = String(activeProposal?.resolve_tx_hash ?? "").trim();
   const canChallenge = Boolean(
     isAuthenticated &&
     activeProposal &&
@@ -481,17 +479,32 @@ function SettlementActionPanel({
     authAddress.toLowerCase() !== proposalOwner,
   );
 
+  useEffect(() => {
+    if (proposalResolveTxHash) {
+      setFinalizeTxHash(proposalResolveTxHash);
+    }
+  }, [proposalResolveTxHash]);
+
+  async function syncFinalizeWithTxHash(resolveTxHash: string) {
+    await finalizeSettlement(market.id, {
+      proposalId,
+      outcome: isMulti ? undefined : finalizeOutcome,
+      winningOptionId: isMulti ? finalizeWinningOptionId : undefined,
+      resolveTxHash,
+    });
+  }
+
   async function handlePropose() {
     if (!isAuthenticated) {
       toast.error("Please connect wallet first");
       return;
     }
     if (!/^0x[a-fA-F0-9]{64}$/.test(proposeTxHash.trim())) {
-      toast.error("请输入有效的链上 resolve/finalize 交易哈希");
+      toast.error("Invalid tx hash (must be 0x + 64 hex chars)");
       return;
     }
     if (isMulti && !proposeWinningOptionId) {
-      toast.error("请选择获胜选项");
+      toast.error("Please select a winning option");
       return;
     }
 
@@ -542,32 +555,94 @@ function SettlementActionPanel({
       toast.error("Please connect wallet first");
       return;
     }
+    if (!isAdmin) {
+      toast.error("Finalize is admin-only");
+      return;
+    }
+    if (!publicClient) {
+      toast.error("Wallet client unavailable");
+      return;
+    }
     if (!proposalId) {
       toast.error("No active proposal to finalize");
       return;
     }
-    if (!/^0x[a-fA-F0-9]{64}$/.test(finalizeTxHash.trim())) {
-      toast.error("请输入 finalizeResolution 对应的链上交易哈希");
+    let onChainMarketId: bigint;
+    try {
+      onChainMarketId = BigInt(market.onChainMarketId);
+    } catch {
+      toast.error("Invalid on-chain market ID");
       return;
     }
     if (isMulti && !finalizeWinningOptionId) {
-      toast.error("请选择获胜选项");
+      toast.error("Please select a winning option");
       return;
     }
 
     setBusy("finalize");
     try {
-      await finalizeSettlement(market.id, {
-        proposalId,
-        outcome: isMulti ? undefined : finalizeOutcome,
-        winningOptionId: isMulti ? finalizeWinningOptionId : undefined,
-        resolveTxHash: finalizeTxHash.trim(),
+      const txHash = await writeContractAsync({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: "finalizeResolution",
+        args: [onChainMarketId, finalizeOutcome === "yes"],
       });
-      toast.success("Market finalized");
-      setFinalizeTxHash("");
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      if (receipt.status !== "success") {
+        throw new Error("On-chain finalize transaction reverted");
+      }
+
+      setFinalizeTxHash(txHash);
+      await syncFinalizeWithTxHash(txHash);
+      const scanUrl = getBscScanUrl(chainId);
+      toast.success("Market finalized", {
+        action: {
+          label: "View on BscScan",
+          onClick: () => window.open(`${scanUrl}/tx/${txHash}`, "_blank"),
+        },
+      });
       onUpdated();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to finalize");
+      const message = err instanceof Error ? err.message : "Failed to finalize";
+      toast.error(`${message}. If on-chain tx already succeeded, use "Sync Existing TxHash".`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleFinalizeSync() {
+    if (!isAuthenticated) {
+      toast.error("Please connect wallet first");
+      return;
+    }
+    if (!isAdmin) {
+      toast.error("Finalize is admin-only");
+      return;
+    }
+    if (!proposalId) {
+      toast.error("No active proposal to finalize");
+      return;
+    }
+    const txHash = finalizeTxHash.trim();
+    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      toast.error("Invalid tx hash (must be 0x + 64 hex chars)");
+      return;
+    }
+
+    setBusy("finalize");
+    try {
+      await syncFinalizeWithTxHash(txHash);
+      const scanUrl = getBscScanUrl(chainId);
+      toast.success("Settlement synced", {
+        action: {
+          label: "View on BscScan",
+          onClick: () => window.open(`${scanUrl}/tx/${txHash}`, "_blank"),
+        },
+      });
+      onUpdated();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to sync settlement");
     } finally {
       setBusy("");
     }
@@ -577,16 +652,16 @@ function SettlementActionPanel({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-card border border-border p-6 space-y-4"
+      className="bg-card border border-border p-4 sm:p-6 space-y-4"
     >
       <div>
-        <h3 className="text-base font-bold text-foreground">Arbitration Actions</h3>
+        <h3 className="text-sm sm:text-base font-bold text-foreground">Arbitration Actions</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          提案、挑战、终裁。finalize 需要管理员权限，且需提交链上 finalizeResolution 交易哈希。
+          提案、挑战、终裁。管理员终裁会自动发送链上 finalizeResolution 交易并完成后端同步。
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {!isMulti ? (
           <select
             value={proposeOutcome}
@@ -617,13 +692,13 @@ function SettlementActionPanel({
           value={proposeEvidenceUrl}
           onChange={(e) => setProposeEvidenceUrl(e.target.value)}
           placeholder="Evidence URL (optional)"
-          className="bg-input-background border border-border text-foreground text-sm py-2 px-3 md:col-span-2"
+          className="bg-input-background border border-border text-foreground text-xs sm:text-sm py-2 px-3 sm:col-span-2"
         />
       </div>
       <button
         onClick={handlePropose}
         disabled={busy !== "" || !isAuthenticated}
-        className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold disabled:opacity-50"
+        className="w-full sm:w-auto px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold disabled:opacity-50"
       >
         {busy === "propose" ? "Submitting..." : "Submit Proposal"}
       </button>
@@ -679,7 +754,7 @@ function SettlementActionPanel({
                 <input
                   value={finalizeTxHash}
                   onChange={(e) => setFinalizeTxHash(e.target.value)}
-                  placeholder="finalizeResolution tx hash"
+                  placeholder="finalizeResolution tx hash (0x...)"
                   className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
                 />
               </div>
@@ -688,7 +763,14 @@ function SettlementActionPanel({
                 disabled={busy !== "" || !isAuthenticated || challengeOpen}
                 className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold disabled:opacity-50"
               >
-                {busy === "finalize" ? "Finalizing..." : "Finalize (Admin)"}
+                {busy === "finalize" ? "Finalizing..." : "Finalize On-Chain (Admin)"}
+              </button>
+              <button
+                onClick={handleFinalizeSync}
+                disabled={busy !== "" || !isAuthenticated}
+                className="px-4 py-2 bg-zinc-600 hover:bg-zinc-500 text-white text-sm font-semibold disabled:opacity-50"
+              >
+                {busy === "finalize" ? "Syncing..." : "Sync Existing TxHash (Backend only)"}
               </button>
             </>
           ) : (
@@ -707,12 +789,7 @@ function RecentActivitySection({ activity }: { activity: MarketActivity[] }) {
   if (activity.length === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.35 }}
-      className="bg-card border border-border p-6 rounded-xl"
-    >
+    <div className="bg-card border border-border p-6 rounded-xl">
       <div className="flex items-center gap-2 mb-4">
         <Activity className="w-5 h-5 text-blue-400" />
         <h2 className="text-lg font-bold text-foreground">Recent Activity</h2>
@@ -761,13 +838,13 @@ function RecentActivitySection({ activity }: { activity: MarketActivity[] }) {
           </div>
         ))}
       </div>
-    </motion.div>
+    </div>
   );
 }
 
 /** Related Markets Section */
 function RelatedMarketsSection({ markets }: { markets: MarketType[] }) {
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
 
   // Map MarketType to the MarketCard's Market interface
   const toCardMarket = (m: MarketType) => ({
@@ -788,12 +865,7 @@ function RelatedMarketsSection({ markets }: { markets: MarketType[] }) {
   });
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.5 }}
-      className="space-y-4"
-    >
+    <div className="space-y-4">
       <h2 className="text-lg font-bold text-foreground">Related Markets</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {markets.map((m) => (
@@ -805,6 +877,6 @@ function RelatedMarketsSection({ markets }: { markets: MarketType[] }) {
           />
         ))}
       </div>
-    </motion.div>
+    </div>
   );
 }

@@ -607,60 +607,38 @@ CREATE TABLE IF NOT EXISTS agent_earnings (
 CREATE INDEX IF NOT EXISTS idx_agent_earnings_agent ON agent_earnings(agent_id);
 
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS combo_weights JSONB DEFAULT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS learn_from_owner INTEGER DEFAULT 0;
 
+-- Phase 13: On-Chain Copy Trading
 -- ============================================
--- Swarm Intelligence: History + Verification + Evolution
--- ============================================
-CREATE TABLE IF NOT EXISTS swarm_analyses (
-  id SERIAL PRIMARY KEY,
-  token_name TEXT NOT NULL,
-  token_address TEXT,
-  chain TEXT,
-  category TEXT,
-  team_agents TEXT[] NOT NULL,
-  team_weights INT[] NOT NULL,
-  initial_scores JSONB NOT NULL DEFAULT '{}',
-  revised_scores JSONB NOT NULL DEFAULT '{}',
-  discussion_messages JSONB NOT NULL DEFAULT '[]',
-  initial_consensus INT NOT NULL,
-  final_consensus INT NOT NULL,
-  price_at_analysis NUMERIC,
-  price_after_24h NUMERIC,
-  price_change_pct NUMERIC,
-  direction_correct BOOLEAN,
-  verified_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_swarm_analyses_token ON swarm_analyses(token_name, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_swarm_analyses_unverified ON swarm_analyses(verified_at) WHERE verified_at IS NULL AND price_at_analysis IS NOT NULL;
+ALTER TABLE agent_followers ADD COLUMN IF NOT EXISTS on_chain INTEGER DEFAULT 0;
+ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS on_chain INTEGER DEFAULT 0;
+ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS tx_hash TEXT;
 
-CREATE TABLE IF NOT EXISTS swarm_agent_scores (
-  id SERIAL PRIMARY KEY,
-  analysis_id INT NOT NULL REFERENCES swarm_analyses(id) ON DELETE CASCADE,
-  agent_id TEXT NOT NULL,
-  initial_score INT NOT NULL,
-  revised_score INT NOT NULL,
-  findings TEXT,
-  direction_correct BOOLEAN
-);
-CREATE INDEX IF NOT EXISTS idx_swarm_agent_scores_analysis ON swarm_agent_scores(analysis_id);
-CREATE INDEX IF NOT EXISTS idx_swarm_agent_scores_agent ON swarm_agent_scores(agent_id);
-
-CREATE TABLE IF NOT EXISTS swarm_agent_stats (
-  agent_id TEXT PRIMARY KEY,
-  total_analyses INT NOT NULL DEFAULT 0,
-  correct_predictions INT NOT NULL DEFAULT 0,
-  accuracy NUMERIC NOT NULL DEFAULT 0,
-  avg_initial_score NUMERIC DEFAULT 50,
-  avg_revised_score NUMERIC DEFAULT 50,
-  avg_score_shift NUMERIC DEFAULT 0,
-  category_accuracy JSONB NOT NULL DEFAULT '{}',
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Bug fix: Store rejection reason in a dedicated column instead of appending to description
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 
 -- Migration: add missing columns to copy_trades for existing databases
 ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS price DOUBLE PRECISION;
 ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open';
+
+-- ============================================
+-- Agent Owner Learning Profile (观察学习 owner 交易)
+-- ============================================
+CREATE TABLE IF NOT EXISTS agent_owner_profile (
+  agent_id TEXT PRIMARY KEY REFERENCES agents(id),
+  owner_address TEXT NOT NULL,
+  total_trades INTEGER DEFAULT 0,
+  yes_ratio DOUBLE PRECISION DEFAULT 0.5,
+  category_weights JSONB DEFAULT '{}',
+  avg_amount DOUBLE PRECISION DEFAULT 0,
+  risk_score DOUBLE PRECISION DEFAULT 0.5,
+  contrarian_score DOUBLE PRECISION DEFAULT 0,
+  win_rate DOUBLE PRECISION DEFAULT 0,
+  top_market_ids JSONB DEFAULT '[]',
+  last_synced_order_at BIGINT DEFAULT 0,
+  updated_at BIGINT
+);
 
 -- Migration: prevent negative balances via CHECK constraints
 DO $$ BEGIN

@@ -1,9 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
-
-const ADMIN_ADDRESSES: string[] = process.env.ADMIN_ADDRESSES
-  ? process.env.ADMIN_ADDRESSES.split(',').map(addr => addr.trim().toLowerCase())
-  : [];
+import { ADMIN_ADDRESSES } from '../../config';
 
 export function adminMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
   const userAddress = req.userAddress;
@@ -12,7 +9,7 @@ export function adminMiddleware(req: AuthRequest, res: Response, next: NextFunct
     return;
   }
 
-  if (!ADMIN_ADDRESSES.includes(userAddress.toLowerCase())) {
+  if (!ADMIN_ADDRESSES.has(userAddress.toLowerCase())) {
     res.status(403).json({ error: 'Admin access required' });
     return;
   }

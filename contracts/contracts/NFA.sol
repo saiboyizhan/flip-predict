@@ -61,7 +61,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     event ProfileUpdated(uint256 indexed tokenId);
 
     // ─── Constructor ────────────────────────────────────────────
-    constructor() BAP578Base("NFA Prediction Agent", "NFA") {}
+    constructor(address _usdtToken) BAP578Base("NFA Prediction Agent", "NFA", _usdtToken) {}
 
     // ═══════════════════════════════════════════════════════════════
     // PREDICTION PROFILE
@@ -125,6 +125,8 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     }
 
     /// @notice Execute a trade from agent's balance (owner or authorized caller)
+    /// @dev If value > 0, transfers USDT from agent balance to target before executing call.
+    ///      The call itself is executed without native ETH value.
     function executeAgentTrade(
         uint256 tokenId,
         address target,
@@ -159,7 +161,13 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         _agentBalances[tokenId] -= value;
         totalAgentBalances -= value;
 
-        (bool success, bytes memory result) = target.call{value: value}(data);
+        // Transfer USDT to target if value > 0
+        if (value > 0) {
+            require(usdtToken.transfer(target, value), "USDT transfer failed");
+        }
+
+        // Execute the call (no native ETH value)
+        (bool success, bytes memory result) = target.call(data);
         require(success, "Trade execution failed");
 
         emit AgentTradeExecuted(tokenId, target, value);
@@ -355,7 +363,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     event AgentRefundViaPM(uint256 indexed tokenId, uint256 indexed marketId);
     event AgentWithdrewFromPM(uint256 indexed tokenId, uint256 amount);
 
-    /// @notice Deposit agent's BNB into PredictionMarket balance (so agent can trade)
+    /// @notice Deposit agent's USDT into PredictionMarket balance (so agent can trade)
     function depositToPredictionMarket(uint256 tokenId, uint256 amount)
         external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
     {
@@ -364,8 +372,10 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         require(_agentBalances[tokenId] >= amount, "Insufficient agent balance");
         _agentBalances[tokenId] -= amount;
         totalAgentBalances -= amount;
-        (bool success, ) = predictionMarket.call{value: amount}(
-            abi.encodeWithSignature("deposit()")
+        // Approve PM to pull USDT, then call deposit(amount)
+        require(usdtToken.approve(predictionMarket, amount), "USDT approve failed");
+        (bool success, ) = predictionMarket.call(
+            abi.encodeWithSignature("deposit(uint256)", amount)
         );
         require(success, "Deposit failed");
         predictionMarketBalances[tokenId] += amount;
@@ -381,7 +391,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         require(amount > 0, "Amount must be > 0");
         require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
 
-        uint256 beforeBalance = address(this).balance;
+        uint256 beforeBalance = usdtToken.balanceOf(address(this));
         predictionMarketBalances[tokenId] -= amount;
         totalAllocatedPredictionMarketBalance -= amount;
 
@@ -389,7 +399,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
             abi.encodeWithSignature("withdraw(uint256)", amount)
         );
         require(success, "Withdraw failed");
-        require(address(this).balance >= beforeBalance + amount, "Withdraw amount mismatch");
+        require(usdtToken.balanceOf(address(this)) >= beforeBalance + amount, "Withdraw amount mismatch");
 
         _agentBalances[tokenId] += amount;
         totalAgentBalances += amount;

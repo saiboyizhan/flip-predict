@@ -38,7 +38,7 @@ export default defineConfig({
             '@radix-ui/react-progress',
           ],
           'vendor-charts': ['recharts'],
-          'vendor-web3': ['wagmi', 'viem', '@rainbow-me/rainbowkit'],
+          'vendor-web3': ['wagmi', 'viem', '@reown/appkit', '@reown/appkit-adapter-wagmi'],
           'vendor-motion': ['motion'],
         },
       },

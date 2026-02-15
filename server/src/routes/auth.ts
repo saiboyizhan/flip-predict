@@ -3,16 +3,10 @@ import { ethers } from 'ethers';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { getDb } from '../db';
-import { JWT_SECRET } from '../config';
+import { JWT_SECRET, ADMIN_ADDRESSES, JWT_EXPIRATION } from '../config';
 
 const router = Router();
 const DEFAULT_INITIAL_BALANCE = 0;
-const ADMIN_ADDRESSES = new Set(
-  (process.env.ADMIN_ADDRESSES || '')
-    .split(',')
-    .map((addr) => addr.trim().toLowerCase())
-    .filter(Boolean),
-);
 
 function getInitialSignupBalance(): number {
   const raw = process.env.INITIAL_SIGNUP_BALANCE;
@@ -107,7 +101,11 @@ router.post('/verify', async (req: Request, res: Response) => {
     const isAdmin = ADMIN_ADDRESSES.has(normalizedAddress);
 
     // Generate JWT
-    const token = jwt.sign({ address: normalizedAddress, isAdmin }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign(
+      { address: normalizedAddress, isAdmin },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRATION } as jwt.SignOptions
+    );
 
     const balance = (await db.query('SELECT * FROM balances WHERE user_address = $1', [normalizedAddress])).rows[0] as any;
     const safeBalance = Number(balance?.available ?? getInitialSignupBalance()) || 0;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { ShoppingCart, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getAgentMarketplace } from "@/app/services/api";
@@ -9,7 +9,7 @@ import { AgentCard } from "./AgentCard";
 
 export function AgentMarketplace() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"sale" | "rent">("sale");

@@ -1,8 +1,15 @@
 node_modules/
 dist/
 .env
+server/.env
+contracts/.env.contracts
 *.log
 .DS_Store
+__pycache__/
+*.pyc
+server/data.db
+server/data.db-shm
+server/data.db-wal
 contracts/artifacts/
 contracts/cache/
 contracts/typechain-types/

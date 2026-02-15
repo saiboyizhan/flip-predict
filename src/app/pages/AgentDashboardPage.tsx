@@ -1,7 +1,10 @@
 import { motion } from "motion/react";
+import { useTranslation } from "react-i18next";
 import { AgentDashboard } from "../components/agent/AgentDashboard";
 
 export default function AgentDashboardPage() {
+  const { t } = useTranslation();
+
   return (
     <div className="relative min-h-[80vh]">
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -11,8 +14,8 @@ export default function AgentDashboardPage() {
           transition={{ duration: 0.5 }}
           className="mb-6"
         >
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">AI Agents</h1>
-          <p className="text-sm text-muted-foreground mt-1">Deploy and manage your NFA agents</p>
+          <h1 className="text-lg sm:text-xl font-bold text-foreground">{t('agents.title')}</h1>
+          <p className="text-xs text-muted-foreground mt-1">{t('agents.description')}</p>
         </motion.div>
         <AgentDashboard />
       </div>

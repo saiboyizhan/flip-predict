@@ -1,5 +1,7 @@
-import { getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { http, createConfig } from "wagmi";
 import { defineChain } from "viem";
+import { createAppKit } from "@reown/appkit/react";
+import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 
 const bsc = defineChain({
   id: 56,
@@ -26,15 +28,38 @@ const bscTestnet = defineChain({
   testnet: true,
 });
 
-const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
-if (!walletConnectProjectId || walletConnectProjectId === "YOUR_WALLETCONNECT_PROJECT_ID") {
+const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
+if (!projectId || projectId === "YOUR_WALLETCONNECT_PROJECT_ID") {
   console.warn(
     "[wagmi] VITE_WALLETCONNECT_PROJECT_ID is not configured. WalletConnect will not work. Get one at https://cloud.walletconnect.com"
   );
 }
 
-export const config = getDefaultConfig({
-  appName: "链上预测",
-  projectId: walletConnectProjectId,
-  chains: [bsc, bscTestnet],
+const chains = [bsc, bscTestnet] as const;
+
+const wagmiAdapter = new WagmiAdapter({
+  projectId,
+  networks: chains,
+  transports: {
+    [bsc.id]: http("https://bsc-dataseed.binance.org/"),
+    [bscTestnet.id]: http("https://data-seed-prebsc-1-s1.binance.org:8545/"),
+  },
 });
+
+createAppKit({
+  adapters: [wagmiAdapter],
+  networks: chains,
+  projectId,
+  metadata: {
+    name: "Flip Prediction Market",
+    description: "AI-Powered Prediction Market on BSC",
+    url: typeof window !== "undefined" ? window.location.origin : "https://flip.market",
+    icons: [],
+  },
+  themeMode: "dark",
+  themeVariables: {
+    "--w3m-accent": "#3B82F6",
+  },
+});
+
+export const config = wagmiAdapter.wagmiConfig;

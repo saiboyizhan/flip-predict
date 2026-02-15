@@ -75,7 +75,7 @@ router.post('/claim/:id', authMiddleware, async (req: AuthRequest, res: Response
         userAddress: req.userAddress!,
         type: 'system',
         title: 'Reward Claimed',
-        message: `You claimed a ${reward.type} reward of ${reward.amount} BNB`,
+        message: `You claimed a ${reward.type} reward of ${reward.amount} USDT`,
         metadata: { rewardId: reward.id, amount: reward.amount, type: reward.type },
       });
     } catch (notifyErr) {
@@ -190,7 +190,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
     }
 
     const referralId = crypto.randomUUID();
-    const rewardAmount = 10; // 10 BNB referral bonus
+    const rewardAmount = 10; // 10 USDT referral bonus
     const now = Date.now();
 
     // Create referral record
@@ -208,7 +208,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
 
     // Create reward for referee (sign-up bonus)
     const refereeRewardId = crypto.randomUUID();
-    const refereeBonus = 5; // 5 BNB sign-up bonus
+    const refereeBonus = 5; // 5 USDT sign-up bonus
     await client.query(`
       INSERT INTO rewards (id, user_address, type, amount, status, created_at)
       VALUES ($1, $2, 'referral', $3, 'pending', $4)
@@ -223,7 +223,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
         userAddress: referrerAddress,
         type: 'system',
         title: 'New Referral',
-        message: `Someone used your referral code! You earned ${rewardAmount} BNB reward.`,
+        message: `Someone used your referral code! You earned ${rewardAmount} USDT reward.`,
         metadata: { referralId, refereeAddress },
       });
     } catch (notifyErr) {

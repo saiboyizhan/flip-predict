@@ -16,7 +16,6 @@ Chain must be `BSC` or `opBNB`.
 - Chain:
 - PredictionMarket contract address:
 - NFA contract address:
-- SwarmConsensus contract address:
 - Block explorer links:
 
 Core transaction hashes (at least one full flow):
@@ -32,7 +31,6 @@ Core transaction hashes (at least one full flow):
 - Prediction market main contract: `contracts/contracts/PredictionMarket.sol`
 - NFA (BAP-578 compatible) canonical contract for this submission: `contracts/contracts/NFA.sol`
 - Reference/standalone BAP-578 implementation (not canonical judging target): `non-fungible-agents-BAP-578/contracts/BAP578.sol`
-- Swarm consensus anchor contract: `contracts/contracts/SwarmConsensus.sol`
 
 Notes:
 - Frontend/back-end use `token_id` + `mint_tx_hash` for agent mint proof.
@@ -43,8 +41,7 @@ Suggested verification commands (replace addresses/network):
 ```bash
 cd contracts
 npx hardhat verify --network bscTestnet <PredictionMarketAddress>
-npx hardhat verify --network bscTestnet <NFAAddress>
-npx hardhat verify --network bscTestnet <SwarmConsensusAddress> <NFAAddress> <PredictionMarketAddress>
+npx hardhat verify --network bscTestnet <NFAAddress> <USDTAddress>
 ```
 
 ## 2.1 Live Demo Order (Recommended)
@@ -55,14 +52,10 @@ Use this exact order for judging:
 2. Show deploy tx hash, then market create tx hash.
 3. Show position tx hash (YES/NO).
 4. Show resolve tx hash and claim tx hash.
-5. Show NFA mint + Swarm register/submit tx hash (BAP-578 + swarm anchor).
+5. Show NFA mint tx hash (BAP-578 agent).
 6. Show `/api/settlement/<marketId>/proof` with `overallPass=true` and `proofDigest`.
    - Mandatory pass includes `resolve_tx_on_chain_verified`.
 7. If manual market: show `/propose` -> `/challenge` (optional) -> `/finalize` evidence chain.
-
-Judge UI note:
-- Swarm frontend page is removed from the primary demo route.
-- Swarm proof is shown via on-chain `SwarmConsensus` tx hashes and backend APIs only.
 
 ## 3. Settlement Verification (Judge-friendly)
 

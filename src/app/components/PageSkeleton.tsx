@@ -2,7 +2,7 @@ import { Skeleton } from './ui/skeleton';
 
 export default function PageSkeleton() {
   return (
-    <div className="min-h-screen bg-secondary pt-20 px-4">
+    <div className="min-h-screen bg-background pt-20 px-4">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header skeleton */}
         <Skeleton className="h-8 w-64 bg-muted" />

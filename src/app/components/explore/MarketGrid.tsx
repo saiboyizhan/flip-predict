@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "motion/react";
 import { LayoutGrid, List, SearchX, AlertCircle, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MarketCard } from "../market/MarketCard";
@@ -58,14 +57,7 @@ export function MarketGrid({
           : "space-y-4"
         }>
           {Array.from({ length: 6 }).map((_, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: i * 0.08 }}
-            >
-              <MarketCardSkeleton />
-            </motion.div>
+            <MarketCardSkeleton key={i} />
           ))}
         </div>
       </div>
@@ -93,9 +85,7 @@ export function MarketGrid({
             </button>
           </div>
         )}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
+        <div
           className="glass rounded-xl p-10 sm:p-16 flex flex-col items-center justify-center"
         >
           <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-6">
@@ -107,7 +97,7 @@ export function MarketGrid({
             <Sparkles className="w-4 h-4" />
             {t("market.exploreOther")}
           </div>
-        </motion.div>
+        </div>
       </div>
     );
   }
@@ -143,19 +133,13 @@ export function MarketGrid({
             : "space-y-4"
         }
       >
-        {markets.map((market, index) => (
-          <motion.div
+        {markets.map((market) => (
+          <MarketCard
             key={market.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-          >
-            <MarketCard
-              market={market}
-              size={viewMode === "list" ? "compact" : "medium"}
-              onClick={() => onMarketClick?.(market.id)}
-            />
-          </motion.div>
+            market={market}
+            size={viewMode === "list" ? "compact" : "medium"}
+            onClick={() => onMarketClick?.(market.id)}
+          />
         ))}
       </div>
     </div>

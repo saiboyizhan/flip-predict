@@ -91,7 +91,8 @@ router.get('/following/:addr', async (req, res) => {
        FROM user_follows uf
        LEFT JOIN user_profiles up ON up.address = uf.followed_address
        WHERE uf.follower_address = $1
-       ORDER BY uf.created_at DESC`,
+       ORDER BY uf.created_at DESC
+       LIMIT 200`,
       [addr]
     );
 
@@ -113,7 +114,8 @@ router.get('/followers/:addr', async (req, res) => {
        FROM user_follows uf
        LEFT JOIN user_profiles up ON up.address = uf.follower_address
        WHERE uf.followed_address = $1
-       ORDER BY uf.created_at DESC`,
+       ORDER BY uf.created_at DESC
+       LIMIT 200`,
       [addr]
     );
 

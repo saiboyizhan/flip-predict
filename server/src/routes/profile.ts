@@ -93,6 +93,27 @@ router.put('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // P2-5 fix: avatarUrl validation
+    if (avatarUrl && typeof avatarUrl === 'string') {
+      if (avatarUrl.length > 2000) {
+        res.status(400).json({ error: 'avatarUrl too long' });
+        return;
+      }
+      try {
+        const url = new URL(avatarUrl);
+        if (!['http:', 'https:', 'data:'].includes(url.protocol)) {
+          res.status(400).json({ error: 'Invalid avatarUrl protocol' });
+          return;
+        }
+      } catch {
+        // Allow relative paths like /avatars/xxx.svg
+        if (!avatarUrl.startsWith('/')) {
+          res.status(400).json({ error: 'Invalid avatarUrl format' });
+          return;
+        }
+      }
+    }
+
     const now = Date.now();
 
     // Upsert profile

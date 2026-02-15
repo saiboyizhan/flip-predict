@@ -8,7 +8,9 @@ import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { useTradeStore, calculateBuy, calculateSell, getEstimatedReturn, getPrice } from "@/app/stores/useTradeStore";
 // Agent minting is now optional - users can trade without an agent
-import { useTakePosition, useContractBalance, useTxNotifier, getBscScanUrl } from "@/app/hooks/useContracts";
+import { useTakePosition, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl } from "@/app/hooks/useContracts";
+import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
+import { parseUnits } from "viem";
 import type { MarketOption } from "@/app/types/market.types";
 
 interface TradePanelProps {
@@ -61,12 +63,34 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   } = useTakePosition();
 
   const {
-    balanceBNB: contractBalance,
+    balanceUSDT: contractBalance,
     refetch: refetchBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
 
+  // USDT approval hooks
+  const {
+    allowanceRaw: usdtAllowanceRaw,
+    refetch: refetchAllowance,
+  } = useUsdtAllowance(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
+
+  const {
+    approve: usdtApprove,
+    txHash: approveTxHash,
+    isWriting: approveWriting,
+    isConfirming: approveConfirming,
+    isConfirmed: approveConfirmed,
+    error: approveError,
+    reset: approveReset,
+  } = useUsdtApprove();
+
   // Capture trade params at submission time via refs to avoid stale closures
-  const tradeParamsRef = useRef({ marketId, side, amount });
+  const tradeParamsRef = useRef({ marketId, side, amount, onChainMarketId: onChainMarketId ?? "" });
+  const isMountedRef = useRef(true);
+
+  // Cleanup on unmount to prevent state updates after unmount (P0-1 fix)
+  useEffect(() => {
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   // Tx lifecycle notifications
   useTxNotifier(
@@ -77,13 +101,42 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     "Trade",
   );
 
+  useTxNotifier(
+    approveTxHash,
+    approveConfirming,
+    approveConfirmed,
+    approveError as Error | null,
+    "USDT Approve",
+  );
+
+  // After USDT approve confirms, proceed with takePosition
+  useEffect(() => {
+    if (approveConfirmed && approveTxHash && isMountedRef.current) {
+      refetchAllowance();
+      approveReset();
+      // Now actually fire the takePosition call
+      const params = tradeParamsRef.current;
+      if (!params.onChainMarketId) return;
+      try {
+        const marketIdBigint = BigInt(params.onChainMarketId);
+        takePosition(marketIdBigint, params.side === "yes", params.amount);
+      } catch {
+        if (isMountedRef.current) {
+          toast.error(t('trade.invalidMarketId'));
+        }
+      }
+    }
+  }, [approveConfirmed, approveTxHash, refetchAllowance, approveReset, takePosition, t]);
+
   // After on-chain trade confirms
   useEffect(() => {
-    if (positionConfirmed && positionTxHash) {
+    if (positionConfirmed && positionTxHash && isMountedRef.current) {
       const params = tradeParamsRef.current;
 
       refetchBalance();
-      setShowSuccess(true);
+      if (isMountedRef.current) {
+        setShowSuccess(true);
+      }
       const scanUrl = getBscScanUrl(chainId);
       toast.success(
         t('trade.onChainConfirmed', { side: params.side.toUpperCase() }),
@@ -94,10 +147,14 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
           },
         },
       );
-      setAmount("100");
+      if (isMountedRef.current) {
+        setAmount("100");
+      }
       const timerId = setTimeout(() => {
-        setShowSuccess(false);
-        positionReset();
+        if (isMountedRef.current) {
+          setShowSuccess(false);
+          positionReset();
+        }
       }, 2000);
       return () => clearTimeout(timerId);
     }
@@ -138,9 +195,9 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     }
   }, [pool, side, numAmount, tradeMode]);
 
-  // On-chain trade handler
+  // On-chain trade handler (USDT: check allowance -> approve if needed -> takePosition)
   const handleOnChainTrade = useCallback(() => {
-    if (numAmount <= 0 || positionWriting || positionConfirming) return;
+    if (numAmount <= 0 || positionWriting || positionConfirming || approveWriting || approveConfirming) return;
     if (isMulti) {
       toast.error("On-chain mode currently supports binary YES/NO markets only");
       return;
@@ -159,17 +216,28 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       return;
     }
 
-    const bnbBalance = parseFloat(contractBalance);
-    if (numAmount > bnbBalance) {
-      toast.error(t('trade.insufficientContractBalance', { balance: bnbBalance.toFixed(4) }));
+    const usdtBalance = parseFloat(contractBalance);
+    if (numAmount > usdtBalance) {
+      toast.error(t('trade.insufficientContractBalance', { balance: usdtBalance.toFixed(4) }));
       return;
     }
 
     // Capture current params before submitting
-    tradeParamsRef.current = { marketId, side, amount };
+    tradeParamsRef.current = { marketId, side, amount, onChainMarketId };
 
+    const amountWei = parseUnits(amount, 18);
+
+    // Check USDT allowance: if not enough, approve first
+    if (usdtAllowanceRaw < amountWei) {
+      // Approve max uint256 to avoid repeated approvals
+      const maxUint256 = 2n ** 256n - 1n;
+      usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
+      return;
+    }
+
+    // Allowance sufficient, proceed directly
     takePosition(marketIdBigint, side === "yes", amount);
-  }, [numAmount, isMulti, onChainMarketId, marketId, side, amount, contractBalance, takePosition, t]);
+  }, [numAmount, isMulti, onChainMarketId, marketId, side, amount, contractBalance, takePosition, t, usdtAllowanceRaw, usdtApprove, approveWriting, approveConfirming, positionWriting, positionConfirming]);
 
   const executeTradeInternal = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;
@@ -256,7 +324,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     pendingConfirmRef.current = false;
   }, []);
 
-  const isOnChainBusy = positionWriting || positionConfirming;
+  const isOnChainBusy = positionWriting || positionConfirming || approveWriting || approveConfirming;
   const tradingDisabled = status !== "active" && status !== "expiring";
   const isDisabled = tradingDisabled || numAmount <= 0 || isSubmitting || (useOnChain && tradeMode === "buy" && isOnChainBusy);
   const sideTextClass = side === "yes" ? "text-emerald-400" : "text-red-400";
@@ -318,7 +386,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
             onClick={() => setSide("yes")}
             aria-label="Select YES side"
             aria-pressed={side === "yes"}
-            className={`py-4 text-center font-bold text-lg tracking-wide uppercase transition-all rounded-t-xl ${
+            className={`py-2.5 text-center font-bold text-sm tracking-wide uppercase transition-all ${
               side === "yes"
                 ? "bg-emerald-500 text-white"
                 : "bg-secondary text-muted-foreground hover:text-foreground"
@@ -330,7 +398,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
             onClick={() => setSide("no")}
             aria-label="Select NO side"
             aria-pressed={side === "no"}
-            className={`py-4 text-center font-bold text-lg tracking-wide uppercase transition-all rounded-t-xl ${
+            className={`py-2.5 text-center font-bold text-sm tracking-wide uppercase transition-all ${
               side === "no"
                 ? "bg-red-500 text-white"
                 : "bg-secondary text-muted-foreground hover:text-foreground"
@@ -345,7 +413,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       <div className="grid grid-cols-2 border-t border-border">
         <button
           onClick={() => setTradeMode("buy")}
-          className={`py-2.5 text-sm font-bold transition-colors ${
+          className={`py-2 text-xs font-bold transition-colors ${
             tradeMode === "buy"
               ? "bg-emerald-500/20 text-emerald-400"
               : "bg-secondary text-muted-foreground hover:text-foreground"
@@ -355,7 +423,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         </button>
         <button
           onClick={() => setTradeMode("sell")}
-          className={`py-2.5 text-sm font-bold transition-colors ${
+          className={`py-2 text-xs font-bold transition-colors ${
             tradeMode === "sell"
               ? "bg-red-500/20 text-red-400"
               : "bg-secondary text-muted-foreground hover:text-foreground"
@@ -372,15 +440,15 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: side === "yes" ? 20 : -20 }}
           transition={{ duration: 0.2 }}
-          className="p-6 space-y-6"
+          className="p-4 space-y-4"
         >
-          {/* On-Chain Toggle (only visible for buy mode) */}
-          {tradeMode === "buy" && (
-            <div className="flex items-center justify-between p-3 bg-secondary/50 border border-border/50">
-              <div className="flex items-center gap-2">
-                <Zap className={`w-4 h-4 ${useOnChain ? "text-blue-400" : "text-muted-foreground"}`} />
-                <span className={`text-sm font-semibold ${useOnChain ? "text-blue-400" : "text-muted-foreground"}`}>
-                  {onChainMarketId && !isMulti ? t('trade.onChainTrade') : `${t('trade.onChainTrade')} (N/A)`}
+          {/* On-Chain Toggle (only when market is deployed on-chain) */}
+          {tradeMode === "buy" && onChainMarketId && !isMulti && (
+            <div className="flex items-center justify-between p-2 bg-secondary/50 border border-border/50">
+              <div className="flex items-center gap-1.5">
+                <Zap className={`w-3 h-3 ${useOnChain ? "text-blue-400" : "text-muted-foreground"}`} />
+                <span className={`text-xs font-semibold ${useOnChain ? "text-blue-400" : "text-muted-foreground"}`}>
+                  {t('trade.onChainTrade')}
                 </span>
               </div>
               <button
@@ -389,15 +457,15 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
                 aria-checked={useOnChain}
                 aria-label={t('trade.onChainTrade')}
                 disabled={!onChainMarketId || isMulti}
-                className={`relative w-11 h-6 rounded-full transition-colors ${
+                className={`relative w-9 h-5 rounded-full transition-colors ${
                   useOnChain ? "bg-blue-500" : "bg-muted"
                 }`}
               >
                 <div
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                    useOnChain ? "translate-x-5.5 left-0.5" : "left-0.5"
+                  className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                    useOnChain ? "left-0.5" : "left-0.5"
                   }`}
-                  style={{ transform: useOnChain ? "translateX(22px)" : "translateX(0)" }}
+                  style={{ transform: useOnChain ? "translateX(17px)" : "translateX(0)" }}
                 />
               </button>
             </div>
@@ -406,33 +474,33 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
           {/* On-chain balance info */}
           {useOnChain && tradeMode === "buy" && (
             <div className="text-xs text-muted-foreground px-1">
-              {t('trade.contractBalance')}: <span className="text-blue-400 font-mono">{parseFloat(contractBalance).toFixed(4)} BNB</span>
+              {t('trade.contractBalance')}: <span className="text-blue-400 font-mono">{parseFloat(contractBalance).toFixed(4)} USDT</span>
             </div>
           )}
 
           {/* Current Price */}
-          <div className="text-center py-4 bg-gradient-to-b from-white/[0.03] to-transparent border border-white/[0.06] rounded-lg">
-            <div className="text-xs text-muted-foreground tracking-wider uppercase mb-1">
+          <div className="text-center py-2 bg-gradient-to-b from-white/[0.03] to-transparent border border-white/[0.06] rounded-lg">
+            <div className="text-[10px] text-muted-foreground tracking-wider uppercase mb-0.5">
               {t('trade.currentPrice', { side: side === "yes" ? "YES" : "NO" })}
             </div>
-            <div className={`text-4xl font-bold font-mono ${sideTextClass}`}>
+            <div className={`text-2xl font-bold font-mono ${sideTextClass}`}>
               ${currentPrice.toFixed(2)}
             </div>
-            <div className="text-xs text-muted-foreground mt-1">
+            <div className="text-[10px] text-muted-foreground mt-0.5">
               {t('trade.probability', { pct: Math.round(currentPrice * 100) })}
             </div>
           </div>
 
           {/* Amount Input */}
           <div>
-            <label className="block text-muted-foreground text-sm tracking-wider uppercase mb-3">
+            <label className="block text-muted-foreground text-[10px] tracking-wider uppercase mb-1.5">
               {tradeMode === "buy"
                 ? (useOnChain ? t('trade.amountBnb') : t('trade.tradeAmount'))
                 : t('trade.sellShares')}
             </label>
             <div className="relative">
               {tradeMode === "buy" && !useOnChain && (
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground text-xl">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-base">
                   $
                 </span>
               )}
@@ -440,7 +508,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className={`w-full bg-input-background border border-border text-foreground text-2xl font-bold py-4 ${tradeMode === "buy" && !useOnChain ? "pl-10" : "pl-4"} pr-4 focus:outline-none focus:border-blue-500/50 transition-colors`}
+                className={`w-full bg-input-background border border-border text-foreground text-lg font-bold py-2.5 ${tradeMode === "buy" && !useOnChain ? "pl-7" : "pl-3"} pr-3 focus:outline-none focus:border-blue-500/50 transition-colors`}
                 placeholder="0.00"
               />
             </div>
@@ -448,12 +516,12 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
           {/* Quick Amount Buttons */}
           {!useOnChain && (
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-1.5">
               {QUICK_AMOUNTS.map((quickAmount) => (
                 <button
                   key={quickAmount}
                   onClick={() => setAmount(quickAmount.toString())}
-                  className={`py-2 border text-sm rounded-full transition-all hover:scale-105 ${
+                  className={`py-1.5 border text-xs rounded-full transition-all hover:scale-105 ${
                     amount === quickAmount.toString()
                       ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
                       : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08] text-muted-foreground hover:text-foreground"
@@ -465,20 +533,20 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
             </div>
           )}
 
-          {/* On-chain quick BNB amounts */}
+          {/* On-chain quick USDT amounts */}
           {useOnChain && tradeMode === "buy" && (
-            <div className="grid grid-cols-4 gap-2">
-              {[0.01, 0.05, 0.1, 0.5].map((bnbAmt) => (
+            <div className="grid grid-cols-4 gap-1.5">
+              {[1, 5, 10, 50].map((usdtAmt) => (
                 <button
-                  key={bnbAmt}
-                  onClick={() => setAmount(bnbAmt.toString())}
-                  className={`py-2 border text-sm rounded-full transition-all hover:scale-105 ${
-                    amount === bnbAmt.toString()
+                  key={usdtAmt}
+                  onClick={() => setAmount(usdtAmt.toString())}
+                  className={`py-1.5 border text-xs rounded-full transition-all hover:scale-105 ${
+                    amount === usdtAmt.toString()
                       ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
                       : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08] text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {bnbAmt} BNB
+                  {usdtAmt} USDT
                 </button>
               ))}
             </div>
@@ -486,62 +554,51 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
           {/* Calculation Breakdown */}
           {!useOnChain && (
-            <div className="space-y-3 pt-4 border-t border-border">
+            <div className="space-y-2 pt-3 border-t border-border">
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <Coins className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <Coins className="w-3 h-3" />
                   <span>{tradeMode === "buy" ? t('trade.estCost') : t('trade.shares')}</span>
                 </div>
-                <span className="text-foreground font-mono">
+                <span className="text-foreground font-mono text-xs">
                   {tradeMode === "buy" ? `$${numAmount.toFixed(2)}` : numAmount.toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <Target className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <Target className="w-3 h-3" />
                   <span>{tradeMode === "buy" ? t('trade.estShares') : t('trade.estPayout')}</span>
                 </div>
-                <span className="text-foreground font-mono">
+                <span className="text-foreground font-mono text-xs">
                   {tradeMode === "buy" ? calculation.shares.toFixed(2) : `$${calculation.potentialProfit.toFixed(2)}`}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <Coins className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <Coins className="w-3 h-3" />
                   <span>{t('trade.avgPrice')}</span>
                 </div>
-                <span className="text-foreground font-mono">
+                <span className="text-foreground font-mono text-xs">
                   ${calculation.avgPrice.toFixed(4)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <AlertTriangle className={`w-3.5 h-3.5 ${priceImpactColor}`} />
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <AlertTriangle className={`w-3 h-3 ${priceImpactColor}`} />
                   <span className={priceImpactColor}>{t('trade.priceImpact')}</span>
                 </div>
-                <span className={`font-mono ${priceImpactColor}`}>
+                <span className={`font-mono text-xs ${priceImpactColor}`}>
                   {calculation.priceImpact.toFixed(2)}%
                 </span>
               </div>
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  <span>{tradeMode === "buy" ? t('trade.potentialReturn') : t('trade.payout')}</span>
-                </div>
-                <span className={`${sideTextClass} font-mono`}>
-                  {tradeMode === "buy"
-                    ? `$${(numAmount + calculation.potentialProfit).toFixed(2)}`
-                    : `$${calculation.potentialProfit.toFixed(2)}`}
-                </span>
-              </div>
               <div className="flex justify-between items-center pt-2 border-t border-border">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Percent className={`w-3.5 h-3.5 ${sideTextClass}`} />
+                <div className="flex items-center gap-1.5 text-xs font-semibold">
+                  <Percent className={`w-3 h-3 ${sideTextClass}`} />
                   <span className={sideTextClass}>
                     {tradeMode === "buy" ? t('trade.returnRate') : t('trade.avgExitPrice')}
                   </span>
                 </div>
-                <span className={`${sideTextClass} font-mono text-lg font-bold`}>
+                <span className={`${sideTextClass} font-mono text-sm font-bold`}>
                   {tradeMode === "buy" ? `+${calculation.roi.toFixed(1)}%` : `$${calculation.avgPrice.toFixed(4)}`}
                 </span>
               </div>
@@ -553,7 +610,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
             <div className="space-y-3 pt-4 border-t border-border">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground text-sm">{t('trade.amountBnb')}</span>
-                <span className="text-foreground font-mono">{numAmount} BNB</span>
+                <span className="text-foreground font-mono">{numAmount} USDT</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground text-sm">{side.toUpperCase()}</span>
@@ -624,7 +681,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
             <button
               onClick={handleConfirm}
               disabled={isDisabled}
-              className={`w-full py-4 font-bold text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2 group disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed hover:scale-[1.02] ${
+              className={`w-full py-2.5 font-bold text-sm tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2 group disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed hover:scale-[1.02] ${
                 useOnChain && tradeMode === "buy" ? "bg-blue-500 hover:bg-blue-400 text-white" : sideButtonClass
               }`}
             >
@@ -633,11 +690,13 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
               ) : isSubmitting || (useOnChain && tradeMode === "buy" && isOnChainBusy) ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  {positionConfirming
-                    ? t('trade.confirmingOnChain')
-                    : positionWriting
-                      ? t('trade.confirmInWallet')
-                      : t('trade.processing')}
+                  {approveWriting || approveConfirming
+                    ? 'Approving USDT...'
+                    : positionConfirming
+                      ? t('trade.confirmingOnChain')
+                      : positionWriting
+                        ? t('trade.confirmInWallet')
+                        : t('trade.processing')}
                 </>
               ) : (
                 <>
@@ -674,7 +733,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
           </div>
 
           {/* Disclaimer */}
-          <p className="text-muted-foreground text-xs text-center leading-relaxed">
+          <p className="text-muted-foreground text-xs text-center leading-relaxed px-2">
             {useOnChain && tradeMode === "buy"
               ? t('trade.onChainDisclaimer')
               : t('trade.disclaimer')}

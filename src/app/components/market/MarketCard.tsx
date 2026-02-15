@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "motion/react";
 import { CheckCircle2, Bot, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ShareButton } from "./ShareButton";
@@ -16,7 +15,7 @@ interface Market {
   id: string;
   title: string;
   category: string;
-  categoryEmoji: string;
+  categoryEmoji?: string;
   yesPrice: number;
   noPrice: number;
   volume: number;
@@ -46,7 +45,7 @@ function formatVolume(volume: number): string {
 /** Compute the effective display status of a market, factoring in time-to-expiry */
 function getEffectiveStatus(market: Market): {
   status: string;
-  label: string;
+  labelKey: string;
   className: string;
   isExpiringSoon: boolean;
 } {
@@ -54,12 +53,9 @@ function getEffectiveStatus(market: Market): {
   const isPending = market.status === "pending_resolution";
 
   if (isResolved) {
-    const outcomeLabel = market.resolvedOutcome
-      ? ` (${market.resolvedOutcome})`
-      : "";
     return {
       status: "resolved",
-      label: `Settled${outcomeLabel}`,
+      labelKey: "market.status.resolved",
       className: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
       isExpiringSoon: false,
     };
@@ -68,7 +64,7 @@ function getEffectiveStatus(market: Market): {
   if (isPending) {
     return {
       status: "pending_resolution",
-      label: "Pending Settlement",
+      labelKey: "market.status.pending",
       className: "bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse",
       isExpiringSoon: false,
     };
@@ -82,7 +78,7 @@ function getEffectiveStatus(market: Market): {
   if (diff <= 0) {
     return {
       status: "expired",
-      label: "Expired",
+      labelKey: "market.status.expired",
       className: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
       isExpiringSoon: false,
     };
@@ -91,7 +87,7 @@ function getEffectiveStatus(market: Market): {
   if (diff < 24 * 60 * 60 * 1000) {
     return {
       status: "expiring",
-      label: "Expiring Soon",
+      labelKey: "market.status.expiring",
       className: "bg-orange-500/20 text-orange-400 border border-orange-500/30 animate-pulse",
       isExpiringSoon: true,
     };
@@ -99,7 +95,7 @@ function getEffectiveStatus(market: Market): {
 
   return {
     status: "active",
-    label: "Trading",
+    labelKey: "market.status.active",
     className: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
     isExpiringSoon: false,
   };
@@ -133,11 +129,10 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
   const { text: timeText, urgent, countdown } = getTimeRemaining(market.endTime);
 
   return (
-    <motion.div
-      whileHover={{ y: -4 }}
+    <div
       onClick={onClick}
-      className={`group relative bg-card/80 backdrop-blur-sm border border-white/[0.06] rounded-xl hover:border-blue-500/20 hover:shadow-xl hover:shadow-blue-500/[0.07] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden card-highlight ${
-        isCompact ? "p-3 sm:p-4" : isLarge ? "p-4 sm:p-8" : "p-4 sm:p-6"
+      className={`relative flex flex-col h-full bg-card border border-gray-200 dark:border-white/[0.12] rounded-xl hover:border-blue-500/40 dark:hover:border-blue-500/30 shadow-sm dark:shadow-none transition-colors duration-150 cursor-pointer ${
+        isCompact ? "p-3 sm:p-4" : isLarge ? "p-4 sm:p-6 md:p-8" : "p-3 sm:p-4 md:p-6"
       }`}
     >
       {/* Resolved outcome corner badge */}
@@ -185,15 +180,15 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
             {effectiveStatus.status === "active" && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             )}
-            {effectiveStatus.label}
+            {t(effectiveStatus.labelKey)}
           </span>
         </div>
       </div>
 
-      {/* Title */}
+      {/* Title -- flex-1 so cards in same row align their bottom sections */}
       <h3
-        className={`font-bold text-foreground mb-4 leading-tight ${
-          isLarge ? "text-xl sm:text-2xl" : isCompact ? "text-sm" : "text-base sm:text-lg"
+        className={`font-bold text-foreground mb-4 leading-tight flex-1 ${
+          isLarge ? "text-lg sm:text-xl md:text-2xl" : isCompact ? "text-sm sm:text-base" : "text-sm sm:text-base md:text-lg"
         }`}
       >
         {market.title}
@@ -242,12 +237,12 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
       )}
 
       {/* Stats Row */}
-      <div className={`flex items-center text-muted-foreground ${isCompact ? "text-xs" : "text-xs sm:text-sm"}`}>
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground ${isCompact ? "text-xs" : "text-xs"}`}>
         <span className="font-mono tabular-nums">${formatVolume(market.volume)}</span>
-        <span className="mx-2 text-white/10">|</span>
-        <span>{market.participants} {t('market.participants').toLowerCase()}</span>
-        <span className="mx-2 text-white/10">|</span>
-        <span className={urgent ? "text-red-400" : ""}>{timeText}</span>
+        <span className="text-white/10">|</span>
+        <span className="whitespace-nowrap">{market.participants} {t('market.participants').toLowerCase()}</span>
+        <span className="text-white/10">|</span>
+        <span className={`whitespace-nowrap ${urgent ? "text-red-400" : ""}`}>{timeText}</span>
         <span className="ml-auto">
           <ShareButton
             marketTitle={market.title}
@@ -257,7 +252,7 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
           />
         </span>
       </div>
-    </motion.div>
+    </div>
   );
 }
 

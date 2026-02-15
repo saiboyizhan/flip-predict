@@ -3,7 +3,7 @@
 import { motion } from "motion/react";
 import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -80,7 +80,7 @@ interface RecentTrade {
 
 export function UserProfile() {
   const { address, isConnected } = useAccount();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 

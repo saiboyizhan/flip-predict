@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { Bot, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getMyAgents } from "@/app/services/api";
@@ -13,7 +13,7 @@ type TabId = "leaderboard" | "marketplace" | "my";
 
 export function AgentDashboard() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const [tab, setTab] = useState<TabId>("leaderboard");
   const [myAgents, setMyAgents] = useState<Agent[]>([]);
   const [myLoading, setMyLoading] = useState(false);
@@ -41,21 +41,21 @@ export function AgentDashboard() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-blue-500/10 via-card to-purple-500/10 border border-border p-4 sm:p-6 md:p-8"
+          className="bg-gradient-to-r from-blue-500/10 via-card to-purple-500/10 border border-border p-4 sm:p-5"
         >
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-3 mb-2">
-                <Bot className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">{t("agent.title")}</h1>
+              <div className="flex items-center gap-2 mb-1">
+                <Bot className="w-5 h-5 text-blue-400" />
+                <h1 className="text-base sm:text-lg font-bold">{t("agent.title")}</h1>
               </div>
-              <p className="text-muted-foreground text-sm sm:text-base">
+              <p className="text-muted-foreground text-xs sm:text-sm">
                 {t("agent.subtitle")}
               </p>
             </div>
             <button
               onClick={() => navigate("/agents/mint")}
-              className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-blue-500 hover:bg-blue-400 text-black font-bold transition-colors shrink-0 w-full sm:w-auto justify-center text-sm sm:text-base"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-400 text-black font-bold transition-colors shrink-0 w-full sm:w-auto justify-center text-sm"
             >
               <Sparkles className="w-5 h-5" />
               {t("agent.mintAgent")}

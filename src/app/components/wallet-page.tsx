@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { Wallet, Copy, ExternalLink, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, Link2, CheckCircle2, AlertCircle, Loader2, Plus, Minus, X, Zap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAccount, useBalance, useDisconnect } from "wagmi";
-import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { useAppKit } from "@reown/appkit/react";
 import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds } from "../services/api";
@@ -39,9 +39,9 @@ function TransactionSkeleton() {
 
 function StatSkeleton() {
   return (
-    <div className="bg-gradient-to-br from-card to-secondary border border-border p-6 sm:p-8 animate-pulse">
-      <div className="h-3 bg-muted rounded w-16 mb-3" />
-      <div className="h-8 bg-muted rounded w-24 mb-2" />
+    <div className="bg-card border border-border rounded-lg p-4 animate-pulse">
+      <div className="h-3 bg-muted rounded w-16 mb-2" />
+      <div className="h-6 bg-muted rounded w-24 mb-1.5" />
       <div className="h-3 bg-muted rounded w-20" />
     </div>
   );
@@ -52,7 +52,7 @@ export function WalletPage() {
   const { address, isConnected } = useAccount();
   const { data: balanceData, refetch: refetchBnbBalance } = useBalance({ address });
   const { disconnect } = useDisconnect();
-  const { openConnectModal } = useConnectModal();
+  const { open: openConnectModal } = useAppKit();
   const [platformBalance, setPlatformBalance] = useState<{ available: number; locked: number; total: number } | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [userStats, setUserStats] = useState<{ totalTrades: number; winRate: number; totalProfit: number; totalWins: number } | null>(null);
@@ -76,7 +76,7 @@ export function WalletPage() {
   const contractDeposit = useDeposit();
   const contractWithdraw = useWithdraw();
   const {
-    balanceBNB: contractBalanceBNB,
+    balanceUSDT: contractBalanceUSDT,
     isLoading: contractBalanceLoading,
     refetch: refetchContractBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
@@ -234,7 +234,7 @@ export function WalletPage() {
       toast.error(t('wallet.invalidAmount'));
       return;
     }
-    if (amt > parseFloat(contractBalanceBNB)) {
+    if (amt > parseFloat(contractBalanceUSDT)) {
       toast.error(t('wallet.insufficientContractBalance'));
       return;
     }
@@ -339,20 +339,20 @@ export function WalletPage() {
   const isContractWithdrawBusy = contractWithdraw.isWriting || contractWithdraw.isConfirming;
 
   return (
-    <div className="min-h-screen p-4 sm:p-8">
-      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
+    <div className="space-y-5">
+      <div className="space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6 sm:mb-8">
-          <div className="flex items-center gap-3">
-            <Wallet className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">{t('wallet.title')}</h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Wallet className="w-5 h-5 text-blue-400" />
+            <h1 className="text-lg sm:text-xl font-semibold tracking-tight">{t('wallet.title')}</h1>
           </div>
 
           {/* 连接状态 */}
           {isConnected && (
-            <div className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-500/20 border border-emerald-500/40">
-              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
-              <span className="text-emerald-400 text-xs sm:text-sm tracking-wider uppercase">{t('wallet.connected')}</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-md">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="text-emerald-500 text-xs font-medium">{t('wallet.connected')}</span>
             </div>
           )}
         </div>
@@ -370,7 +370,7 @@ export function WalletPage() {
               </div>
 
               <div>
-                <h2 className="text-2xl sm:text-3xl font-bold text-foreground mb-3">{t('wallet.connectTitle')}</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-foreground mb-3">{t('wallet.connectTitle')}</h2>
                 <p className="text-muted-foreground text-base sm:text-lg">
                   {t('wallet.connectDesc')}
                 </p>
@@ -407,106 +407,82 @@ export function WalletPage() {
         ) : (
           <>
             {/* 已连接状态 - 显示余额和功能 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Platform Balance */}
               {loadingBalance ? (
                 <StatSkeleton />
               ) : (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-gradient-to-br from-card to-secondary border border-border p-6 sm:p-8"
-                >
-                  <div className="text-muted-foreground text-sm tracking-wider uppercase mb-2">{t('wallet.platformBalance')}</div>
-                  <div className="text-3xl sm:text-5xl font-bold text-foreground mb-2">
+                <div className="bg-card border border-border rounded-lg p-4">
+                  <div className="text-muted-foreground text-xs font-medium mb-1">{t('wallet.platformBalance')}</div>
+                  <div className="text-xl sm:text-2xl font-semibold text-foreground">
                     ${platformBalance ? platformBalance.available.toLocaleString() : "0"}
                   </div>
                   {platformBalance && platformBalance.locked > 0 && (
-                    <div className="text-muted-foreground text-sm">
+                    <div className="text-muted-foreground text-xs mt-1">
                       {t('wallet.locked', { amount: platformBalance.locked.toLocaleString() })}
                     </div>
                   )}
-                </motion.div>
+                </div>
               )}
 
               {/* On-Chain Contract Balance */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 }}
-                className="bg-gradient-to-br from-blue-900/20 to-secondary border border-blue-500/30 p-6 sm:p-8"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-blue-400 text-sm tracking-wider uppercase">{t('wallet.contractBalanceLabel')}</div>
+              <div className="bg-card border border-border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-blue-500 text-xs font-medium">{t('wallet.contractBalanceLabel')}</div>
                   <button
                     onClick={() => refetchContractBalance()}
-                    className="p-1 hover:bg-accent transition-colors rounded"
+                    className="p-0.5 hover:bg-accent transition-colors rounded"
                     title={t('wallet.refreshBalance')}
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${contractBalanceLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3 h-3 text-blue-400 ${contractBalanceLoading ? 'animate-spin' : ''}`} />
                   </button>
                 </div>
-                <div className="text-3xl sm:text-5xl font-bold text-blue-400 mb-2">
-                  {contractBalanceLoading ? "..." : `${parseFloat(contractBalanceBNB).toFixed(4)}`}
+                <div className="text-xl sm:text-2xl font-semibold text-blue-500">
+                  {contractBalanceLoading ? "..." : `${parseFloat(contractBalanceUSDT).toFixed(4)}`}
                 </div>
-                <div className="text-muted-foreground text-sm">BNB ({t('wallet.onChain')})</div>
-              </motion.div>
+                <div className="text-muted-foreground text-xs mt-1">USDT ({t('wallet.onChain')})</div>
+              </div>
 
-              {/* BNB Balance */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="bg-gradient-to-br from-card to-secondary border border-border p-6 sm:p-8"
-              >
-                <div className="text-muted-foreground text-sm tracking-wider uppercase mb-2">{t('wallet.bnbBalance')}</div>
-                <div className="text-3xl sm:text-5xl font-bold text-foreground mb-2">{bnbBalance.toFixed(4)}</div>
-                <div className="text-muted-foreground text-sm">{t('wallet.bscMainnet')}</div>
-              </motion.div>
+              {/* Native BNB Balance (for gas) */}
+              <div className="bg-card border border-border rounded-lg p-4">
+                <div className="text-muted-foreground text-xs font-medium mb-1">{t('wallet.bnbBalance')}</div>
+                <div className="text-xl sm:text-2xl font-semibold text-foreground">{bnbBalance.toFixed(4)}</div>
+                <div className="text-muted-foreground text-xs mt-1">{t('wallet.bscMainnet')}</div>
+              </div>
 
               {/* User Stats */}
               {loadingStats ? (
                 <StatSkeleton />
               ) : (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="bg-gradient-to-br from-blue-900/20 to-secondary border border-blue-500/30 p-6 sm:p-8"
-                >
-                  <div className="text-blue-400 text-sm tracking-wider uppercase mb-2">{t('wallet.totalWinnings')}</div>
-                  <div className="text-3xl sm:text-5xl font-bold text-blue-400 mb-2">
+                <div className="bg-card border border-border rounded-lg p-4">
+                  <div className="text-blue-500 text-xs font-medium mb-1">{t('wallet.totalWinnings')}</div>
+                  <div className="text-xl sm:text-2xl font-semibold text-blue-500">
                     ${userStats ? userStats.totalProfit.toLocaleString() : "0"}
                   </div>
-                  <div className="text-muted-foreground text-sm">
+                  <div className="text-muted-foreground text-xs mt-1">
                     {userStats ? t('wallet.winsAndRate', { wins: userStats.totalWins, rate: (userStats.winRate > 1 ? userStats.winRate : userStats.winRate * 100).toFixed(1) }) : t('common.noData')}
                   </div>
-                </motion.div>
+                </div>
               )}
             </div>
 
             {/* Deposit / Withdraw Buttons */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="grid grid-cols-2 gap-4"
-            >
+            <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => { setShowDepositForm(true); setShowWithdrawForm(false); }}
-                className="p-4 sm:p-6 bg-card/50 border border-border hover:border-blue-500/60 hover:bg-blue-900/10 text-foreground font-bold text-base sm:text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-3 group"
+                className="py-2.5 px-4 bg-card border border-border rounded-lg hover:border-blue-500/50 hover:bg-blue-500/5 text-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2"
               >
-                <Plus className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400 group-hover:scale-110 transition-transform" />
+                <Plus className="w-4 h-4 text-blue-500" />
                 {t('wallet.deposit')}
               </button>
               <button
                 onClick={() => { setShowWithdrawForm(true); setShowDepositForm(false); }}
-                className="p-4 sm:p-6 bg-card/50 border border-border hover:border-blue-500/60 hover:bg-blue-900/10 text-foreground font-bold text-base sm:text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-3 group"
+                className="py-2.5 px-4 bg-card border border-border rounded-lg hover:border-blue-500/50 hover:bg-blue-500/5 text-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2"
               >
-                <Minus className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400 group-hover:scale-110 transition-transform" />
+                <Minus className="w-4 h-4 text-blue-500" />
                 {t('wallet.withdraw')}
               </button>
-            </motion.div>
+            </div>
 
             {/* Deposit Form */}
             <AnimatePresence>
@@ -565,7 +541,7 @@ export function WalletPage() {
                       />
                       {depositMode === "contract" && (
                         <div className="text-muted-foreground text-xs mt-1">
-                          {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB
+                          {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB (gas)
                         </div>
                       )}
                     </div>
@@ -699,7 +675,7 @@ export function WalletPage() {
                         />
                         <div className="text-muted-foreground text-xs mt-1">
                           {withdrawMode === "contract"
-                            ? `${t('wallet.contractBalanceLabel')}: ${parseFloat(contractBalanceBNB).toFixed(4)} BNB`
+                            ? `${t('wallet.contractBalanceLabel')}: ${parseFloat(contractBalanceUSDT).toFixed(4)} USDT`
                             : platformBalance
                               ? `${t('wallet.platformBalance')}: $${platformBalance.available.toLocaleString()}`
                               : ""}
@@ -779,140 +755,121 @@ export function WalletPage() {
             </AnimatePresence>
 
             {/* Wallet Address */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="bg-card/50 border border-border p-4 sm:p-6"
-            >
+            <div className="bg-card border border-border rounded-lg p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="text-muted-foreground text-sm tracking-wider uppercase mb-2">{t('wallet.walletAddress')}</div>
-                  <div className="text-foreground text-sm sm:text-lg font-mono truncate">{walletAddress}</div>
+                  <div className="text-muted-foreground text-xs font-medium mb-1">{t('wallet.walletAddress')}</div>
+                  <div className="text-foreground text-xs sm:text-sm font-mono truncate">{walletAddress}</div>
                 </div>
-                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={copyAddress}
                     aria-label="Copy wallet address"
-                    className="p-3 bg-muted border border-border hover:border-border transition-colors"
+                    className="p-2 hover:bg-accent rounded-md transition-colors"
                   >
-                    <Copy className="w-5 h-5 text-muted-foreground" />
+                    <Copy className="w-4 h-4 text-muted-foreground" />
                   </button>
                   <a
                     href={`https://bscscan.com/address/${walletAddress}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label="View on BSCScan"
-                    className="p-3 bg-muted border border-border hover:border-border transition-colors inline-flex"
+                    className="p-2 hover:bg-accent rounded-md transition-colors inline-flex"
                   >
-                    <ExternalLink className="w-5 h-5 text-muted-foreground" />
+                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
                   </a>
                 </div>
               </div>
-            </motion.div>
+            </div>
 
-            {/* Quick Actions */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="grid grid-cols-1 gap-4"
+            {/* Disconnect */}
+            <button
+              onClick={disconnectWallet}
+              className="w-full py-2.5 bg-card border border-border rounded-lg hover:border-red-500/50 hover:bg-red-500/5 text-muted-foreground hover:text-red-500 font-medium text-sm transition-colors flex items-center justify-center gap-2"
             >
-              <button
-                onClick={disconnectWallet}
-                className="p-6 bg-muted border border-border hover:border-red-500 hover:bg-red-900/20 text-foreground font-bold text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-3 group"
-              >
-                <Link2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                {t('wallet.disconnect')}
-              </button>
-            </motion.div>
+              <Link2 className="w-4 h-4" />
+              {t('wallet.disconnect')}
+            </button>
 
             {/* Transaction History */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              className="bg-card/30 border border-border"
-            >
-              <div className="p-6 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <Clock className="w-6 h-6 text-muted-foreground" />
-                  <h2 className="text-2xl font-bold tracking-tight">{t('wallet.tradeHistory')}</h2>
+            <div className="bg-card border border-border rounded-lg">
+              <div className="px-4 py-3 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold">{t('wallet.tradeHistory')}</h2>
                 </div>
               </div>
 
               {loadingHistory ? (
                 <div className="divide-y divide-border">
-                  {[...Array(4)].map((_, i) => (
+                  {[...Array(3)].map((_, i) => (
                     <TransactionSkeleton key={i} />
                   ))}
                 </div>
               ) : transactions.length === 0 ? (
-                <div className="py-16 text-center">
-                  <Clock className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                <div className="py-10 text-center">
+                  <Clock className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-muted-foreground text-sm">{t('wallet.noTrades')}</p>
-                  <p className="text-muted-foreground text-xs mt-1">{t('wallet.noTradesDesc')}</p>
+                  <p className="text-muted-foreground text-xs mt-0.5">{t('wallet.noTradesDesc')}</p>
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {transactions.map((tx, index) => (
-                    <motion.div
+                  {transactions.map((tx) => (
+                    <div
                       key={tx.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.6 + index * 0.05 }}
-                      className="p-4 sm:p-6 hover:bg-accent transition-colors"
+                      className="px-4 py-3 hover:bg-accent/50 transition-colors"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-muted border border-border flex items-center justify-center shrink-0">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-8 h-8 bg-muted border border-border rounded-md flex items-center justify-center shrink-0">
                             {getTransactionIcon(tx.type)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
-                              <span className="text-foreground font-semibold text-sm sm:text-base">{getTransactionLabel(tx.type)}</span>
+                            <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                              <span className="text-foreground font-medium text-sm">{getTransactionLabel(tx.type)}</span>
                               {tx.market && (
-                                <span className="text-muted-foreground text-xs sm:text-sm truncate">
+                                <span className="text-muted-foreground text-xs truncate">
                                   {tx.market}
                                 </span>
                               )}
                               {tx.status === "pending" && (
-                                <span className="px-2 py-0.5 sm:py-1 bg-blue-500/20 border border-blue-500/40 text-blue-400 text-xs tracking-wider uppercase flex items-center gap-1">
-                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                <span className="px-1.5 py-0.5 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[10px] rounded flex items-center gap-1">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                   {t('wallet.txPending')}
                                 </span>
                               )}
                             </div>
-                            <div className="text-muted-foreground text-xs sm:text-sm">{tx.timestamp}</div>
+                            <div className="text-muted-foreground text-xs">{tx.timestamp}</div>
                             {tx.txHash && (
                               <a
                                 href={`https://bscscan.com/tx/${tx.txHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-muted-foreground hover:text-blue-400 text-xs font-mono mt-1 hidden sm:inline-flex items-center gap-1 transition-colors"
+                                className="text-muted-foreground hover:text-blue-400 text-[10px] font-mono mt-0.5 hidden sm:inline-flex items-center gap-1 transition-colors"
                               >
                                 {tx.txHash.slice(0, 16)}...{tx.txHash.slice(-14)}
-                                <ExternalLink className="w-3 h-3" />
+                                <ExternalLink className="w-2.5 h-2.5" />
                               </a>
                             )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className={`text-lg sm:text-2xl font-bold ${
-                            tx.amount > 0 ? "text-emerald-400" : "text-foreground"
+                          <div className={`text-sm font-semibold ${
+                            tx.amount > 0 ? "text-emerald-500" : "text-foreground"
                           }`}>
                             {tx.amount > 0 ? "+" : ""}${Math.abs(tx.amount).toLocaleString()}
                           </div>
                         </div>
                       </div>
-                    </motion.div>
+                    </div>
                   ))}
                 </div>
               )}
-            </motion.div>
+            </div>
           </>
         )}
       </div>
     </div>
   );
 }
+

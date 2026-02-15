@@ -6,14 +6,18 @@ import {
   stopCopyTrading,
   updateCopySettings,
   getCopyStatus,
+  getPendingOnChainTrades,
+  confirmOnChainTrade,
 } from "@/app/services/api";
+import { useAgentTakePosition } from "@/app/hooks/useNFAContracts";
 
 interface CopyTradePanelProps {
   agentId: string;
   isOwner: boolean;
+  agentTokenId?: bigint;
 }
 
-export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
+export function CopyTradePanel({ agentId, isOwner, agentTokenId }: CopyTradePanelProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -21,6 +25,10 @@ export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
   const [copyPercentage, setCopyPercentage] = useState(50);
   const [maxPerTrade, setMaxPerTrade] = useState("50");
   const [dailyLimit, setDailyLimit] = useState("500");
+  const [onChain, setOnChain] = useState(false);
+  const [pendingTrades, setPendingTrades] = useState<any[]>([]);
+
+  const { takePosition, txHash, isPending, isConfirming, isConfirmed, error: txError, reset: resetTx } = useAgentTakePosition();
 
   const isActive = follower?.status === "active";
 
@@ -32,11 +40,37 @@ export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
           setCopyPercentage(data.follower.copy_percentage || 50);
           setMaxPerTrade(String(data.follower.max_per_trade || 50));
           setDailyLimit(String(data.follower.daily_limit || 500));
+          setOnChain(data.follower.on_chain === 1);
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [agentId]);
+
+  // Load pending on-chain trades
+  useEffect(() => {
+    if (isActive && onChain) {
+      getPendingOnChainTrades()
+        .then((data) => setPendingTrades(data.trades || []))
+        .catch(() => {});
+    }
+  }, [isActive, onChain]);
+
+  // Handle transaction confirmation
+  useEffect(() => {
+    if (isConfirmed && txHash && pendingTrades.length > 0) {
+      const currentTrade = pendingTrades[0];
+      confirmOnChainTrade(currentTrade.id, txHash)
+        .then(() => {
+          toast.success("On-chain trade confirmed");
+          setPendingTrades((prev) => prev.slice(1));
+          resetTx();
+        })
+        .catch((err) => {
+          toast.error(err.message || "Failed to confirm trade");
+        });
+    }
+  }, [isConfirmed, txHash, pendingTrades, resetTx]);
 
   const handleStart = async () => {
     setActionLoading(true);
@@ -46,6 +80,7 @@ export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
         copyPercentage,
         maxPerTrade: Number(maxPerTrade),
         dailyLimit: Number(dailyLimit),
+        onChain,
       });
       setFollower(data.follower);
       toast.success(t("copyTrade.started"));
@@ -77,6 +112,7 @@ export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
         copyPercentage,
         maxPerTrade: Number(maxPerTrade),
         dailyLimit: Number(dailyLimit),
+        onChain,
       });
       setFollower(data.follower);
       toast.success(t("copyTrade.settingsSaved"));
@@ -85,6 +121,17 @@ export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleExecutePendingTrade = () => {
+    if (!agentTokenId || pendingTrades.length === 0) return;
+
+    const trade = pendingTrades[0];
+    const marketId = BigInt(trade.on_chain_market_id || 0);
+    const side = trade.side === "yes" ? 0 : 1;
+    const amount = String(trade.amount);
+
+    takePosition(agentTokenId, marketId, side as 0 | 1, amount);
   };
 
   if (loading) {
@@ -119,6 +166,49 @@ export function CopyTradePanel({ agentId, isOwner }: CopyTradePanelProps) {
           {isActive ? t("copyTrade.active") : t("copyTrade.stopped")}
         </span>
       </div>
+
+      {/* On-Chain Mode Toggle */}
+      {!isActive && (
+        <div className="flex items-center justify-between p-3 bg-zinc-900/50 border border-border">
+          <div>
+            <div className="text-sm font-medium">On-Chain Mode</div>
+            <div className="text-xs text-muted-foreground">Execute trades on blockchain</div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onChain}
+              onChange={(e) => setOnChain(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+          </label>
+        </div>
+      )}
+
+      {/* Pending On-Chain Trades */}
+      {isActive && onChain && pendingTrades.length > 0 && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/30">
+          <div className="text-sm font-medium text-amber-400 mb-2">
+            Pending On-Chain Trade ({pendingTrades.length})
+          </div>
+          <div className="text-xs text-muted-foreground mb-3">
+            {pendingTrades[0].market_title} - {pendingTrades[0].side.toUpperCase()} {pendingTrades[0].amount} USDT
+          </div>
+          <button
+            onClick={handleExecutePendingTrade}
+            disabled={isPending || isConfirming || !agentTokenId}
+            className="w-full py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black text-sm font-semibold transition-colors"
+          >
+            {isPending ? "Signing..." : isConfirming ? "Confirming..." : "Execute Trade"}
+          </button>
+          {txError && (
+            <div className="mt-2 text-xs text-red-400">
+              Error: {(txError as Error).message}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Settings */}
       <div className="space-y-3">

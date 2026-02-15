@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { Wallet } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { PositionList } from "../components/portfolio/PositionList";
 import { usePortfolioStore } from "../stores/usePortfolioStore";
 import { useAuthStore } from "../stores/useAuthStore";
@@ -20,7 +20,7 @@ interface HistoryRecord {
 
 export default function PortfolioPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const address = useAuthStore((s) => s.address);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const fetchFromAPI = usePortfolioStore((s) => s.fetchFromAPI);
@@ -42,7 +42,7 @@ export default function PortfolioPage() {
           }));
           setHistory(records);
         })
-        .catch(() => {});
+        .catch((err) => console.error("Failed to load trade history:", err));
     }
   }, [address, fetchFromAPI]);
 
@@ -75,8 +75,8 @@ export default function PortfolioPage() {
           transition={{ duration: 0.5 }}
           className="mb-6"
         >
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{t('portfolio.title')}</h1>
-          <p className="text-sm text-muted-foreground mt-1">Track your active positions and trading history</p>
+          <h1 className="text-lg sm:text-xl font-bold text-foreground">{t('portfolio.title')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('portfolio.description')}</p>
         </motion.div>
         <PositionList history={history} />
       </div>

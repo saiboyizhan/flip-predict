@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
-import { motion } from "motion/react";
+import { useState, useEffect, useRef } from "react";
 import { Trophy, Medal, TrendingUp, Crown, Award } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { LevelBadge } from "@/app/components/profile/LevelBadge";
 import { getLevelFromVolume } from "@/app/stores/useUserStore";
 import { fetchLeaderboard } from "@/app/services/api";
@@ -27,10 +26,12 @@ interface LeaderboardProps {
 
 export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const [data, setData] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnce = useRef(false);
   const myAddress = useAuthStore((s) => s.address);
   const loadFollowing = useSocialStore((s) => s.loadFollowing);
 
@@ -40,20 +41,22 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (!hasLoadedOnce.current) setInitialLoading(true);
+    else setRefreshing(true);
     setError(null);
     fetchLeaderboard(timeRange)
       .then((res) => {
         if (cancelled) return;
         const list = Array.isArray(res) ? res : [];
         setData(list);
+        hasLoadedOnce.current = true;
       })
       .catch((err) => {
         if (cancelled) return;
         setError(err.message || "Failed to load leaderboard");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setInitialLoading(false); setRefreshing(false); }
       });
     return () => { cancelled = true; };
   }, [timeRange]);
@@ -84,14 +87,14 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
     }
   };
 
-  // Skeleton loader
-  if (loading) {
+  // Skeleton loader — only on first load, not on tab switch
+  if (initialLoading) {
     return (
       <div className="min-h-screen p-4 sm:p-8">
         <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
           <div className="flex items-center gap-3 mb-6 sm:mb-8">
             <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
           </div>
           {/* Skeleton Top 3 */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12">
@@ -135,7 +138,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
         <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
           <div className="flex items-center gap-3 mb-6 sm:mb-8">
             <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
           </div>
           <div className="text-center py-20">
             <p className="text-red-400 text-lg mb-4">{error}</p>
@@ -158,7 +161,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
         <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
           <div className="flex items-center gap-3 mb-6 sm:mb-8">
             <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
           </div>
           <div className="text-center py-20">
             <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -177,17 +180,14 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
         {/* Header */}
         <div className="flex items-center gap-3 mb-6 sm:mb-8">
           <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-          <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
         </div>
 
         {/* Top 3 Podium */}
         {top3.length >= 3 && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12">
+          <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
             {/* 2nd Place */}
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
+            <div
               className="sm:pt-12 order-2 sm:order-1"
             >
               <div className="bg-gradient-to-br from-muted/30 to-secondary border border-zinc-400/50 p-6 sm:p-8 text-center">
@@ -197,13 +197,10 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                 <div className="text-emerald-400 text-2xl sm:text-3xl font-bold mb-1">+${top3[1].netProfit.toLocaleString()}</div>
                 <div className="text-muted-foreground text-sm">{t("leaderboard.winRate")} {top3[1].winRate}%</div>
               </div>
-            </motion.div>
+            </div>
 
             {/* 1st Place */}
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
+            <div
               className="order-1 sm:order-2"
             >
               <div className="bg-gradient-to-br from-blue-900/30 to-secondary border-2 border-blue-500/50 p-6 sm:p-8 text-center">
@@ -217,13 +214,10 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                   <span>{top3[0].bestStreak} {t("leaderboard.streak")}</span>
                 </div>
               </div>
-            </motion.div>
+            </div>
 
             {/* 3rd Place */}
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
+            <div
               className="sm:pt-12 order-3"
             >
               <div className="bg-gradient-to-br from-orange-900/30 to-secondary border border-orange-600/50 p-6 sm:p-8 text-center">
@@ -233,16 +227,13 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                 <div className="text-emerald-400 text-2xl sm:text-3xl font-bold mb-1">+${top3[2].netProfit.toLocaleString()}</div>
                 <div className="text-muted-foreground text-sm">{t("leaderboard.winRate")} {top3[2].winRate}%</div>
               </div>
-            </motion.div>
+            </div>
           </div>
         )}
 
         {/* Full Leaderboard Table */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="bg-card/30 border border-border"
+        <div
+          className={`bg-card/30 border border-border transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}
         >
           <div className="p-4 sm:p-6 border-b border-border">
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{t("leaderboard.fullList")}</h2>
@@ -261,12 +252,9 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {data.map((entry, index) => (
-                  <motion.tr
+                {data.map((entry) => (
+                  <tr
                     key={entry.address}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index < 10 ? 0.5 + index * 0.05 : 0 }}
                     className={`hover:bg-accent/50 transition-colors duration-200 ${getRankBackground(entry.rank)} border border-b border-border/50 last:border-b-0`}
                   >
                     <td className="p-3 sm:p-4">
@@ -310,12 +298,12 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                         <span className="text-foreground font-semibold">{entry.bestStreak}</span>
                       </div>
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </motion.div>
+        </div>
       </div>
     </div>
   );

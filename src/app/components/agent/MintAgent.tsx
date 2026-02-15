@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -40,7 +40,7 @@ function resizeImage(file: File, size: number): Promise<string> {
 
 export function MintAgent() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const chainId = useChainId();
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
@@ -210,70 +210,70 @@ export function MintAgent() {
   };
 
   return (
-    <div className="min-h-screen p-4 sm:p-8">
-      <div className="max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6">
+      <div className="max-w-4xl mx-auto">
         {/* Title */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-6 sm:mb-8"
+          className="mb-4 sm:mb-5"
         >
-          <div className="flex items-center gap-3 mb-3">
-            <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold">{t("agent.mintTitle")}</h1>
+          <div className="flex items-center gap-2 mb-1.5">
+            <Sparkles className="w-4 h-4 text-blue-400" />
+            <h1 className="text-base sm:text-lg font-bold">{t("agent.mintTitle")}</h1>
           </div>
-          <p className="text-muted-foreground text-base sm:text-lg">
+          <p className="text-muted-foreground text-xs">
             {t("agent.mintSubtitle")}
           </p>
           {remaining <= 0 && (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+            <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
               {t("agent.maxAgentsReached")}
             </div>
           )}
           {remaining > 0 && (
-            <div className="mt-3 text-sm text-muted-foreground">
+            <div className="mt-1.5 text-xs text-muted-foreground">
               {t("agent.remainingSlots", { count: remaining })}
             </div>
           )}
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
           {/* Form */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="lg:col-span-2 space-y-5 sm:space-y-6"
+            className="lg:col-span-2 space-y-4"
           >
             {/* Name Input */}
             <div>
-              <label className="block text-sm text-muted-foreground mb-2">{t("agent.agentName")}</label>
+              <label className="block text-xs text-muted-foreground mb-1">{t("agent.agentName")}</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t("agent.agentNamePlaceholder")}
                 maxLength={30}
-                className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground"
+                className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground"
               />
-              <div className="text-xs text-muted-foreground mt-1">{name.length}/30</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{name.length}/30</div>
             </div>
 
             {/* Persona Input */}
             <div>
-              <label className="block text-sm text-muted-foreground mb-2">{t("agent.persona")}</label>
+              <label className="block text-xs text-muted-foreground mb-1">{t("agent.persona")}</label>
               <textarea
                 value={persona}
                 onChange={(e) => setPersona(e.target.value)}
                 placeholder={t("agent.personaPlaceholder")}
                 rows={2}
-                className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground resize-none"
+                className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground resize-none"
               />
             </div>
 
             {/* Avatar Selection (Preset + Upload) */}
             <div>
-              <label className="block text-sm text-muted-foreground mb-3">{t("agent.selectAvatar")}</label>
+              <label className="block text-xs text-muted-foreground mb-1.5">{t("agent.selectAvatar")}</label>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -285,7 +285,7 @@ export function MintAgent() {
                   e.target.value = "";
                 }}
               />
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
+              <div className="grid grid-cols-6 sm:grid-cols-8 gap-2">
                 {/* Upload button as first tile */}
                 {uploadedAvatar ? (
                   <div className="relative aspect-square border-2 border-blue-500 ring-2 ring-blue-500/30 overflow-hidden group">
@@ -348,20 +348,20 @@ export function MintAgent() {
 
             {/* Strategy Selection */}
             <div>
-              <label className="block text-sm text-muted-foreground mb-3">{t("agent.stylePreference")}</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <label className="block text-xs text-muted-foreground mb-1.5">{t("agent.stylePreference")}</label>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
                 {STRATEGIES.map((s) => (
                   <button
                     key={s.id}
                     onClick={() => setStrategy(s.id)}
-                    className={`text-left p-3 sm:p-4 border transition-colors ${
+                    className={`text-left p-2.5 border transition-colors ${
                       strategy === s.id
                         ? "border-blue-500 bg-blue-500/10"
                         : "border-border bg-secondary hover:border-border"
                     }`}
                   >
-                    <div className="text-foreground font-semibold mb-1 text-sm sm:text-base">{s.name}</div>
-                    <div className="text-muted-foreground text-xs">{s.desc}</div>
+                    <div className="text-foreground font-semibold mb-0.5 text-xs">{s.name}</div>
+                    <div className="text-muted-foreground text-[10px] leading-tight">{s.desc}</div>
                   </button>
                 ))}
               </div>
@@ -369,18 +369,18 @@ export function MintAgent() {
 
             {/* Description */}
             <div>
-              <label className="block text-sm text-muted-foreground mb-2">{t("agent.description")}</label>
+              <label className="block text-xs text-muted-foreground mb-1">{t("agent.description")}</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t("agent.descriptionPlaceholder")}
-                rows={3}
-                className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground resize-none"
+                rows={2}
+                className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground resize-none"
               />
             </div>
 
             {/* Mint Fee */}
-            <div className="flex items-center justify-end text-sm px-1">
+            <div className="flex items-center justify-end text-xs px-1">
               <span className="text-emerald-400 font-semibold">
                 {t("agent.mintFee")}
               </span>
@@ -390,22 +390,22 @@ export function MintAgent() {
             <button
               onClick={handleMint}
               disabled={loading || remaining <= 0}
-              className="w-full py-3 sm:py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-base sm:text-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   {t("agent.minting")}
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-5 h-5" />
+                  <Sparkles className="w-4 h-4" />
                   {t("agent.mintFree")}
                 </>
               )}
             </button>
 
-            <p className="text-muted-foreground text-xs sm:text-sm text-center">
+            <p className="text-muted-foreground text-[10px] text-center">
               {t("agent.initialInfo")}
             </p>
           </motion.div>
@@ -416,7 +416,7 @@ export function MintAgent() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <div className="text-sm text-muted-foreground mb-3">{t("agent.preview")}</div>
+            <div className="text-xs text-muted-foreground mb-2">{t("agent.preview")}</div>
             <AgentCard agent={previewAgent} />
           </motion.div>
         </div>

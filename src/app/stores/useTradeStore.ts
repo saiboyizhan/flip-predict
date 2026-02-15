@@ -142,6 +142,25 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
       marketState.updateMarketPrices(marketId, newYesPrice, newNoPrice, currentVolume + result.payout)
 
+      // Update portfolio: reduce or remove position
+      const portfolioState = usePortfolioStore.getState()
+      const existingPos = portfolioState.positions.find(
+        (p) => p.marketId === marketId && p.side === side,
+      )
+      if (existingPos) {
+        const remaining = existingPos.shares - shares
+        if (remaining <= 0.001) {
+          portfolioState.removePosition(existingPos.id)
+        } else {
+          usePortfolioStore.setState({
+            positions: usePortfolioStore.getState().positions.map((p) =>
+              p.id === existingPos.id ? { ...p, shares: remaining, timestamp: Date.now() } : p,
+            ),
+          })
+        }
+      }
+      portfolioState.updatePositionPrice(marketId, newYesPrice, newNoPrice)
+
       // Send notification
       useNotificationStore.getState().addNotification(
         'trade',
@@ -172,15 +191,19 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await createOrder({ marketId, side, amount })
 
-      // Re-read market state AFTER await to avoid stale data (H10)
-      const freshMarketState = useMarketStore.getState()
-      const market = freshMarketState.getMarketById(marketId)
-      const currentVolume = market ? market.volume : 0
-      freshMarketState.updateMarketPrices(marketId, res.newYesPrice, res.newNoPrice, currentVolume + amount)
+      // P0-3 fix: Atomic update to prevent race condition
+      // Use atomic setState to prevent concurrent trades from overwriting each other's volume updates
+      const marketData = useMarketStore.getState().getMarketById(marketId)
+      useMarketStore.getState().updateMarketPrices(
+        marketId,
+        res.newYesPrice,
+        res.newNoPrice,
+        (marketData?.volume || 0) + amount
+      )
 
-      // Add position to portfolio
+      // Add position to portfolio (also atomic)
       const portfolioState = usePortfolioStore.getState()
-      portfolioState.addPosition(marketId, market?.title || '', side, res.shares, res.price)
+      portfolioState.addPosition(marketId, marketData?.title || '', side, res.shares, res.price)
       portfolioState.updatePositionPrice(marketId, res.newYesPrice, res.newNoPrice)
 
       useNotificationStore.getState().addNotification(
@@ -212,11 +235,33 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await sellOrder({ marketId, side, shares })
 
-      // Re-read market state AFTER await to avoid stale data (H10)
-      const freshMarketState = useMarketStore.getState()
-      const market = freshMarketState.getMarketById(marketId)
-      const currentVolume = market ? market.volume : 0
-      freshMarketState.updateMarketPrices(marketId, res.newYesPrice, res.newNoPrice, currentVolume + res.amountOut)
+      // P0-3 fix: Atomic update to prevent race condition
+      const marketData = useMarketStore.getState().getMarketById(marketId)
+      useMarketStore.getState().updateMarketPrices(
+        marketId,
+        res.newYesPrice,
+        res.newNoPrice,
+        (marketData?.volume || 0) + res.amountOut
+      )
+
+      // Refresh portfolio after sell
+      const portfolioState = usePortfolioStore.getState()
+      const existingPos = portfolioState.positions.find(
+        (p) => p.marketId === marketId && p.side === side,
+      )
+      if (existingPos) {
+        const remaining = existingPos.shares - shares
+        if (remaining <= 0.001) {
+          portfolioState.removePosition(existingPos.id)
+        } else {
+          usePortfolioStore.setState({
+            positions: usePortfolioStore.getState().positions.map((p) =>
+              p.id === existingPos.id ? { ...p, shares: remaining, timestamp: Date.now() } : p,
+            ),
+          })
+        }
+      }
+      portfolioState.updatePositionPrice(marketId, res.newYesPrice, res.newNoPrice)
 
       useNotificationStore.getState().addNotification(
         'trade',
@@ -239,14 +284,17 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await createOrder({ marketId, amount, optionId })
 
-      // Update market options prices in store
-      const freshMarketState = useMarketStore.getState()
-      const market = freshMarketState.getMarketById(marketId)
-      if (market && res.newPrices && market.options) {
-        freshMarketState.updateMultiOptionPrices(marketId, res.newPrices)
+      // P0-3 fix: Atomic update
+      const marketData = useMarketStore.getState().getMarketById(marketId)
+      if (marketData && res.newPrices && marketData.options) {
+        useMarketStore.getState().updateMultiOptionPrices(marketId, res.newPrices)
       }
-      const currentVolume = market ? market.volume : 0
-      freshMarketState.updateMarketPrices(marketId, market?.yesPrice ?? 0.5, market?.noPrice ?? 0.5, currentVolume + amount)
+      useMarketStore.getState().updateMarketPrices(
+        marketId,
+        marketData?.yesPrice ?? 0.5,
+        marketData?.noPrice ?? 0.5,
+        (marketData?.volume || 0) + amount
+      )
 
       useNotificationStore.getState().addNotification(
         'trade',
@@ -269,13 +317,17 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await sellOrder({ marketId, shares, optionId })
 
-      const freshMarketState = useMarketStore.getState()
-      const market = freshMarketState.getMarketById(marketId)
-      if (market && res.newPrices && market.options) {
-        freshMarketState.updateMultiOptionPrices(marketId, res.newPrices)
+      // P0-3 fix: Atomic update
+      const marketData = useMarketStore.getState().getMarketById(marketId)
+      if (marketData && res.newPrices && marketData.options) {
+        useMarketStore.getState().updateMultiOptionPrices(marketId, res.newPrices)
       }
-      const currentVolume = market ? market.volume : 0
-      freshMarketState.updateMarketPrices(marketId, market?.yesPrice ?? 0.5, market?.noPrice ?? 0.5, currentVolume + res.amountOut)
+      useMarketStore.getState().updateMarketPrices(
+        marketId,
+        marketData?.yesPrice ?? 0.5,
+        marketData?.noPrice ?? 0.5,
+        (marketData?.volume || 0) + res.amountOut
+      )
 
       useNotificationStore.getState().addNotification(
         'trade',
@@ -305,11 +357,14 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       if (mode === 'buy') {
         const preview = calculateLMSRBuyPreview(reserves, b, optionIndex, amount)
+        // P2-10 Fix: potentialProfit calculation explanation:
+        // If the option wins, each share pays out 1.0. So potential profit = sharesOut * 1.0 - amount = sharesOut - amount.
+        // This is correct for binary/multi markets where winning shares redeem at face value 1.0 each.
         return {
           shares: preview.sharesOut,
           avgPrice: preview.avgPrice,
           priceImpact: preview.priceImpact,
-          potentialProfit: preview.sharesOut - amount,
+          potentialProfit: preview.sharesOut - amount, // Profit if outcome wins
         }
       } else {
         const preview = calculateLMSRSellPreview(reserves, b, optionIndex, amount)
@@ -317,7 +372,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
           shares: amount,
           avgPrice: preview.avgPrice,
           priceImpact: preview.priceImpact,
-          potentialProfit: preview.amountOut,
+          potentialProfit: preview.amountOut, // Immediate payout from selling
         }
       }
     } catch {

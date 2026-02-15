@@ -69,6 +69,13 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
     const expiredMarkets = expiredRes.rows;
 
     for (const market of expiredMarkets) {
+      // Skip multi-option markets -- keeper only handles binary markets
+      if (market.market_type === 'multi') {
+        await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
+        console.log(`Market ${market.id} skipped by keeper (multi-option), marked as pending_resolution`);
+        continue;
+      }
+
       await client.query('SAVEPOINT market_resolution_sp');
       try {
         const canResolve = market.resolution_type && market.oracle_pair &&
@@ -77,8 +84,10 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
         if (canResolve) {
           const priceData = oraclePriceCache.get(market.oracle_pair);
           if (!priceData) {
-            console.error(`No cached price for ${market.oracle_pair}, skipping market ${market.id}`);
+            // Oracle fetch failed -- fall back to manual resolution instead of leaving stuck in pending_resolution
+            console.error(`No cached price for ${market.oracle_pair}, falling back to manual for market ${market.id}`);
             await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
+            console.log(`Market ${market.id} marked as pending_resolution (oracle unavailable, needs manual resolution)`);
           } else {
             const result = await resolveByOracleInTx(client, market, priceData);
             if (result) {
@@ -195,6 +204,9 @@ export async function settleMarketPositions(client: any, marketId: string, winni
 
     let loggedAmount = remainingAmount;
     if (order.order_side === 'buy') {
+      // P1-8 Fix: Buy order cancellation - return locked funds
+      // Note: open_orders table only interacts with orderbook, not AMM.
+      // Buy orders lock funds at placement (line ~121-124 in orderbook.ts) and unlock here at cancellation.
       const lockedAmount = remainingAmount * order.price;
       loggedAmount = lockedAmount;
       // Return locked funds to user's available balance
@@ -207,6 +219,9 @@ export async function settleMarketPositions(client: any, marketId: string, winni
         [order.user_address, lockedAmount]
       );
     } else if (order.order_side === 'sell') {
+      // P1-8 Fix: Sell order cancellation - restore shares to position
+      // Shares were deducted at placement (line ~214-220 in orderbook.ts) and restored here.
+      // No double-restoration risk: each sell order reduces position once, cancellation restores once.
       const restoreCostBasis = Number(order.cost_basis ?? order.price) || 0;
       // Return shares back to user's position. The row might not exist anymore because
       // shares were reduced at order placement time and may have reached 0.
@@ -305,6 +320,12 @@ export async function settleMarketPositions(client: any, marketId: string, winni
 
   for (const winner of winners) {
     const reward = (Number(winner.shares) / totalWinnerShares) * netDeposits;
+
+    // P1-7 Fix: Validate reward is finite and non-negative before crediting
+    if (!Number.isFinite(reward) || reward < 0) {
+      console.error(`Invalid reward: ${reward} for ${winner.user_address} in market ${marketId}`);
+      continue;
+    }
 
     // Bug C7 Fix: Use UPSERT to handle users who may not have a balance row yet
     await client.query(

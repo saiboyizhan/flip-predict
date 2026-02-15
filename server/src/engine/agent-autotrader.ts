@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { StrategyType } from './agent-strategy';
 import { executeCopyTrades } from './copy-trade';
 import { generateLlmDecisions } from './agent-llm-adapter';
+import { syncOwnerProfile, getOwnerInfluence } from './agent-owner-learning';
 
 const WIN_RATES: Record<StrategyType, number> = {
   conservative: 0.60,
@@ -68,11 +69,19 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 
   const strategy = agent.strategy as StrategyType;
 
+  // Sync owner profile if learn_from_owner is enabled
+  try {
+    await syncOwnerProfile(db, agentId);
+  } catch (err: any) {
+    console.error(`Owner profile sync error for agent ${agentId}:`, err.message);
+  }
+  const ownerInfluence = await getOwnerInfluence(db, agentId);
+
   // Use LLM-enhanced decisions (falls back to rule-based if no LLM config)
   const comboWeights = agent.combo_weights
     ? (typeof agent.combo_weights === 'string' ? (() => { try { return JSON.parse(agent.combo_weights as string); } catch { return null; } })() : agent.combo_weights)
     : null;
-  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights);
+  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights, ownerInfluence);
 
   if (decisions.length === 0) return;
 

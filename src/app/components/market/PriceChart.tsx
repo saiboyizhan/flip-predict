@@ -74,30 +74,30 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [customMode, setCustomMode] = useState(false);
-  const [fromDate, setFromDate] = useState(defaultFrom);
-  const [toDate, setToDate] = useState(defaultTo);
+  const [fromDate, setFromDate] = useState(() => defaultFrom());
+  const [toDate, setToDate] = useState(() => defaultTo());
 
-  const load = useCallback(async (signal?: { cancelled: boolean }) => {
+  const load = useCallback(async (abortSignal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
       const from = customMode ? toUTCString(fromDate) : undefined;
       const to = customMode ? toUTCString(toDate) : undefined;
       const res = await fetchPriceHistory(marketId, timeInterval, from, to);
-      if (!signal?.cancelled) setData(res.history);
+      if (!abortSignal?.aborted) setData(res.history);
     } catch {
-      if (!signal?.cancelled) setError("LOAD_FAILED");
+      if (!abortSignal?.aborted) setError("LOAD_FAILED");
     } finally {
-      if (!signal?.cancelled) setLoading(false);
+      if (!abortSignal?.aborted) setLoading(false);
     }
   }, [marketId, timeInterval, customMode, fromDate, toDate]);
 
   useEffect(() => {
-    const signal = { cancelled: false };
-    load(signal);
-    const timer = window.setInterval(() => { load(signal); }, 30000);
+    const controller = new AbortController();
+    load(controller.signal);
+    const timer = window.setInterval(() => { load(controller.signal); }, 30000);
     return () => {
-      signal.cancelled = true;
+      controller.abort();
       window.clearInterval(timer);
     };
   }, [load]);
@@ -241,7 +241,7 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
               }}
             />
             <Legend />
-            {options.map((opt) => (
+            {options.filter(opt => opt.label).map((opt) => (
               <Line
                 key={opt.id}
                 type="monotone"

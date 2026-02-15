@@ -24,7 +24,7 @@ export default function LeaderboardPage() {
           transition={{ duration: 0.5 }}
           className="mb-6"
         >
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
+          <h1 className="text-lg sm:text-xl font-bold text-foreground">
             {t("leaderboard.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">

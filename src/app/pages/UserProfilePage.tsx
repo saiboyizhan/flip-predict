@@ -10,6 +10,17 @@ import { useSocialStore } from "@/app/stores/useSocialStore";
 import { FollowButton } from "@/app/components/social/FollowButton";
 import { FollowList } from "@/app/components/social/FollowList";
 
+interface UserProfile {
+  display_name?: string;
+  avatar_url?: string;
+  bio?: string;
+  totalTrades?: number;
+  totalVolume?: number;
+  followersCount?: number;
+  followingCount?: number;
+  [key: string]: unknown;
+}
+
 function colorFromAddress(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
@@ -23,7 +34,7 @@ export default function UserProfilePage() {
   const { t } = useTranslation();
   const { address } = useParams<{ address: string }>();
   const myAddress = useAuthStore((s) => s.address);
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"following" | "followers">("following");
   const [followingList, setFollowingList] = useState<{ address: string; displayName?: string }[]>([]);
@@ -57,8 +68,8 @@ export default function UserProfilePage() {
         setEditName(p?.display_name || "");
         setEditBio(p?.bio || "");
       })
-      .catch(() => {
-        // silently fail
+      .catch((err) => {
+        console.error("Failed to load user profile:", err);
       })
       .finally(() => setLoading(false));
 
@@ -86,7 +97,7 @@ export default function UserProfilePage() {
         displayName: editName || undefined,
         bio: editBio || undefined,
       });
-      setProfile((prev: any) => ({ ...prev, ...result.profile }));
+      setProfile((prev) => ({ ...prev, ...result.profile }));
       setEditing(false);
       toast.success(t("social.profileSaved"));
     } catch {

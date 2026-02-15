@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
+import { adminMiddleware } from './middleware/admin';
 import { getDb } from '../db';
 import { createLMSRPool, getLMSRPrices } from '../engine/lmsr';
+import { ethers } from 'ethers';
 
 const router = Router();
 
@@ -12,9 +14,32 @@ function generateId(): string {
 const OPTION_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
 
 const VALID_CATEGORIES = [
-  'four-meme', 'flap', 'nfa', 'hackathon'
+  'four-meme', 'flap', 'nfa', 'hackathon', 'other'
 ];
 const VALID_RESOLUTION_TYPES = ['manual', 'price_above', 'price_below'] as const;
+const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
+const MARKET_CREATION_RPC_URL =
+  process.env.MARKET_CREATION_RPC_URL ||
+  process.env.SETTLEMENT_RPC_URL ||
+  process.env.BSC_RPC_URL ||
+  DEFAULT_BSC_RPC;
+const RAW_PREDICTION_MARKET_CONTRACT_ADDRESS =
+  process.env.PREDICTION_MARKET_ADDRESS ||
+  process.env.SETTLEMENT_CONTRACT_ADDRESS ||
+  process.env.VITE_PREDICTION_MARKET_ADDRESS ||
+  '';
+const PREDICTION_MARKET_CONTRACT_ADDRESS = ethers.isAddress(RAW_PREDICTION_MARKET_CONTRACT_ADDRESS)
+  ? RAW_PREDICTION_MARKET_CONTRACT_ADDRESS.toLowerCase()
+  : null;
+
+let marketCreationProvider: ethers.JsonRpcProvider | null = null;
+
+function getMarketCreationProvider(): ethers.JsonRpcProvider {
+  if (!marketCreationProvider) {
+    marketCreationProvider = new ethers.JsonRpcProvider(MARKET_CREATION_RPC_URL);
+  }
+  return marketCreationProvider;
+}
 
 function parseAddressArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -48,6 +73,109 @@ function normalizeOptionalUrl(value: unknown): string | null {
 
 function isTxHash(value: unknown): value is string {
   return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
+}
+
+async function verifyCreateMarketTxOnChain(params: {
+  txHash: string;
+  expectedCreator: string;
+  expectedMarketId: number;
+  expectedEndTimeMs: number;
+  expectedTitle: string;
+}): Promise<{ ok: true; blockNumber: number } | { ok: false; statusCode: number; error: string }> {
+  if (!PREDICTION_MARKET_CONTRACT_ADDRESS) {
+    return { ok: false, statusCode: 503, error: 'Market creation verification is not configured' };
+  }
+
+  const expectedCreator = params.expectedCreator.toLowerCase();
+  const expectedMarketId = String(params.expectedMarketId);
+  const expectedEndTime = BigInt(Math.floor(params.expectedEndTimeMs / 1000));
+  const expectedTitle = params.expectedTitle.trim();
+
+  const iface = new ethers.Interface([
+    'function createUserMarket(string title, uint256 endTime, uint256 initialLiquidity)',
+    'event UserMarketCreated(uint256 indexed marketId, address indexed creator, string title, uint256 creationFee)',
+  ]);
+  const createUserMarketSelector = ethers.id('createUserMarket(string,uint256,uint256)').slice(0, 10);
+  const createdEventTopic = ethers.id('UserMarketCreated(uint256,address,string,uint256)');
+  const provider = getMarketCreationProvider();
+
+  try {
+    const receipt = await provider.getTransactionReceipt(params.txHash);
+    if (!receipt) {
+      return { ok: false, statusCode: 400, error: 'createTxHash not found or not confirmed yet' };
+    }
+    if (receipt.status !== 1) {
+      return { ok: false, statusCode: 400, error: 'createTxHash failed on-chain' };
+    }
+
+    const tx = await provider.getTransaction(params.txHash);
+    if (!tx) {
+      return { ok: false, statusCode: 400, error: 'createTxHash transaction details unavailable' };
+    }
+
+    const txFrom = (tx.from || '').toLowerCase();
+    if (txFrom !== expectedCreator) {
+      return { ok: false, statusCode: 400, error: 'createTxHash sender does not match creator wallet' };
+    }
+
+    const txTo = (tx.to || receipt.to || null)?.toLowerCase() ?? null;
+    if (!txTo || txTo !== PREDICTION_MARKET_CONTRACT_ADDRESS) {
+      return { ok: false, statusCode: 400, error: 'createTxHash target does not match PredictionMarket contract' };
+    }
+
+    const calldata = tx.data || '';
+    if (calldata.length < 10 || calldata.slice(0, 10) !== createUserMarketSelector) {
+      return { ok: false, statusCode: 400, error: 'createTxHash must call createUserMarket' };
+    }
+
+    let decodedTitle = '';
+    let decodedEndTime = 0n;
+    let decodedInitialLiquidity = 0n;
+    try {
+      const decoded = iface.decodeFunctionData('createUserMarket', calldata);
+      decodedTitle = String(decoded[0] ?? '').trim();
+      decodedEndTime = decoded[1] as bigint;
+      decodedInitialLiquidity = decoded[2] as bigint;
+    } catch {
+      return { ok: false, statusCode: 400, error: 'createTxHash calldata decode failed' };
+    }
+
+    if (decodedTitle !== expectedTitle) {
+      return { ok: false, statusCode: 400, error: 'createTxHash title does not match request payload' };
+    }
+    if (decodedEndTime !== expectedEndTime) {
+      return { ok: false, statusCode: 400, error: 'createTxHash endTime does not match request payload' };
+    }
+    if (decodedInitialLiquidity !== 0n) {
+      return { ok: false, statusCode: 400, error: 'createTxHash initialLiquidity must be 0 for this flow' };
+    }
+
+    let foundCreatedEvent = false;
+    for (const log of receipt.logs) {
+      if ((log.address || '').toLowerCase() !== PREDICTION_MARKET_CONTRACT_ADDRESS) continue;
+      if (!log.topics?.length || log.topics[0] !== createdEventTopic) continue;
+      try {
+        const decoded = iface.decodeEventLog('UserMarketCreated', log.data, log.topics);
+        const eventMarketId = (decoded[0] as bigint).toString();
+        const eventCreator = String(decoded[1] || '').toLowerCase();
+        if (eventCreator === expectedCreator && eventMarketId === expectedMarketId) {
+          foundCreatedEvent = true;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (!foundCreatedEvent) {
+      return { ok: false, statusCode: 400, error: 'createTxHash does not prove the provided onChainMarketId' };
+    }
+
+    return { ok: true, blockNumber: receipt.blockNumber };
+  } catch (err) {
+    console.error('Create market tx verification error:', err);
+    return { ok: false, statusCode: 503, error: 'Market creation verification service unavailable' };
+  }
 }
 
 // POST /api/markets/create — create user market
@@ -100,13 +228,13 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
     }
 
     // Validate endTime
-    const endTimeMs = Number(endTime);
+    const endTimeMs = Math.floor(Number(endTime));
     const now = Date.now();
     if (!Number.isFinite(endTimeMs)) {
       res.status(400).json({ error: '结束时间格式无效' });
       return;
     }
-    if (endTimeMs <= now + 3600000) {
+    if (endTimeMs < now + 3600000) {
       res.status(400).json({ error: '结束时间至少需要1小时后' });
       return;
     }
@@ -144,12 +272,24 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       ? parsedOnChainCreationFee
       : 10;
 
-    if (!Number.isInteger(parsedOnChainMarketId) || parsedOnChainMarketId < 0) {
+    if (!Number.isSafeInteger(parsedOnChainMarketId) || parsedOnChainMarketId < 0) {
       res.status(400).json({ error: 'onChainMarketId is required and must be a non-negative integer' });
       return;
     }
     if (!isTxHash(normalizedCreateTxHash)) {
       res.status(400).json({ error: 'createTxHash is required and must be a valid transaction hash' });
+      return;
+    }
+
+    const createTxVerification = await verifyCreateMarketTxOnChain({
+      txHash: normalizedCreateTxHash,
+      expectedCreator: userAddress,
+      expectedMarketId: parsedOnChainMarketId,
+      expectedEndTimeMs: endTimeMs,
+      expectedTitle: normalizedTitle,
+    });
+    if (!createTxVerification.ok) {
+      res.status(createTxVerification.statusCode).json({ error: createTxVerification.error });
       return;
     }
 
@@ -236,7 +376,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
 
         await client.query(`
           INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
-          VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, 0, $9, 0, 0, $10, 'multi')
+          VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', $7, $8, 0, $9, 0, 0, $10, 'multi')
         `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), initialPrices[0], 1 - initialPrices[0], totalLiquidity, Math.floor(now)]);
 
         // Insert market_options rows
@@ -252,7 +392,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       } else {
         await client.query(`
           INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
-          VALUES ($1, $2, $3, $4, $5, $6, 'active', 0.5, 0.5, 0, 10000, 10000, 10000, $7, 'binary')
+          VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', 0.5, 0.5, 0, 10000, 10000, 10000, $7, 'binary')
         `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), Math.floor(now)]);
       }
 
@@ -282,7 +422,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       committed = true;
 
       const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [marketId]);
-      res.json({ market: marketResult.rows[0], fee: recordedCreationFee });
+      res.json({ market: marketResult.rows[0], fee: recordedCreationFee, message: 'Market submitted for review' });
     } catch (txErr) {
       if (!committed) {
         await client.query('ROLLBACK');
@@ -397,6 +537,76 @@ router.get('/creation-stats', authMiddleware, async (req: AuthRequest, res: Resp
     });
   } catch (err: any) {
     console.error('Creation stats error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/markets/:id/approve — admin approves a pending market
+router.post('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const { id } = req.params;
+
+    const marketResult = await db.query('SELECT id, status FROM markets WHERE id = $1', [id]);
+    if (marketResult.rows.length === 0) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    const market = marketResult.rows[0] as any;
+    if (market.status !== 'pending_approval') {
+      res.status(400).json({ error: `Market is not pending approval (current status: ${market.status})` });
+      return;
+    }
+
+    await db.query('UPDATE markets SET status = $1 WHERE id = $2', ['active', id]);
+
+    // Sync user_created_markets status
+    await db.query(
+      "UPDATE user_created_markets SET status = 'active' WHERE market_id = $1",
+      [id]
+    );
+
+    res.json({ success: true, message: 'Market approved' });
+  } catch (err: any) {
+    console.error('Market approve error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/markets/:id/reject — admin rejects a pending market
+router.post('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const marketResult = await db.query('SELECT id, status FROM markets WHERE id = $1', [id]);
+    if (marketResult.rows.length === 0) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    const market = marketResult.rows[0] as any;
+    if (market.status !== 'pending_approval') {
+      res.status(400).json({ error: `Market is not pending approval (current status: ${market.status})` });
+      return;
+    }
+
+    await db.query(
+      'UPDATE markets SET status = $1, rejection_reason = $2 WHERE id = $3',
+      ['rejected', reason || null, id]
+    );
+
+    // Sync user_created_markets status
+    await db.query(
+      "UPDATE user_created_markets SET status = 'rejected' WHERE market_id = $1",
+      [id]
+    );
+
+    res.json({ success: true, message: 'Market rejected', reason: reason || null });
+  } catch (err: any) {
+    console.error('Market reject error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

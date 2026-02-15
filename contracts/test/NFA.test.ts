@@ -1,11 +1,12 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import type { NFA, PredictionMarket } from "../typechain-types";
+import type { NFA, PredictionMarket, MockUSDT } from "../typechain-types";
 import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("NFA", function () {
   let nfa: NFA;
+  let mockUsdt: MockUSDT;
   let owner: SignerWithAddress;
   let user1: SignerWithAddress;
   let user2: SignerWithAddress;
@@ -25,11 +26,25 @@ describe("NFA", function () {
     await nfa.connect(user).mint(defaultMetadata);
   }
 
+  /** Mint USDT to a user, approve NFA, then call fundAgent */
+  async function fundAgentUsdt(user: SignerWithAddress, tokenId: number, amount: bigint) {
+    const nfaAddress = await nfa.getAddress();
+    await mockUsdt.mint(user.address, amount);
+    await mockUsdt.connect(user).approve(nfaAddress, amount);
+    await nfa.connect(user).fundAgent(tokenId, amount);
+  }
+
   beforeEach(async function () {
     [owner, user1, user2, user3] = await ethers.getSigners();
 
+    // Deploy MockUSDT first (NFA constructor needs it)
+    const MockUSDTFactory = await ethers.getContractFactory("MockUSDT");
+    mockUsdt = (await MockUSDTFactory.deploy()) as unknown as MockUSDT;
+    await mockUsdt.waitForDeployment();
+    const usdtAddress = await mockUsdt.getAddress();
+
     const NFAFactory = await ethers.getContractFactory("NFA");
-    nfa = await NFAFactory.deploy();
+    nfa = await NFAFactory.deploy(usdtAddress);
     await nfa.waitForDeployment();
   });
 
@@ -223,7 +238,10 @@ describe("NFA", function () {
 
     it("funds and withdraws agent balance and totalAgentBalances", async function () {
       const amount = ethers.parseEther("3");
-      await expect(nfa.connect(user2).fundAgent(0, { value: amount }))
+      const nfaAddress = await nfa.getAddress();
+      await mockUsdt.mint(user2.address, amount);
+      await mockUsdt.connect(user2).approve(nfaAddress, amount);
+      await expect(nfa.connect(user2).fundAgent(0, amount))
         .to.emit(nfa, "AgentFunded")
         .withArgs(0, amount);
 
@@ -240,20 +258,20 @@ describe("NFA", function () {
     });
 
     it("enforces funding and withdrawal guards", async function () {
-      await expect(nfa.connect(user1).fundAgent(0, { value: 0 })).to.be.revertedWith("Must send BNB");
+      await expect(nfa.connect(user1).fundAgent(0, 0)).to.be.revertedWith("Amount must be > 0");
       await expect(nfa.connect(user1).withdrawFromAgent(0, 0)).to.be.revertedWith("Amount must be > 0");
       await expect(nfa.connect(user2).withdrawFromAgent(0, 1)).to.be.revertedWith("Not token owner");
 
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("1") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("1"));
       await expect(nfa.connect(user1).withdrawFromAgent(0, ethers.parseEther("2"))).to.be.revertedWith("Insufficient agent balance");
     });
 
     it("allows withdraw from terminated agent", async function () {
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("1") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("1"));
       await nfa.connect(user1).terminateAgent(0);
 
       await expect(nfa.connect(user1).withdrawFromAgent(0, ethers.parseEther("1"))).to.not.be.reverted;
-      await expect(nfa.connect(user1).fundAgent(0, { value: 1 })).to.be.revertedWith("Agent not active");
+      await expect(nfa.connect(user1).fundAgent(0, 1)).to.be.revertedWith("Agent not active");
     });
 
     it("requires logic address for executeAction", async function () {
@@ -266,7 +284,7 @@ describe("NFA", function () {
     });
 
     it("blocks invalid executeAgentTrade targets", async function () {
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("2") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("2"));
 
       await expect(
         nfa.connect(user1).executeAgentTrade(0, ethers.ZeroAddress, "0x", 1)
@@ -286,7 +304,7 @@ describe("NFA", function () {
     it("allows owner trade and updates balances", async function () {
       const initial = ethers.parseEther("5");
       const tradeValue = ethers.parseEther("2");
-      await nfa.connect(user1).fundAgent(0, { value: initial });
+      await fundAgentUsdt(user1, 0, initial);
 
       await expect(
         nfa.connect(user1).executeAgentTrade(0, user2.address, "0x", tradeValue)
@@ -297,7 +315,7 @@ describe("NFA", function () {
     });
 
     it("rejects unauthorized third-party trade", async function () {
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("1") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("1"));
 
       await expect(
         nfa.connect(user2).executeAgentTrade(0, user3.address, "0x", ethers.parseEther("0.1"))
@@ -305,7 +323,7 @@ describe("NFA", function () {
     });
 
     it("supports authorized auto-trade with per-trade/daily/expiry guards", async function () {
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("5") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("5"));
 
       const maxPerTrade = ethers.parseEther("1");
       const maxDaily = ethers.parseEther("2");
@@ -367,7 +385,7 @@ describe("NFA", function () {
     });
 
     it("rejects executeAgentTrade on paused/terminated agent", async function () {
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("1") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("1"));
 
       await nfa.connect(user1).pauseAgent(0);
       await expect(
@@ -469,12 +487,12 @@ describe("NFA", function () {
     it("withdrawSurplus enforces available surplus", async function () {
       const nfaAddress = await nfa.getAddress();
 
-      // send pure surplus (not agent balance)
-      await user1.sendTransaction({ to: nfaAddress, value: ethers.parseEther("1") });
+      // send pure USDT surplus (not agent balance) directly to NFA contract
+      await mockUsdt.mint(nfaAddress, ethers.parseEther("1"));
 
-      const before = await ethers.provider.getBalance(nfaAddress);
+      const before = await mockUsdt.balanceOf(nfaAddress);
       await expect(nfa.connect(owner).withdrawSurplus(ethers.parseEther("0.4"))).to.not.be.reverted;
-      const after = await ethers.provider.getBalance(nfaAddress);
+      const after = await mockUsdt.balanceOf(nfaAddress);
       expect(after).to.equal(before - ethers.parseEther("0.4"));
 
       await expect(nfa.connect(owner).withdrawSurplus(0)).to.be.revertedWith("Amount must be > 0");
@@ -482,26 +500,36 @@ describe("NFA", function () {
     });
 
     it("withdrawFromPredictionMarket flow works", async function () {
-      // Mint and fund agent
+      // Mint and fund agent with USDT
       await mintAgent(user1);
-      await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("1") });
+      await fundAgentUsdt(user1, 0, ethers.parseEther("1"));
 
-      // Deploy prediction market
+      const usdtAddress = await mockUsdt.getAddress();
+
+      // Deploy prediction market with same USDT address
       const PMFactory = await ethers.getContractFactory("PredictionMarket");
-      const pm = (await PMFactory.deploy()) as PredictionMarket;
+      const pm = (await PMFactory.deploy(usdtAddress)) as unknown as PredictionMarket;
       await pm.waitForDeployment();
       const pmAddress = await pm.getAddress();
 
-      // Before setting predictionMarket on NFA, use executeAgentTrade to call pm.deposit()
-      const depositData = pm.interface.encodeFunctionData("deposit");
-      await nfa.connect(user1).executeAgentTrade(0, pmAddress, depositData, ethers.parseEther("1"));
-
       const nfaAddress = await nfa.getAddress();
-      expect(await pm.balances(nfaAddress)).to.equal(ethers.parseEther("1"));
+
+      // Mint extra USDT to NFA contract for direct deposit via executeAgentTrade
+      const depositAmount = ethers.parseEther("1");
+      await mockUsdt.mint(nfaAddress, depositAmount);
+      // NFA needs to approve PM to spend its USDT -- we do this via executeAgentTrade
+      const approveData = mockUsdt.interface.encodeFunctionData("approve", [pmAddress, depositAmount]);
+      await nfa.connect(user1).executeAgentTrade(0, usdtAddress, approveData, 0);
+
+      // Call pm.deposit(amount) via executeAgentTrade
+      const depositData = pm.interface.encodeFunctionData("deposit", [depositAmount]);
+      await nfa.connect(user1).executeAgentTrade(0, pmAddress, depositData, 0);
+
+      expect(await pm.balances(nfaAddress)).to.equal(depositAmount);
 
       // Set PM address and withdraw from PM back to NFA
       await nfa.connect(owner).setPredictionMarket(pmAddress);
-      await expect(nfa.connect(owner).withdrawFromPredictionMarket(ethers.parseEther("1"))).to.not.be.reverted;
+      await expect(nfa.connect(owner).withdrawFromPredictionMarket(depositAmount)).to.not.be.reverted;
       expect(await pm.balances(nfaAddress)).to.equal(0);
     });
 
@@ -540,15 +568,14 @@ describe("NFA", function () {
       await expect(nfa.getAgentBalance(999)).to.be.revertedWithCustomError(nfa, "ERC721NonexistentToken");
     });
 
-    it("receive() accepts direct BNB", async function () {
+    it("rejects direct BNB (no receive function)", async function () {
       const sendAmount = ethers.parseEther("0.2");
-      await user1.sendTransaction({
-        to: await nfa.getAddress(),
-        value: sendAmount,
-      });
-
-      const contractBalance = await ethers.provider.getBalance(await nfa.getAddress());
-      expect(contractBalance).to.be.gte(sendAmount);
+      await expect(
+        user1.sendTransaction({
+          to: await nfa.getAddress(),
+          value: sendAmount,
+        })
+      ).to.be.reverted;
     });
   });
 
@@ -563,9 +590,11 @@ describe("NFA", function () {
     const positionAmount = ethers.parseEther("1");
 
     async function setupBridge() {
-      // Deploy PredictionMarket
+      const usdtAddress = await mockUsdt.getAddress();
+
+      // Deploy PredictionMarket with same USDT token as NFA
       const PMFactory = await ethers.getContractFactory("PredictionMarket");
-      pm = (await PMFactory.deploy()) as unknown as PredictionMarket;
+      pm = (await PMFactory.deploy(usdtAddress)) as unknown as PredictionMarket;
       await pm.waitForDeployment();
       await pm.setStrictArbitrationMode(false);
       const pmAddress = await pm.getAddress();
@@ -578,8 +607,8 @@ describe("NFA", function () {
       // Mint an agent for user1
       await mintAgent(user1);
 
-      // Fund the agent with 10 ETH
-      await nfa.connect(user1).fundAgent(agentTokenId, { value: ethers.parseEther("10") });
+      // Fund the agent with 10 USDT
+      await fundAgentUsdt(user1, agentTokenId, ethers.parseEther("10"));
 
       // Create a market on PredictionMarket with endTime = now + 3600
       const latest = await time.latest();
@@ -612,7 +641,7 @@ describe("NFA", function () {
       it("should revert if prediction market not set", async function () {
         // Mint agent without setting prediction market
         await mintAgent(user1);
-        await nfa.connect(user1).fundAgent(0, { value: ethers.parseEther("10") });
+        await fundAgentUsdt(user1, 0, ethers.parseEther("10"));
 
         await expect(
           nfa.connect(user1).depositToPredictionMarket(0, depositAmount)

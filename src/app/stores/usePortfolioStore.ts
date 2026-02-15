@@ -34,36 +34,39 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   orders: [],
 
   addPosition: (marketId, marketTitle, side, shares, avgCost) => {
-    const existing = get().positions.find(
-      (p) => p.marketId === marketId && p.side === side,
-    )
+    // P1-6 fix: Use atomic setState to prevent race conditions when concurrent trades
+    set((state) => {
+      const existing = state.positions.find(
+        (p) => p.marketId === marketId && p.side === side,
+      )
 
-    if (existing) {
-      // Merge: weighted average cost
-      const totalShares = existing.shares + shares
-      const weightedCost =
-        (existing.shares * existing.avgCost + shares * avgCost) / totalShares
+      if (existing) {
+        // Merge: weighted average cost
+        const totalShares = existing.shares + shares
+        const weightedCost =
+          (existing.shares * existing.avgCost + shares * avgCost) / totalShares
 
-      set({
-        positions: get().positions.map((p) =>
-          p.id === existing.id
-            ? { ...p, shares: totalShares, avgCost: weightedCost, timestamp: Date.now() }
-            : p,
-        ),
-      })
-    } else {
-      const newPosition: Position = {
-        id: `pos_${marketId}_${side}_${Date.now()}`,
-        marketId,
-        marketTitle,
-        side,
-        shares,
-        avgCost,
-        currentPrice: avgCost,
-        timestamp: Date.now(),
+        return {
+          positions: state.positions.map((p) =>
+            p.id === existing.id
+              ? { ...p, shares: totalShares, avgCost: weightedCost, timestamp: Date.now() }
+              : p,
+          ),
+        }
+      } else {
+        const newPosition: Position = {
+          id: `pos_${marketId}_${side}_${Date.now()}`,
+          marketId,
+          marketTitle,
+          side,
+          shares,
+          avgCost,
+          currentPrice: avgCost,
+          timestamp: Date.now(),
+        }
+        return { positions: [...state.positions, newPosition] }
       }
-      set({ positions: [...get().positions, newPosition] })
-    }
+    })
   },
 
   removePosition: (positionId) => {

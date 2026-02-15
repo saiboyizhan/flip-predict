@@ -5,9 +5,9 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { mintAgent } from "@/app/services/api";
-import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
+import { PRESET_AVATARS } from "@/app/config/avatars";
 import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
-import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
+import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract } from "wagmi";
 import { decodeEventLog, zeroAddress, zeroHash } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
@@ -53,6 +53,17 @@ export function MintAgentModal() {
   const [uploadedAvatar, setUploadedAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // P1-3 fix: Read MAX_AGENTS_PER_ADDRESS from contract
+  const { data: maxAgentsData } = useReadContract({
+    address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+    abi: NFA_ABI,
+    functionName: 'MAX_AGENTS_PER_ADDRESS',
+    query: {
+      enabled: NFA_CONTRACT_ADDRESS !== '0x0000000000000000000000000000000000000000',
+    },
+  });
+  const MAX_AGENTS_PER_ADDRESS = maxAgentsData ? Number(maxAgentsData) : 3;
 
   const avatarSrc = uploadedAvatar ?? (selectedAvatar !== null ? PRESET_AVATARS[selectedAvatar].src : null);
 

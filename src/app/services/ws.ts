@@ -73,6 +73,10 @@ function handleMessage(event: MessageEvent) {
     if (data.type === 'auth_error') {
       console.warn('[WS] Auth error:', data.error)
       localStorage.removeItem('jwt_token')
+      // Trigger logout in auth store to sync state
+      import('@/app/stores/useAuthStore').then(({ useAuthStore }) => {
+        useAuthStore.getState().logout()
+      }).catch(() => {})
       return
     }
 
@@ -253,6 +257,8 @@ let orderbookListenerAttached = false
 function ensureOrderbookListener() {
   if (orderbookListenerAttached) return
   if (ws) {
+    // Remove first to prevent duplicate listeners
+    ws.removeEventListener('message', handleOrderbookMessage)
     ws.addEventListener('message', handleOrderbookMessage)
     orderbookListenerAttached = true
   }

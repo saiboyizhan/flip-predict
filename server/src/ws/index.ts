@@ -9,6 +9,7 @@ interface Client {
   subscribedMarkets: Set<string>;
   subscribedOrderBooks: Set<string>;
   userAddress?: string;
+  lastPing?: number; // Track last ping timestamp for heartbeat timeout
 }
 
 const clients: Client[] = [];
@@ -16,11 +17,35 @@ const clients: Client[] = [];
 // Rate limiting: max 100 messages per 60 seconds per client
 const messageRates = new Map<WebSocket, { count: number; resetTime: number }>();
 
+// Heartbeat timeout: disconnect clients that haven't pinged in 90 seconds
+const HEARTBEAT_TIMEOUT = 90000;
+
 export function setupWebSocket(server: Server): WebSocketServer {
   const wss = new WebSocketServer({ server, maxPayload: 4096 });
 
+  // Periodic cleanup: remove dead connections and kick idle clients
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (let i = clients.length - 1; i >= 0; i--) {
+      const client = clients[i];
+      // Remove connections that are not OPEN
+      if (client.ws.readyState !== WebSocket.OPEN) {
+        clients.splice(i, 1);
+        messageRates.delete(client.ws);
+        continue;
+      }
+      // Kick clients that haven't sent a ping in HEARTBEAT_TIMEOUT
+      if (client.lastPing && now - client.lastPing > HEARTBEAT_TIMEOUT) {
+        console.log('[WS] Kicking idle client (no heartbeat)');
+        client.ws.close(1000, 'Heartbeat timeout');
+        clients.splice(i, 1);
+        messageRates.delete(client.ws);
+      }
+    }
+  }, 30000); // Run every 30 seconds
+
   wss.on('connection', (ws: WebSocket) => {
-    const client: Client = { ws, subscribedMarkets: new Set(), subscribedOrderBooks: new Set() };
+    const client: Client = { ws, subscribedMarkets: new Set(), subscribedOrderBooks: new Set(), lastPing: Date.now() };
     clients.push(client);
 
     ws.on('message', (data: Buffer) => {
@@ -42,6 +67,7 @@ export function setupWebSocket(server: Server): WebSocketServer {
 
         // Handle heartbeat ping from frontend
         if (msg.type === 'ping') {
+          client.lastPing = Date.now(); // Update last ping timestamp
           ws.send(JSON.stringify({ type: 'pong' }));
           return;
         }
@@ -195,29 +221,6 @@ export function broadcastOrderBookUpdate(marketId: string, side: string, orderbo
 
   for (const client of clients) {
     if (client.ws.readyState === WebSocket.OPEN && client.subscribedOrderBooks.has(key)) {
-      try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
-    }
-  }
-}
-
-// Broadcast a feed trade event to all authenticated clients (frontend filters by followed users)
-export function broadcastFeedTrade(trade: {
-  userAddress: string;
-  marketId: string;
-  marketTitle?: string;
-  side: string;
-  amount: number;
-  shares?: number;
-  price?: number;
-  timestamp: number;
-}): void {
-  const msg = JSON.stringify({
-    type: 'feed_trade',
-    ...trade,
-  });
-
-  for (const client of clients) {
-    if (client.ws.readyState === WebSocket.OPEN && client.userAddress) {
       try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }

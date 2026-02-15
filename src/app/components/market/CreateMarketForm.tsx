@@ -3,10 +3,10 @@ import { motion } from "motion/react";
 import { Plus, Clock, AlertTriangle, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { useChainId } from "wagmi";
+import { useAccount, useChainId } from "wagmi";
 import { createUserMarket as createUserMarketRecord } from "@/app/services/api";
 import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
-import { getBscScanUrl, useCreateUserMarket, useMarketCreationFee, useTxNotifier } from "@/app/hooks/useContracts";
+import { getBscScanUrl, useCreateUserMarket, useMarketCreationFee, useTxNotifier, useUsdtAllowance, useUsdtApprove } from "@/app/hooks/useContracts";
 
 const OPTION_COLORS = [
   '#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6',
@@ -58,6 +58,7 @@ interface PendingMarketPayload {
 export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormProps) {
   const { t } = useTranslation();
   const chainId = useChainId();
+  const { address } = useAccount();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('four-meme');
@@ -76,6 +77,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
   ]);
   const pendingPayloadRef = useRef<PendingMarketPayload | null>(null);
   const lastSyncedTxHashRef = useRef<string | null>(null);
+  const feeAtSubmitRef = useRef<string>('0'); // P0-2 fix: capture fee at submission
 
   const {
     createUserMarket: createUserMarketOnChain,
@@ -89,19 +91,42 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
   } = useCreateUserMarket();
   const {
     feeWei,
-    feeBNB,
+    feeUSDT,
     isLoading: feeLoading,
   } = useMarketCreationFee();
 
+  // P1-2 fix: USDT allowance & approve hooks
+  const {
+    allowanceRaw,
+    refetch: refetchAllowance,
+  } = useUsdtAllowance(address, PREDICTION_MARKET_ADDRESS);
+  const {
+    approve: approveUsdt,
+    txHash: approveTxHash,
+    isWriting: approveWriting,
+    isConfirming: approveConfirming,
+    isConfirmed: approveConfirmed,
+    error: approveError,
+    reset: resetApprove,
+  } = useUsdtApprove();
+
+  useTxNotifier(
+    approveTxHash,
+    approveConfirming,
+    approveConfirmed,
+    approveError as Error | null,
+    "USDT Approve",
+  );
+
   const stats = creationStats || { dailyCount: 0, maxPerDay: 3, creationFee: 10, balance: 0 };
   const hasPredictionContract = PREDICTION_MARKET_ADDRESS !== '0x0000000000000000000000000000000000000000';
-  const canCreate = stats.dailyCount < stats.maxPerDay && hasPredictionContract;
+  const canCreate = stats.dailyCount < stats.maxPerDay;
   const contractFeeDisplay = useMemo(() => {
     if (feeLoading) return '...';
     if (!hasPredictionContract) return 'N/A';
-    return Number(feeBNB || '0').toFixed(4);
-  }, [feeLoading, hasPredictionContract, feeBNB]);
-  const isProcessing = createWriting || createConfirming || syncing;
+    return Number(feeUSDT || '0').toFixed(4);
+  }, [feeLoading, hasPredictionContract, feeUSDT]);
+  const isProcessing = createWriting || createConfirming || syncing || approveWriting || approveConfirming;
   const titleLength = title.length;
   const titleValid = titleLength >= 10 && titleLength <= 200;
 
@@ -156,16 +181,18 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       return;
     }
 
+    const capturedFee = feeAtSubmitRef.current; // P0-2 fix: use captured fee
+
     setSyncing(true);
     void createUserMarketRecord({
       ...pendingPayload,
       onChainMarketId: createdMarketId.toString(),
       createTxHash,
-      onChainCreationFee: Number(feeBNB || '0'),
+      onChainCreationFee: Number(capturedFee),
     })
       .then(() => {
         lastSyncedTxHashRef.current = createTxHash;
-        toast.success(`${t('createMarket.createSuccess')} #${createdMarketId.toString()}`);
+        toast.success(t('market.submitForReview'));
         setTitle('');
         setDescription('');
         setResolutionType('manual');
@@ -195,12 +222,24 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     createConfirmed,
     createTxHash,
     createdMarketId,
-    feeBNB,
     t,
     chainId,
     onSuccess,
     resetCreateUserMarket,
-  ]);
+  ]); // P0-2 fix: removed feeUSDT dependency
+
+  // P1-2 fix: Handle approve confirmation and auto-trigger market creation
+  useEffect(() => {
+    if (approveConfirmed && approveTxHash && pendingPayloadRef.current) {
+      resetApprove();
+      void refetchAllowance();
+
+      // Now trigger the actual market creation
+      const payload = pendingPayloadRef.current;
+      const endTimeUnix = BigInt(Math.floor(payload.endTime / 1000));
+      createUserMarketOnChain(payload.title, endTimeUnix, 0n, feeWei);
+    }
+  }, [approveConfirmed, approveTxHash, refetchAllowance, resetApprove, createUserMarketOnChain, feeWei]);
 
   const handleCreate = () => {
     if (!titleValid) {
@@ -227,10 +266,6 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       toast.error('价格类自动结算需要 oracle pair 和 target price');
       return;
     }
-    if (!hasPredictionContract) {
-      toast.error('未配置 PredictionMarket 合约地址');
-      return;
-    }
     if (stats.dailyCount >= stats.maxPerDay) {
       toast.error(t('createMarket.dailyLimitReached'));
       return;
@@ -238,8 +273,13 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     if (isProcessing) {
       return;
     }
-    if (feeLoading) {
+    // Fee check only relevant when contract is configured
+    if (hasPredictionContract && feeLoading) {
       toast.error('正在读取链上创建费用，请稍后再试');
+      return;
+    }
+    if (!address) {
+      toast.error('请先连接钱包');
       return;
     }
 
@@ -259,7 +299,16 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       resolutionTimeUtc: endTime + safeDelayHours * 3600000,
     };
     pendingPayloadRef.current = payload;
+    feeAtSubmitRef.current = feeUSDT || '0'; // P0-2 fix: capture fee at submit time
 
+    // P1-2 fix: Check allowance and approve if needed
+    if (allowanceRaw < feeWei) {
+      toast.info('需要先授权 USDT，正在发起授权交易...');
+      approveUsdt(PREDICTION_MARKET_ADDRESS, feeWei);
+      return;
+    }
+
+    // Allowance is sufficient, proceed with market creation
     const endTimeUnix = BigInt(Math.floor(endTime / 1000));
     createUserMarketOnChain(payload.title, endTimeUnix, 0n, feeWei);
   };
@@ -280,17 +329,15 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
 
   return (
     <div className="space-y-6">
-      {/* Fee Info Bar */}
+      {/* Proposal Info Bar */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-secondary border border-border p-3">
-          <div className="text-muted-foreground text-xs mb-1">{t('createMarket.creationFee')}</div>
-          <div className="text-blue-400 font-bold font-mono">{contractFeeDisplay} BNB</div>
+          <div className="text-muted-foreground text-xs mb-1">{t('createMarket.submissionType')}</div>
+          <div className="text-emerald-400 font-bold font-mono">{t('createMarket.freeProposal')}</div>
         </div>
         <div className="bg-secondary border border-border p-3">
-          <div className="text-muted-foreground text-xs mb-1">Chain Mode</div>
-          <div className={`font-bold font-mono ${hasPredictionContract ? 'text-emerald-400' : 'text-red-400'}`}>
-            {hasPredictionContract ? 'On-chain first' : 'Contract missing'}
-          </div>
+          <div className="text-muted-foreground text-xs mb-1">{t('createMarket.reviewStatus')}</div>
+          <div className="text-blue-400 font-bold font-mono">{t('createMarket.adminReview')}</div>
         </div>
         <div className="bg-secondary border border-border p-3">
           <div className="text-muted-foreground text-xs mb-1">{t('createMarket.createdToday')}</div>
@@ -602,9 +649,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       {!canCreate && (
         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          {stats.dailyCount >= stats.maxPerDay
-            ? t('createMarket.dailyLimitReached')
-            : 'PredictionMarket 合约地址未配置，无法链上创建市场'}
+          {t('createMarket.dailyLimitReached')}
         </div>
       )}
 
@@ -615,11 +660,11 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
         className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors flex items-center justify-center gap-2"
       >
         <Plus className="w-5 h-5" />
-        {isProcessing ? t('createMarket.creating') : t('createMarket.createButton', { fee: contractFeeDisplay })}
+        {isProcessing ? t('createMarket.creating') : t('createMarket.createButton')}
       </button>
 
       <p className="text-muted-foreground text-xs text-center">
-        {t('createMarket.footer', { fee: contractFeeDisplay, max: stats.maxPerDay })}
+        {t('createMarket.footer', { max: stats.maxPerDay })}
       </p>
     </div>
   );

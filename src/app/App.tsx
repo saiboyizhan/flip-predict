@@ -1,6 +1,5 @@
 import React, { Suspense, useEffect } from "react";
-import { Routes, Route, useLocation, Link } from "react-router-dom";
-import { motion, AnimatePresence } from "motion/react";
+import { Routes, Route, Link } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 import { useTranslation } from "react-i18next";
@@ -10,6 +9,8 @@ import { MintAgentModal } from "./components/agent/MintAgentModal";
 import { useMarketStore } from "./stores/useMarketStore";
 import { useAuthStore } from "./stores/useAuthStore";
 import { useAgentStore } from "./stores/useAgentStore";
+import { connectWS, disconnectWS, authenticateWS, subscribeNotifications } from "./services/ws";
+import { useNotificationStore } from "./stores/useNotificationStore";
 
 const SUPPORTED_CHAIN_IDS = [56, 97]; // BSC Mainnet and Testnet
 
@@ -55,18 +56,10 @@ const RewardsPage = React.lazy(() => import("./pages/RewardsPage"));
 const UserProfilePage = React.lazy(() => import("./pages/UserProfilePage"));
 const FeedPage = React.lazy(() => import("./pages/FeedPage"));
 const NotificationsPage = React.lazy(() => import("./pages/NotificationsPage"));
+const AdminPendingPage = React.lazy(() => import("./pages/AdminPendingPage"));
 
 function PageTransition({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.25, ease: "easeOut" }}
-    >
-      {children}
-    </motion.div>
-  );
+  return <>{children}</>;
 }
 
 function NotFoundPage() {
@@ -83,54 +76,79 @@ function NotFoundPage() {
 }
 
 function AnimatedRoutes() {
-  const location = useLocation();
-
   return (
     <Suspense fallback={<PageSkeleton />}>
-      <AnimatePresence mode="wait">
-        <Routes location={location} key={location.pathname}>
-          <Route path="/" element={<PageTransition><HomePage /></PageTransition>} />
-          <Route path="/market/:id" element={<PageTransition><MarketDetailPage /></PageTransition>} />
-          <Route path="/portfolio" element={<PageTransition><PortfolioPage /></PageTransition>} />
-          <Route path="/leaderboard" element={<PageTransition><LeaderboardPage /></PageTransition>} />
-          <Route path="/wallet" element={<PageTransition><WalletPage /></PageTransition>} />
-          <Route path="/profile" element={<PageTransition><ProfilePage /></PageTransition>} />
-          <Route path="/markets/create" element={<PageTransition><CreateMarketPage /></PageTransition>} />
-          <Route path="/agents" element={<PageTransition><AgentDashboardPage /></PageTransition>} />
-          <Route path="/agents/mint" element={<PageTransition><MintAgentPage /></PageTransition>} />
-          <Route path="/agents/:id" element={<PageTransition><AgentDetailPage /></PageTransition>} />
-          <Route path="/dashboard" element={<PageTransition><DashboardPage /></PageTransition>} />
-          <Route path="/rewards" element={<PageTransition><RewardsPage /></PageTransition>} />
-          <Route path="/user/:address" element={<PageTransition><UserProfilePage /></PageTransition>} />
-          <Route path="/feed" element={<PageTransition><FeedPage /></PageTransition>} />
-          <Route path="/notifications" element={<PageTransition><NotificationsPage /></PageTransition>} />
-          <Route path="*" element={
-            <PageTransition>
-              <NotFoundPage />
-            </PageTransition>
-          } />
-        </Routes>
-      </AnimatePresence>
+      <Routes>
+        <Route path="/" element={<PageTransition><HomePage /></PageTransition>} />
+        <Route path="/market/:id" element={<PageTransition><MarketDetailPage /></PageTransition>} />
+        <Route path="/portfolio" element={<PageTransition><PortfolioPage /></PageTransition>} />
+        <Route path="/leaderboard" element={<PageTransition><LeaderboardPage /></PageTransition>} />
+        <Route path="/wallet" element={<PageTransition><WalletPage /></PageTransition>} />
+        <Route path="/profile" element={<PageTransition><ProfilePage /></PageTransition>} />
+        <Route path="/markets/create" element={<PageTransition><CreateMarketPage /></PageTransition>} />
+        <Route path="/agents" element={<PageTransition><AgentDashboardPage /></PageTransition>} />
+        <Route path="/agents/mint" element={<PageTransition><MintAgentPage /></PageTransition>} />
+        <Route path="/agents/:id" element={<PageTransition><AgentDetailPage /></PageTransition>} />
+        <Route path="/dashboard" element={<PageTransition><DashboardPage /></PageTransition>} />
+        <Route path="/rewards" element={<PageTransition><RewardsPage /></PageTransition>} />
+        <Route path="/user/:address" element={<PageTransition><UserProfilePage /></PageTransition>} />
+        <Route path="/feed" element={<PageTransition><FeedPage /></PageTransition>} />
+        <Route path="/notifications" element={<PageTransition><NotificationsPage /></PageTransition>} />
+        <Route path="/admin/pending" element={<PageTransition><AdminPendingPage /></PageTransition>} />
+        <Route path="*" element={
+          <PageTransition>
+            <NotFoundPage />
+          </PageTransition>
+        } />
+      </Routes>
     </Suspense>
   );
 }
 
 export default function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const token = useAuthStore((s) => s.token);
+  const addNotification = useNotificationStore((s) => s.addNotification);
+
+  // Global WebSocket initialization on mount
+  useEffect(() => {
+    connectWS();
+    return () => {
+      disconnectWS();
+    };
+  }, []);
+
+  // Sync WebSocket authentication when user logs in/out
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      authenticateWS(token);
+    }
+  }, [isAuthenticated, token]);
+
+  // Subscribe to real-time notifications via WebSocket
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const unsubscribe = subscribeNotifications((notification: any) => {
+      // Add to notification store for real-time updates
+      addNotification(
+        notification.type || 'system',
+        notification.title || 'Notification',
+        notification.message || ''
+      );
+    });
+
+    return unsubscribe;
+  }, [isAuthenticated, addNotification]);
 
   useEffect(() => {
     void useMarketStore.getState().fetchFromAPI();
   }, []);
 
-  // On mount or when auth changes: check agent status, prompt mint if none
+  // On mount or when auth changes: fetch agent status (no forced popup)
   useEffect(() => {
     if (isAuthenticated) {
-      useAgentStore.getState().fetchMyAgents().then(() => {
-        const { hasAgent } = useAgentStore.getState();
-        if (!hasAgent) {
-          useAgentStore.getState().setShowMintModal(true);
-        }
-      });
+      useAgentStore.getState().fetchMyAgents();
     }
   }, [isAuthenticated]);
 

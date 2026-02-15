@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { TrendingUp, TrendingDown, Rss } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useSocialStore } from "@/app/stores/useSocialStore";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import { addGlobalListener, removeGlobalListener } from "@/app/services/ws";
@@ -30,7 +30,7 @@ function formatTimeAgo(ts: number): string {
 
 export function TradingFeed() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const feedItems = useSocialStore((s) => s.feedItems);
   const feedLoading = useSocialStore((s) => s.feedLoading);
   const loadFeed = useSocialStore((s) => s.loadFeed);

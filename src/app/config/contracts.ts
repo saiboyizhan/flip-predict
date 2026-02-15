@@ -14,13 +14,76 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
   console.warn('[contracts] VITE_PREDICTION_MARKET_ADDRESS not set — on-chain features will not work.');
 }
 
+// -----------------------------------------------------------------
+// BSC USDT (BEP-20) — 18 decimals
+// -----------------------------------------------------------------
+export const USDT_ADDRESS = '0x55d398326f99059fF775485246999027B3197955' as `0x${string}`;
+
+export const ERC20_ABI = [
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'approve',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    name: 'allowance',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'transfer',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    name: 'transferFrom',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    name: 'decimals',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }],
+  },
+] as const;
+
 export const PREDICTION_MARKET_ABI = [
   // --- Write functions ---
   {
     name: 'deposit',
     type: 'function',
-    stateMutability: 'payable',
-    inputs: [],
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'amount', type: 'uint256' }],
     outputs: [],
   },
   {
@@ -53,7 +116,7 @@ export const PREDICTION_MARKET_ABI = [
   {
     name: 'createUserMarket',
     type: 'function',
-    stateMutability: 'payable',
+    stateMutability: 'nonpayable',
     inputs: [
       { name: 'title', type: 'string' },
       { name: 'endTime', type: 'uint256' },
@@ -170,6 +233,23 @@ export const PREDICTION_MARKET_ABI = [
   },
 
   // --- Events ---
+  {
+    name: 'MarketCreated',
+    type: 'event',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'title', type: 'string', indexed: false },
+      { name: 'endTime', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    name: 'MarketResolved',
+    type: 'event',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'outcome', type: 'bool', indexed: false },
+    ],
+  },
   {
     name: 'Deposit',
     type: 'event',

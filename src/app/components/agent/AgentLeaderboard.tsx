@@ -48,12 +48,12 @@ export function AgentLeaderboard() {
             transition={{ delay: 0.2 }}
             className="sm:pt-12 order-2 sm:order-1"
           >
-            <div className="bg-gradient-to-br from-muted/30 to-secondary border border-zinc-400/50 p-4 sm:p-6 text-center">
-              <Medal className="w-10 h-10 sm:w-12 sm:h-12 text-zinc-400 dark:text-zinc-300 mx-auto mb-3" />
-              <div className="text-muted-foreground text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.runnerUp")}</div>
-              <div className="text-lg sm:text-xl font-bold text-foreground mb-1">{top3[1].name}</div>
-              <div className="text-muted-foreground text-xs mb-2">{STRATEGY_MAP[top3[1].strategy] || top3[1].strategy}</div>
-              <div className={`text-xl sm:text-2xl font-bold ${top3[1].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            <div className="bg-gradient-to-br from-muted/30 to-secondary border border-zinc-400/50 p-4 text-center">
+              <Medal className="w-7 h-7 text-zinc-400 dark:text-zinc-300 mx-auto mb-2" />
+              <div className="text-muted-foreground text-[10px] tracking-wider uppercase mb-1">{t("leaderboard.runnerUp")}</div>
+              <div className="text-sm font-bold text-foreground mb-0.5">{top3[1].name}</div>
+              <div className="text-muted-foreground text-[10px] mb-1">{STRATEGY_MAP[top3[1].strategy] || top3[1].strategy}</div>
+              <div className={`text-base font-bold ${top3[1].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {top3[1].roi >= 0 ? "+" : ""}{top3[1].roi.toFixed(1)}% {t("agent.roi")}
               </div>
             </div>
@@ -66,16 +66,16 @@ export function AgentLeaderboard() {
             transition={{ delay: 0.1 }}
             className="order-1 sm:order-2"
           >
-            <div className="bg-gradient-to-br from-blue-900/30 to-secondary border-2 border-blue-500/50 p-4 sm:p-6 text-center">
-              <Crown className="w-12 h-12 sm:w-16 sm:h-16 text-blue-400 mx-auto mb-3" />
-              <div className="text-blue-400 text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.champion")}</div>
-              <div className="text-xl sm:text-2xl font-bold text-foreground mb-1">{top3[0].name}</div>
-              <div className="text-muted-foreground text-xs mb-2">{STRATEGY_MAP[top3[0].strategy] || top3[0].strategy}</div>
-              <div className={`text-2xl sm:text-3xl font-bold mb-2 ${top3[0].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            <div className="bg-gradient-to-br from-blue-900/30 to-secondary border-2 border-blue-500/50 p-4 text-center">
+              <Crown className="w-8 h-8 text-blue-400 mx-auto mb-2" />
+              <div className="text-blue-400 text-[10px] tracking-wider uppercase mb-1">{t("leaderboard.champion")}</div>
+              <div className="text-sm sm:text-base font-bold text-foreground mb-0.5">{top3[0].name}</div>
+              <div className="text-muted-foreground text-[10px] mb-1">{STRATEGY_MAP[top3[0].strategy] || top3[0].strategy}</div>
+              <div className={`text-lg font-bold mb-1 ${top3[0].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {top3[0].roi >= 0 ? "+" : ""}{top3[0].roi.toFixed(1)}% {t("agent.roi")}
               </div>
-              <div className="flex items-center justify-center gap-2 text-blue-400 text-sm">
-                <TrendingUp className="w-4 h-4" />
+              <div className="flex items-center justify-center gap-1.5 text-blue-400 text-xs">
+                <TrendingUp className="w-3.5 h-3.5" />
                 <span>{top3[0].winning_trades}/{top3[0].total_trades} {t("leaderboard.wins")}</span>
               </div>
             </div>
@@ -88,12 +88,12 @@ export function AgentLeaderboard() {
             transition={{ delay: 0.3 }}
             className="sm:pt-12 order-3"
           >
-            <div className="bg-gradient-to-br from-orange-900/30 to-secondary border border-orange-600/50 p-4 sm:p-6 text-center">
-              <Award className="w-10 h-10 sm:w-12 sm:h-12 text-orange-600 mx-auto mb-3" />
-              <div className="text-orange-400 text-xs sm:text-sm tracking-wider uppercase mb-2">{t("leaderboard.thirdPlace")}</div>
-              <div className="text-lg sm:text-xl font-bold text-foreground mb-1">{top3[2].name}</div>
-              <div className="text-muted-foreground text-xs mb-2">{STRATEGY_MAP[top3[2].strategy] || top3[2].strategy}</div>
-              <div className={`text-xl sm:text-2xl font-bold ${top3[2].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            <div className="bg-gradient-to-br from-orange-900/30 to-secondary border border-orange-600/50 p-4 text-center">
+              <Award className="w-7 h-7 text-orange-600 mx-auto mb-2" />
+              <div className="text-orange-400 text-[10px] tracking-wider uppercase mb-1">{t("leaderboard.thirdPlace")}</div>
+              <div className="text-sm font-bold text-foreground mb-0.5">{top3[2].name}</div>
+              <div className="text-muted-foreground text-[10px] mb-1">{STRATEGY_MAP[top3[2].strategy] || top3[2].strategy}</div>
+              <div className={`text-base font-bold ${top3[2].roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {top3[2].roi >= 0 ? "+" : ""}{top3[2].roi.toFixed(1)}% {t("agent.roi")}
               </div>
             </div>
@@ -109,7 +109,7 @@ export function AgentLeaderboard() {
         className="bg-muted/30 border border-border"
       >
         <div className="p-4 sm:p-6 border-b border-border">
-          <h2 className="text-lg sm:text-xl font-bold">{t("agent.fullList")}</h2>
+          <h2 className="text-sm sm:text-base font-bold">{t("agent.fullList")}</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">

@@ -16,6 +16,7 @@ export interface LMSRBuyPreview {
   avgPrice: number;
   priceImpact: number;
   newPrices: number[];
+  error?: string;
 }
 
 export interface LMSRSellPreview {
@@ -23,6 +24,7 @@ export interface LMSRSellPreview {
   avgPrice: number;
   priceImpact: number;
   newPrices: number[];
+  error?: string;
 }
 
 function logSumExp(values: number[]): number {
@@ -83,6 +85,15 @@ export function calculateLMSRBuyPreview(
     else hi = mid;
   }
 
+  // Convergence validation: verify the binary search found an acceptable solution
+  const checkReserves = [...reserves];
+  checkReserves[optionIndex] += mid;
+  const finalCostDiff = lmsrCost(checkReserves, b) - currentCost;
+  if (Math.abs(finalCostDiff - amount) > 1e-4) {
+    console.warn('LMSR buy preview: binary search did not converge', { amount, finalCostDiff });
+    return { sharesOut: 0, avgPrice: 0, priceImpact: 0, newPrices: oldPrices, error: 'Binary search did not converge' };
+  }
+
   const sharesOut = mid;
   const newReserves = [...reserves];
   newReserves[optionIndex] += sharesOut;
@@ -112,7 +123,8 @@ export function calculateLMSRSellPreview(
   newReserves[optionIndex] -= shares;
 
   if (newReserves[optionIndex] < 0.001) {
-    return { amountOut: 0, avgPrice: 0, priceImpact: 0, newPrices: oldPrices };
+    console.warn('LMSR sell preview: trade too large, would deplete reserves', { optionIndex, shares, reserve: reserves[optionIndex] });
+    return { amountOut: 0, avgPrice: 0, priceImpact: 0, newPrices: oldPrices, error: 'Trade too large: would deplete reserves' };
   }
 
   const newCost = lmsrCost(newReserves, b);

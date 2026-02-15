@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, TrendingUp, Percent, DollarSign, Wallet, Settings, Tag, XCircle, Star, Target, Link2, Shield, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +25,24 @@ import { CopyTradeHistory } from "./CopyTradeHistory";
 import { ComboStrategyEditor } from "./ComboStrategyEditor";
 import { EarningsDashboard } from "./EarningsDashboard";
 import { LlmConfigPanel } from "./LlmConfigPanel";
+import {
+  useAgentState,
+  useAgentBalance,
+  useFundAgent,
+  useWithdrawFromAgent,
+  usePauseAgent,
+  useUnpauseAgent,
+  useTerminateAgent,
+  useTransferAgent,
+  useAgentLearning,
+  useUpdateLearning,
+  useAgentModule,
+  useRegisterModule,
+  useDeactivateModule,
+  useVaultPermission,
+  useDelegateAccess,
+  useRevokeAccess,
+} from "../../hooks/useNFAContracts";
 
 const STRATEGY_MAP: Record<string, { labelKey: string; color: string }> = {
   conservative: { labelKey: "agent.strategies.conservative", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
@@ -55,7 +74,7 @@ function hashCode(str: string): number {
 export function AgentDetail() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const { address } = useAccount();
   const [agent, setAgent] = useState<AgentDetailType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,12 +88,53 @@ export function AgentDetail() {
   const [vaultURIInput, setVaultURIInput] = useState("");
   const [vaultHashInput, setVaultHashInput] = useState("");
   const [selectedStrategy, setSelectedStrategy] = useState("");
-  const [activeDetailTab, setActiveDetailTab] = useState<'trades' | 'predictions' | 'suggestions' | 'style' | 'auto' | 'llm' | 'copyTrading' | 'earnings'>('trades');
+  const [activeDetailTab, setActiveDetailTab] = useState<'trades' | 'predictions' | 'suggestions' | 'style' | 'auto' | 'llm' | 'copyTrading' | 'earnings' | 'onchain'>('trades');
   const [markets, setMarkets] = useState<any[]>([]);
   const [showBuyConfirm, setShowBuyConfirm] = useState(false);
   const [showRentConfirm, setShowRentConfirm] = useState(false);
+  const [fundAmount, setFundAmount] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
+
+  // On-chain management state
+  const [learningRoot, setLearningRoot] = useState("");
+  const [learningProof, setLearningProof] = useState("");
+  const [moduleAddress, setModuleAddress] = useState("");
+  const [moduleMetadata, setModuleMetadata] = useState("");
+  const [queryModuleAddress, setQueryModuleAddress] = useState("");
+  const [delegateAddress, setDelegateAddress] = useState("");
+  const [delegateLevel, setDelegateLevel] = useState("1");
+  const [delegateDuration, setDelegateDuration] = useState("24");
+  const [checkPermissionAddress, setCheckPermissionAddress] = useState("");
 
   const isOwner = address && agent && agent.owner_address.toLowerCase() === address.toLowerCase();
+
+  // NFA Contract hooks
+  const tokenId = agent?.nft_token_id ? BigInt(agent.nft_token_id) : undefined;
+  const { stateValue, stateName, refetch: refetchState, isLoading: stateLoading } = useAgentState(tokenId);
+  const { balanceUSDT, refetch: refetchBalance, isLoading: balanceLoading } = useAgentBalance(tokenId);
+  const { fundAgent, isPending: isFunding, isSuccess: fundSuccess, error: fundError, approveNeeded, isApproving } = useFundAgent();
+  const { withdraw, isPending: isWithdrawing, isSuccess: withdrawSuccess, error: withdrawError } = useWithdrawFromAgent();
+  const { pauseAgent, isPending: isPausing, isSuccess: pauseSuccess, error: pauseError } = usePauseAgent();
+  const { unpauseAgent, isPending: isUnpausing, isSuccess: unpauseSuccess, error: unpauseError } = useUnpauseAgent();
+  const { terminateAgent, isPending: isTerminating, isSuccess: terminateSuccess, error: terminateError } = useTerminateAgent();
+
+  // On-chain hooks
+  const { metrics: learningMetrics, refetch: refetchLearning } = useAgentLearning(tokenId);
+  const { updateLearning, isPending: isUpdatingLearning, isSuccess: updateLearningSuccess } = useUpdateLearning();
+  const { module: queriedModule, refetch: refetchModule } = useAgentModule(
+    tokenId,
+    queryModuleAddress ? (queryModuleAddress as `0x${string}`) : undefined
+  );
+  const { registerModule, isPending: isRegisteringModule, isSuccess: registerModuleSuccess } = useRegisterModule();
+  const { deactivateModule, isPending: isDeactivatingModule, isSuccess: deactivateModuleSuccess } = useDeactivateModule();
+  const { permission: checkedPermission, refetch: refetchPermission } = useVaultPermission(
+    tokenId,
+    checkPermissionAddress ? (checkPermissionAddress as `0x${string}`) : undefined
+  );
+  const { delegateAccess, isPending: isDelegating, isSuccess: delegateSuccess } = useDelegateAccess();
+  const { revokeAccess, isPending: isRevoking, isSuccess: revokeSuccess } = useRevokeAccess();
+  const { transferAgent, txHash: transferTxHash, isWriting: isTransferring, isConfirming: isTransferConfirming, isConfirmed: transferConfirmed, error: transferError, reset: resetTransfer } = useTransferAgent();
 
   useEffect(() => {
     if (!id) return;
@@ -91,6 +151,130 @@ export function AgentDetail() {
   useEffect(() => {
     fetchMarkets().then((data) => setMarkets(data)).catch(() => {});
   }, []);
+
+  // Handle fund success
+  useEffect(() => {
+    if (fundSuccess) {
+      refetchBalance();
+      setFundAmount("");
+      toast.success("Agent funded successfully");
+    }
+  }, [fundSuccess]);
+
+  // Handle withdraw success
+  useEffect(() => {
+    if (withdrawSuccess) {
+      refetchBalance();
+      setWithdrawAmount("");
+      toast.success("Withdrawal successful");
+    }
+  }, [withdrawSuccess]);
+
+  // Handle pause success
+  useEffect(() => {
+    if (pauseSuccess) {
+      refetchState();
+      toast.success("Agent paused");
+    }
+  }, [pauseSuccess]);
+
+  // Handle unpause success
+  useEffect(() => {
+    if (unpauseSuccess) {
+      refetchState();
+      toast.success("Agent resumed");
+    }
+  }, [unpauseSuccess]);
+
+  // Handle terminate success
+  useEffect(() => {
+    if (terminateSuccess) {
+      refetchState();
+      toast.success("Agent terminated");
+    }
+  }, [terminateSuccess]);
+
+  // Handle transfer success - complete purchase on backend
+  useEffect(() => {
+    if (transferConfirmed && transferTxHash && id) {
+      setActionLoading(true);
+      buyAgent(id, transferTxHash)
+        .then(() => {
+          toast.success(t('agentDetail.purchaseSuccess'));
+          resetTransfer();
+          navigate("/agents");
+        })
+        .catch((err: any) => {
+          toast.error(err.message || t('agentDetail.purchaseFailed'));
+          resetTransfer();
+        })
+        .finally(() => {
+          setActionLoading(false);
+        });
+    }
+  }, [transferConfirmed, transferTxHash, id, resetTransfer, navigate, t]);
+
+  // Handle errors
+  useEffect(() => {
+    if (fundError) toast.error(fundError.message || "Fund failed");
+  }, [fundError]);
+
+  useEffect(() => {
+    if (withdrawError) toast.error(withdrawError.message || "Withdrawal failed");
+  }, [withdrawError]);
+
+  useEffect(() => {
+    if (pauseError) toast.error(pauseError.message || "Pause failed");
+  }, [pauseError]);
+
+  useEffect(() => {
+    if (unpauseError) toast.error(unpauseError.message || "Unpause failed");
+  }, [unpauseError]);
+
+  useEffect(() => {
+    if (terminateError) toast.error(terminateError.message || "Termination failed");
+  }, [terminateError]);
+
+  // On-chain success handlers
+  useEffect(() => {
+    if (updateLearningSuccess) {
+      refetchLearning();
+      setLearningRoot("");
+      setLearningProof("");
+      toast.success("Learning root updated");
+    }
+  }, [updateLearningSuccess]);
+
+  useEffect(() => {
+    if (registerModuleSuccess) {
+      setModuleAddress("");
+      setModuleMetadata("");
+      toast.success("Module registered");
+    }
+  }, [registerModuleSuccess]);
+
+  useEffect(() => {
+    if (deactivateModuleSuccess) {
+      toast.success("Module deactivated");
+    }
+  }, [deactivateModuleSuccess]);
+
+  useEffect(() => {
+    if (delegateSuccess) {
+      setDelegateAddress("");
+      toast.success("Access delegated");
+    }
+  }, [delegateSuccess]);
+
+  useEffect(() => {
+    if (revokeSuccess) {
+      toast.success("Access revoked");
+    }
+  }, [revokeSuccess]);
+
+  useEffect(() => {
+    if (transferError) toast.error(transferError.message || "Transfer failed");
+  }, [transferError]);
 
   const handleUpdateStrategy = async () => {
     if (!id || !selectedStrategy || selectedStrategy === agent?.strategy) return;
@@ -151,17 +335,28 @@ export function AgentDetail() {
   };
 
   const handleBuy = async () => {
-    if (!id) return;
-    setActionLoading(true);
-    try {
-      await buyAgent(id);
-      toast.success(t('agentDetail.purchaseSuccess'));
-      navigate("/agents");
-    } catch (err: any) {
-      toast.error(err.message || t('agentDetail.purchaseFailed'));
-    } finally {
-      setActionLoading(false);
+    if (!agent || !address) return;
+
+    // If agent is not minted on-chain, fallback to database-only purchase
+    if (!tokenId) {
+      setActionLoading(true);
+      try {
+        await buyAgent(agent.id);
+        toast.success(t('agentDetail.purchaseSuccess'));
+        navigate("/agents");
+      } catch (err: any) {
+        toast.error(err.message || t('agentDetail.purchaseFailed'));
+      } finally {
+        setActionLoading(false);
+      }
+      return;
     }
+
+    // On-chain purchase: initiate NFT transfer
+    // Transfer requires seller to have approved buyer first
+    // In a real marketplace, seller would approve the marketplace contract
+    toast.info("Initiating on-chain transfer...");
+    transferAgent(agent.owner_address as `0x${string}`, address as `0x${string}`, tokenId);
   };
 
   const handleRent = async () => {
@@ -202,8 +397,8 @@ export function AgentDetail() {
   const [from, to] = GRADIENT_PAIRS[gradientIndex];
 
   return (
-    <div className="min-h-screen p-4 sm:p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="min-h-screen p-3 sm:p-4 md:p-8">
+      <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6">
         {/* Back */}
         <button
           onClick={() => navigate(-1)}
@@ -247,60 +442,60 @@ export function AgentDetail() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 sm:grid-cols-6 gap-4"
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4"
         >
-          <div className="bg-secondary border border-border p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-              <DollarSign className="w-4 h-4" />
-              {t('agentDetail.totalProfit')}
+          <div className="bg-secondary border border-border p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm mb-2">
+              <DollarSign className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="truncate">{t('agentDetail.totalProfit')}</span>
             </div>
-            <div className={`text-xl font-bold font-mono ${agent.total_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            <div className={`text-lg sm:text-xl font-bold font-mono ${agent.total_profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
               {agent.total_profit >= 0 ? "+" : ""}${agent.total_profit.toFixed(2)}
             </div>
           </div>
-          <div className="bg-secondary border border-border p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-              <Percent className="w-4 h-4" />
-              {t('agentDetail.winRate')}
+          <div className="bg-secondary border border-border p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm mb-2">
+              <Percent className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="truncate">{t('agentDetail.winRate')}</span>
             </div>
-            <div className="text-xl font-bold font-mono text-foreground">
+            <div className="text-lg sm:text-xl font-bold font-mono text-foreground">
               {agent.win_rate.toFixed(1)}%
             </div>
           </div>
-          <div className="bg-secondary border border-border p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-              <TrendingUp className="w-4 h-4" />
-              ROI
+          <div className="bg-secondary border border-border p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm mb-2">
+              <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="truncate">ROI</span>
             </div>
-            <div className={`text-xl font-bold font-mono ${agent.roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            <div className={`text-lg sm:text-xl font-bold font-mono ${agent.roi >= 0 ? "text-emerald-400" : "text-red-400"}`}>
               {agent.roi >= 0 ? "+" : ""}{agent.roi.toFixed(1)}%
             </div>
           </div>
-          <div className="bg-secondary border border-border p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-              <Wallet className="w-4 h-4" />
-              {t('agentDetail.balance')}
+          <div className="bg-secondary border border-border p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm mb-2">
+              <Wallet className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="truncate">{t('agentDetail.balance')}</span>
             </div>
-            <div className="text-xl font-bold font-mono text-blue-400">
+            <div className="text-lg sm:text-xl font-bold font-mono text-blue-400">
               ${agent.wallet_balance.toFixed(2)}
             </div>
           </div>
-          <div className="bg-secondary border border-border p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-              <Target className="w-4 h-4" />
-              {t('agentDetail.predAccuracy')}
+          <div className="bg-secondary border border-border p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm mb-2">
+              <Target className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="truncate">{t('agentDetail.predAccuracy')}</span>
             </div>
-            <div className="text-xl font-bold font-mono text-foreground">
-              {(agent as any).reputation_score ? `${(agent as any).reputation_score}%` : "-"}
+            <div className="text-lg sm:text-xl font-bold font-mono text-foreground">
+              {agent?.reputation_score ? `${agent.reputation_score}%` : "-"}
             </div>
           </div>
-          <div className="bg-secondary border border-border p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-              <Star className="w-4 h-4" />
-              {t('agentDetail.reputation')}
+          <div className="bg-secondary border border-border p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs sm:text-sm mb-2">
+              <Star className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="truncate">{t('agentDetail.reputation')}</span>
             </div>
-            <div className="text-xl font-bold font-mono text-blue-400">
-              {(agent as any).reputation_score || 0}
+            <div className="text-lg sm:text-xl font-bold font-mono text-blue-400">
+              {agent?.reputation_score ?? 0}
             </div>
           </div>
         </motion.div>
@@ -345,6 +540,246 @@ export function AgentDetail() {
             ) : null}
           </motion.div>
         )}
+
+        {/* Chain Status Bar (All Users) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.13 }}
+          className="bg-gray-900 border border-white/10 p-6"
+        >
+          <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+            Chain Status
+          </h3>
+          {!tokenId ? (
+            <div className="text-gray-400 text-sm">Not minted on-chain</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <div className="text-gray-400 text-xs mb-1">Chain State</div>
+                <div className="flex items-center gap-2">
+                  {stateLoading ? (
+                    <span className="text-gray-400 text-sm">Loading...</span>
+                  ) : (
+                    <>
+                      <div className={`w-2 h-2 rounded-full ${
+                        stateValue === 0 ? 'bg-green-500' :
+                        stateValue === 1 ? 'bg-yellow-500' :
+                        'bg-red-500'
+                      }`} />
+                      <span className={`font-mono text-sm font-semibold ${
+                        stateValue === 0 ? 'text-green-400' :
+                        stateValue === 1 ? 'text-yellow-400' :
+                        'text-red-400'
+                      }`}>
+                        {stateName}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-400 text-xs mb-1">Chain Balance</div>
+                <div className="font-mono text-sm text-white">
+                  {balanceLoading ? 'Loading...' : `${balanceUSDT} USDT`}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-400 text-xs mb-1">DB Balance <span className="text-gray-500">(Simulated)</span></div>
+                <div className="font-mono text-sm text-gray-400">
+                  ${agent.wallet_balance.toFixed(2)} USDT
+                </div>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* Fund / Withdraw Panel (Owner Only) */}
+        {isOwner && tokenId && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14 }}
+            className="bg-gray-900 border border-white/10 p-6"
+          >
+            <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              Agent Funding
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <div className="text-gray-400 text-sm mb-2">Balance: {balanceLoading ? 'Loading...' : `${balanceUSDT} USDT`}</div>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  value={fundAmount || withdrawAmount}
+                  onChange={(e) => {
+                    setFundAmount(e.target.value);
+                    setWithdrawAmount(e.target.value);
+                  }}
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Amount"
+                  className="flex-1 bg-gray-800 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
+                />
+                <button
+                  onClick={() => {
+                    if (!tokenId || !fundAmount) return;
+                    fundAgent(tokenId, fundAmount);
+                  }}
+                  disabled={isFunding || isApproving || !fundAmount}
+                  className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                  style={{ fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  {isApproving ? 'Approving...' : isFunding ? 'Funding...' : approveNeeded ? 'Approve & Fund' : 'Fund'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (!tokenId || !withdrawAmount) return;
+                    withdraw(tokenId, withdrawAmount);
+                  }}
+                  disabled={isWithdrawing || !withdrawAmount}
+                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
+                  style={{ fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  {isWithdrawing ? 'Withdrawing...' : 'Withdraw'}
+                </button>
+              </div>
+              <div className="text-gray-400 text-xs flex items-center gap-1">
+                <span>Funding requires USDT approval first</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Lifecycle Controls (Owner Only) */}
+        {isOwner && tokenId && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.145 }}
+            className="bg-gray-900 border border-white/10 p-6"
+          >
+            <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              Agent Lifecycle
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <div className="text-gray-400 text-sm mb-2">
+                  State: <span className={`font-mono font-semibold ${
+                    stateValue === 0 ? 'text-green-400' :
+                    stateValue === 1 ? 'text-yellow-400' :
+                    'text-red-400'
+                  }`}>{stateLoading ? 'Loading...' : stateName}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {stateValue === 0 && (
+                  <button
+                    onClick={() => {
+                      if (!tokenId) return;
+                      pauseAgent(tokenId);
+                    }}
+                    disabled={isPausing}
+                    className="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                    style={{ fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    {isPausing ? 'Pausing...' : 'Pause Agent'}
+                  </button>
+                )}
+                {stateValue === 1 && (
+                  <button
+                    onClick={() => {
+                      if (!tokenId) return;
+                      unpauseAgent(tokenId);
+                    }}
+                    disabled={isUnpausing}
+                    className="px-6 py-2 bg-green-500 hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                    style={{ fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    {isUnpausing ? 'Resuming...' : 'Resume Agent'}
+                  </button>
+                )}
+                {stateValue !== 2 && (
+                  <button
+                    onClick={() => setShowTerminateConfirm(true)}
+                    disabled={isTerminating}
+                    className="px-6 py-2 bg-red-500 hover:bg-red-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                    style={{ fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    Terminate Agent
+                  </button>
+                )}
+                {stateValue === 2 && (
+                  <button
+                    disabled
+                    className="px-6 py-2 bg-gray-700 text-gray-500 text-sm font-semibold cursor-not-allowed"
+                    style={{ fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    Terminated
+                  </button>
+                )}
+              </div>
+              <div className="text-yellow-400 text-xs flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Termination is irreversible</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Terminate Confirmation Dialog */}
+        <AnimatePresence>
+          {showTerminateConfirm && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+              onClick={() => setShowTerminateConfirm(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-gray-900 border border-red-500/30 p-6 max-w-md w-full space-y-4"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-6 h-6 text-red-400" />
+                  <h3 className="text-xl font-bold text-white" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                    Confirm Termination
+                  </h3>
+                </div>
+                <p className="text-gray-400 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  This action will permanently terminate the agent and cannot be undone. The agent will no longer be able to operate or be resumed.
+                </p>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setShowTerminateConfirm(false)}
+                    className="flex-1 py-3 border border-white/10 text-gray-400 hover:text-white font-semibold transition-colors"
+                    style={{ fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!tokenId) return;
+                      terminateAgent(tokenId);
+                      setShowTerminateConfirm(false);
+                    }}
+                    disabled={isTerminating}
+                    className="flex-1 py-3 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-black font-bold transition-colors"
+                    style={{ fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    {isTerminating ? 'Terminating...' : 'Terminate'}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Owner Actions */}
         {isOwner && (
@@ -510,13 +945,23 @@ export function AgentDetail() {
 
         {/* Buy / Rent buttons (non-owner) */}
         {!isOwner && agent.is_for_sale && (
-          <button
-            onClick={() => setShowBuyConfirm(true)}
-            disabled={actionLoading}
-            className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors"
-          >
-            {t('agentDetail.buyAgent', { price: agent.sale_price?.toLocaleString() })}
-          </button>
+          <div className="space-y-3">
+            {tokenId && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 text-yellow-400 text-sm">
+                <AlertTriangle className="w-4 h-4 inline mr-2" />
+                {t('agentDetail.onChainPurchaseNote', { default: 'This agent is minted on-chain. Purchase requires NFT transfer. Seller must approve your address first.' })}
+              </div>
+            )}
+            <button
+              onClick={() => setShowBuyConfirm(true)}
+              disabled={actionLoading || isTransferring || isTransferConfirming}
+              className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors"
+            >
+              {isTransferring ? t('agentDetail.transferring', { default: 'Transferring...' }) :
+               isTransferConfirming ? t('agentDetail.confirmingTransfer', { default: 'Confirming...' }) :
+               t('agentDetail.buyAgent', { price: agent.sale_price?.toLocaleString() })}
+            </button>
+          </div>
         )}
         {!isOwner && agent.is_for_rent && !agent.is_for_sale && (
           <div className="flex items-center gap-3">
@@ -638,46 +1083,49 @@ export function AgentDetail() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.18 }}
         >
-          <div className="flex border-b border-border mb-4 overflow-x-auto">
-            {(isOwner
-              ? [
-                  { id: 'trades', label: t('agentDetail.tabTrades') },
-                  { id: 'predictions', label: t('agentDetail.tabPredictions') },
-                  { id: 'suggestions', label: t('agentDetail.tabSuggestions') },
-                  { id: 'style', label: t('agentDetail.tabStyle') },
-                  { id: 'auto', label: t('agentDetail.tabAuto') },
-                  { id: 'llm', label: t('agentDetail.tabLlm') },
-                  { id: 'copyTrading', label: t('copyTrade.title') },
-                  { id: 'earnings', label: t('earnings.title') },
-                ]
-              : [
-                  { id: 'trades', label: t('agentDetail.tabTrades') },
-                  { id: 'predictions', label: t('agentDetail.tabPredictions') },
-                  { id: 'style', label: t('agentDetail.tabStyle') },
-                  { id: 'copyTrading', label: t('copyTrade.title') },
-                ]
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveDetailTab(tab.id as any)}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  activeDetailTab === tab.id
-                    ? 'text-blue-400 border-b-2 border-blue-500'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex border-b border-border mb-4 overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0 scrollbar-hide">
+            <div className="flex min-w-max">
+              {(isOwner
+                ? [
+                    { id: 'trades', label: t('agentDetail.tabTrades') },
+                    { id: 'predictions', label: t('agentDetail.tabPredictions') },
+                    { id: 'suggestions', label: t('agentDetail.tabSuggestions') },
+                    { id: 'style', label: t('agentDetail.tabStyle') },
+                    { id: 'auto', label: t('agentDetail.tabAuto') },
+                    { id: 'llm', label: t('agentDetail.tabLlm') },
+                    { id: 'copyTrading', label: t('copyTrade.title') },
+                    { id: 'earnings', label: t('earnings.title') },
+                    { id: 'onchain', label: 'On-Chain' },
+                  ]
+                : [
+                    { id: 'trades', label: t('agentDetail.tabTrades') },
+                    { id: 'predictions', label: t('agentDetail.tabPredictions') },
+                    { id: 'style', label: t('agentDetail.tabStyle') },
+                    { id: 'copyTrading', label: t('copyTrade.title') },
+                  ]
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveDetailTab(tab.id as any)}
+                  className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                    activeDetailTab === tab.id
+                      ? 'text-blue-400 border-b-2 border-blue-500'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {activeDetailTab === 'trades' && (
             <div className="bg-secondary border border-border">
-              <div className="p-6 border-b border-border">
-                <h2 className="text-xl font-bold">{t('agentDetail.tabTrades')}</h2>
+              <div className="p-4 sm:p-6 border-b border-border">
+                <h2 className="text-lg sm:text-xl font-bold">{t('agentDetail.tabTrades')}</h2>
               </div>
               {agent.agent_trades && agent.agent_trades.length > 0 ? (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto -mx-3 sm:mx-0">
                   <table className="w-full min-w-[600px]">
                     <thead className="bg-muted/50 border-b border-border">
                       <tr>
@@ -753,13 +1201,288 @@ export function AgentDetail() {
 
           {activeDetailTab === 'copyTrading' && (
             <div className="space-y-4">
-              <CopyTradePanel agentId={agent.id} isOwner={!!isOwner} />
+              <CopyTradePanel
+                agentId={agent.id}
+                isOwner={!!isOwner}
+                agentTokenId={agent.token_id ? BigInt(agent.token_id) : undefined}
+              />
               <CopyTradeHistory />
             </div>
           )}
 
           {activeDetailTab === 'earnings' && isOwner && (
             <EarningsDashboard agentId={agent.id} />
+          )}
+
+          {activeDetailTab === 'onchain' && isOwner && tokenId && (
+            <div className="space-y-6">
+              <div className="bg-gray-800/60 border border-white/[0.12] p-6">
+                <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                  Learning Metrics
+                </h3>
+                {learningMetrics ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-gray-400 text-xs mb-1">Total Interactions</div>
+                        <div className="text-white font-mono">{learningMetrics.totalInteractions}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400 text-xs mb-1">Successful Outcomes</div>
+                        <div className="text-white font-mono">{learningMetrics.successfulOutcomes}</div>
+                      </div>
+                      <div className="col-span-2">
+                        <div className="text-gray-400 text-xs mb-1">Learning Root</div>
+                        <div className="text-white font-mono text-sm break-all">
+                          {learningMetrics.learningRoot}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400 text-xs mb-1">Last Updated</div>
+                        <div className="text-white font-mono text-sm">
+                          {learningMetrics.lastUpdated > 0
+                            ? new Date(learningMetrics.lastUpdated * 1000).toLocaleString()
+                            : 'Never'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-t border-white/[0.12] pt-4 mt-4">
+                      <div className="text-gray-400 text-sm mb-3">Update Learning Root</div>
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={learningRoot}
+                          onChange={(e) => setLearningRoot(e.target.value)}
+                          placeholder="0x..."
+                          className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                        />
+                        <input
+                          type="text"
+                          value={learningProof}
+                          onChange={(e) => setLearningProof(e.target.value)}
+                          placeholder="Proof (0x...)"
+                          className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                        />
+                        <button
+                          onClick={() => {
+                            if (!tokenId || !learningRoot || !learningProof) return;
+                            updateLearning(tokenId, learningRoot as `0x${string}`, learningProof as `0x${string}`);
+                          }}
+                          disabled={isUpdatingLearning || !learningRoot || !learningProof}
+                          className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                        >
+                          {isUpdatingLearning ? 'Updating...' : 'Update Root'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-400 text-sm">Loading metrics...</div>
+                )}
+              </div>
+
+              <div className="bg-gray-800/60 border border-white/[0.12] p-6">
+                <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                  Memory Modules
+                </h3>
+                <div className="space-y-4">
+                  <div className="border border-white/[0.12] p-4">
+                    <div className="text-gray-400 text-sm mb-3">Query Module</div>
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={queryModuleAddress}
+                        onChange={(e) => setQueryModuleAddress(e.target.value)}
+                        placeholder="Module Address (0x...)"
+                        className="flex-1 bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                      />
+                      <button
+                        onClick={() => refetchModule()}
+                        disabled={!queryModuleAddress}
+                        className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                      >
+                        Query
+                      </button>
+                    </div>
+                    {queriedModule && (
+                      <div className="mt-4 space-y-2 text-sm">
+                        <div>
+                          <span className="text-gray-400">Address:</span>{' '}
+                          <span className="text-white font-mono">{queriedModule.moduleAddress}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Metadata:</span>{' '}
+                          <span className="text-white">{queriedModule.metadata}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Hash:</span>{' '}
+                          <span className="text-white font-mono text-xs break-all">{queriedModule.metadataHash}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Status:</span>{' '}
+                          <span className={queriedModule.isActive ? 'text-green-400' : 'text-red-400'}>
+                            {queriedModule.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </div>
+                        {queriedModule.isActive && (
+                          <button
+                            onClick={() => {
+                              if (!tokenId || !queryModuleAddress) return;
+                              deactivateModule(tokenId, queryModuleAddress as `0x${string}`);
+                            }}
+                            disabled={isDeactivatingModule}
+                            className="mt-2 px-4 py-1.5 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-black text-sm font-semibold transition-colors"
+                          >
+                            {isDeactivatingModule ? 'Deactivating...' : 'Deactivate'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border border-white/[0.12] p-4">
+                    <div className="text-gray-400 text-sm mb-3">Register New Module</div>
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={moduleAddress}
+                        onChange={(e) => setModuleAddress(e.target.value)}
+                        placeholder="Module Address (0x...)"
+                        className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                      />
+                      <input
+                        type="text"
+                        value={moduleMetadata}
+                        onChange={(e) => setModuleMetadata(e.target.value)}
+                        placeholder="Metadata (e.g., reasoning, memory, etc.)"
+                        className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
+                      />
+                      <button
+                        onClick={() => {
+                          if (!tokenId || !moduleAddress || !moduleMetadata) return;
+                          registerModule(tokenId, moduleAddress as `0x${string}`, moduleMetadata);
+                        }}
+                        disabled={isRegisteringModule || !moduleAddress || !moduleMetadata}
+                        className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                      >
+                        {isRegisteringModule ? 'Registering...' : 'Register'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-800/60 border border-white/[0.12] p-6">
+                <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                  Vault Access Control
+                </h3>
+                <div className="space-y-4">
+                  <div className="border border-white/[0.12] p-4">
+                    <div className="text-gray-400 text-sm mb-3">Delegate Access</div>
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={delegateAddress}
+                        onChange={(e) => setDelegateAddress(e.target.value)}
+                        placeholder="Delegate Address (0x...)"
+                        className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-gray-400 text-xs mb-1">Permission Level</div>
+                          <select
+                            value={delegateLevel}
+                            onChange={(e) => setDelegateLevel(e.target.value)}
+                            className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
+                          >
+                            <option value="1">Level 1 (Read)</option>
+                            <option value="2">Level 2 (Write)</option>
+                            <option value="3">Level 3 (Admin)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs mb-1">Duration (hours)</div>
+                          <input
+                            type="number"
+                            value={delegateDuration}
+                            onChange={(e) => setDelegateDuration(e.target.value)}
+                            min="1"
+                            className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (!tokenId || !delegateAddress || !delegateDuration) return;
+                          const expiryTime = BigInt(Math.floor(Date.now() / 1000) + Number(delegateDuration) * 3600);
+                          delegateAccess(tokenId, delegateAddress as `0x${string}`, Number(delegateLevel), expiryTime);
+                        }}
+                        disabled={isDelegating || !delegateAddress || !delegateDuration}
+                        className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                      >
+                        {isDelegating ? 'Delegating...' : 'Grant Access'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border border-white/[0.12] p-4">
+                    <div className="text-gray-400 text-sm mb-3">Check Permission</div>
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={checkPermissionAddress}
+                        onChange={(e) => setCheckPermissionAddress(e.target.value)}
+                        placeholder="Address (0x...)"
+                        className="flex-1 bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                      />
+                      <button
+                        onClick={() => refetchPermission()}
+                        disabled={!checkPermissionAddress}
+                        className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                      >
+                        Check
+                      </button>
+                    </div>
+                    {checkedPermission && (
+                      <div className="mt-4 space-y-2 text-sm">
+                        <div>
+                          <span className="text-gray-400">Level:</span>{' '}
+                          <span className="text-white">
+                            {checkedPermission.level === 1 ? 'Read' : checkedPermission.level === 2 ? 'Write' : 'Admin'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Expiry:</span>{' '}
+                          <span className="text-white">
+                            {checkedPermission.expiryTime > 0
+                              ? new Date(checkedPermission.expiryTime * 1000).toLocaleString()
+                              : 'Never'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Status:</span>{' '}
+                          <span className={checkedPermission.isActive ? 'text-green-400' : 'text-red-400'}>
+                            {checkedPermission.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </div>
+                        {checkedPermission.isActive && (
+                          <button
+                            onClick={() => {
+                              if (!tokenId || !checkPermissionAddress) return;
+                              revokeAccess(tokenId, checkPermissionAddress as `0x${string}`);
+                            }}
+                            disabled={isRevoking}
+                            className="mt-2 px-4 py-1.5 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-black text-sm font-semibold transition-colors"
+                          >
+                            {isRevoking ? 'Revoking...' : 'Revoke Access'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </motion.div>
       </div>

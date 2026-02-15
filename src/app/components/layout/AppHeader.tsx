@@ -2,9 +2,10 @@
 
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount, useSignMessage } from "wagmi";
+import { useLocation } from "react-router-dom";
+import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
+import { useAppKit } from "@reown/appkit/react";
+import { useAccount, useSignMessage, useDisconnect } from "wagmi";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
@@ -31,6 +32,7 @@ import {
   Zap,
   Clock,
   Trash2,
+  Shield,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useMarketStore } from "@/app/stores/useMarketStore";
@@ -39,7 +41,7 @@ import { useAgentStore } from "@/app/stores/useAgentStore";
 import { searchMarkets } from "@/app/services/api";
 import { NotificationBell } from "./NotificationBell";
 
-// Core nav: 6 items visible in the top bar (covers the full loop)
+// All nav items visible in the top bar
 const CORE_NAV_ITEMS = [
   { id: "markets", labelKey: "nav.market", icon: BarChart3, path: "/" },
   { id: "mint", labelKey: "agent.mintFree", icon: Sparkles, path: "/agents/mint" },
@@ -47,9 +49,13 @@ const CORE_NAV_ITEMS = [
   { id: "leaderboard", labelKey: "nav.leaderboard", icon: Trophy, path: "/leaderboard" },
   { id: "wallet", labelKey: "nav.wallet", icon: CreditCard, path: "/wallet" },
   { id: "agents", labelKey: "nav.agents", icon: Bot, path: "/agents" },
+  { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { id: "rewards", labelKey: "nav.rewards", icon: Gift, path: "/rewards" },
+  { id: "feed", labelKey: "social.feed", icon: Rss, path: "/feed" },
+  { id: "create", labelKey: "nav.create", icon: Plus, path: "/markets/create" },
 ];
 
-// Items in the user avatar dropdown (secondary features)
+// Items also shown in the user avatar dropdown
 const USER_MENU_ITEMS = [
   { id: "create", labelKey: "nav.create", icon: Plus, path: "/markets/create" },
   { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, path: "/dashboard" },
@@ -57,9 +63,9 @@ const USER_MENU_ITEMS = [
   { id: "feed", labelKey: "social.feed", icon: Rss, path: "/feed" },
 ];
 
-const ALL_NAV_ITEMS = [...CORE_NAV_ITEMS, ...USER_MENU_ITEMS];
+const ALL_NAV_ITEMS = CORE_NAV_ITEMS;
 
-const SEARCH_HISTORY_KEY = "synapse_search_history";
+const SEARCH_HISTORY_KEY = "flip_search_history";
 const MAX_SEARCH_HISTORY = 5;
 
 function getSearchHistory(): string[] {
@@ -108,6 +114,7 @@ function getActiveNavId(pathname: string): string {
   if (pathname.startsWith("/profile")) return "profile";
   if (pathname.startsWith("/dashboard")) return "dashboard";
   if (pathname.startsWith("/rewards")) return "rewards";
+  if (pathname.startsWith("/admin")) return "admin";
   return "markets";
 }
 
@@ -129,7 +136,7 @@ export function AppHeader() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchHistory, setSearchHistoryState] = useState<string[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
-  const navigate = useNavigate();
+  const { navigate } = useTransitionNavigate();
   const location = useLocation();
   const setStoreSearch = useMarketStore((s) => s.setSearch);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
@@ -138,7 +145,9 @@ export function AppHeader() {
 
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
-  const { login, disconnect: authDisconnect, isAuthenticated } = useAuthStore();
+  const { disconnect: walletDisconnect } = useDisconnect();
+  const { open: openWeb3Modal } = useAppKit();
+  const { login, disconnect: authDisconnect, isAuthenticated, isAdmin } = useAuthStore();
   const prevAddressRef = useRef<string | undefined>(undefined);
 
   const hasAgent = useAgentStore((s) => s.hasAgent);
@@ -284,27 +293,31 @@ export function AppHeader() {
       <div className="px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
         {/* Left: Logo */}
         <div
-          className="flex items-center gap-2.5 shrink-0 cursor-pointer"
+          className="flex items-center gap-2 shrink-0 cursor-pointer group"
           onClick={() => navigate("/")}
         >
-          <svg width="32" height="32" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="synapse-g" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#10B981"/>
-                <stop offset="100%" stopColor="#3B82F6"/>
-              </linearGradient>
-            </defs>
-            <path d="M8 32 Q18 12 28 32 Q38 52 48 32 Q53 22 58 28" stroke="url(#synapse-g)" strokeWidth="4" fill="none" strokeLinecap="round"/>
-            <path d="M6 42 Q16 27 26 42 Q36 57 46 42 Q52 34 56 38" stroke="#3B82F6" strokeWidth="2" fill="none" opacity="0.35" strokeLinecap="round"/>
-            <path d="M6 22 Q16 7 26 22 Q36 37 46 22 Q52 14 56 18" stroke="#10B981" strokeWidth="2" fill="none" opacity="0.35" strokeLinecap="round"/>
-            <circle cx="18" cy="18" r="4" fill="#10B981" opacity="0.9"/>
-            <circle cx="38" cy="46" r="5" fill="url(#synapse-g)"/>
-            <circle cx="38" cy="46" r="2" fill="white" opacity="0.9"/>
-            <circle cx="48" cy="28" r="4" fill="#3B82F6" opacity="0.9"/>
-          </svg>
-          <span className="text-xl font-bold tracking-tight hidden sm:inline bg-gradient-to-r from-emerald-400 to-blue-500 bg-clip-text text-transparent">
-            {t("nav.siteName")}
-          </span>
+          {/* Mark: rounded square with gradient + white probability curve */}
+          <div className="relative w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-blue-500 flex items-center justify-center shadow-md shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-shadow">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M2 16 C5 16 6 6 9 6 C12 6 12 18 15 18 C18 18 19 10 22 10"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                fill="none"
+              />
+              <circle cx="22" cy="10" r="2" fill="white" opacity="0.9" />
+            </svg>
+          </div>
+          {/* Wordmark */}
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="text-lg font-extrabold tracking-tight text-foreground">
+              Flip
+            </span>
+            <span className="px-1.5 py-0.5 text-[9px] font-bold tracking-wider uppercase rounded bg-blue-500/15 text-blue-400 border border-blue-500/25 leading-none">
+              Beta
+            </span>
+          </div>
         </div>
 
         {/* Center: Search */}
@@ -411,93 +424,93 @@ export function AppHeader() {
           </button>
 
           <NotificationBell />
-          <ConnectButton.Custom>
-            {({ account, chain, openConnectModal, openAccountModal, mounted }) => {
-              const connected = mounted && account && chain;
-              return (
-                <div
-                  {...(!mounted && {
-                    "aria-hidden": true,
-                    style: { opacity: 0, pointerEvents: "none" as const, userSelect: "none" as const },
-                  })}
+          {isConnected && address ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => openWeb3Modal()}
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-card border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 transition-colors"
+              >
+                <Wallet className="w-4 h-4 text-emerald-400" />
+                <span className="text-foreground text-sm font-mono hidden sm:inline">
+                  {address.slice(0, 6)}...{address.slice(-4)}
+                </span>
+              </button>
+              {/* User Avatar Dropdown */}
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="p-2 bg-white/[0.04] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] text-muted-foreground hover:text-blue-500 transition-colors"
+                  title={t("nav.myProfile")}
                 >
-                  {connected ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={openAccountModal}
-                        className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-card border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 transition-colors"
-                      >
-                        <Wallet className="w-4 h-4 text-emerald-400" />
-                        <span className="text-foreground text-sm font-mono hidden sm:inline">{account.displayName}</span>
-                        {account.displayBalance && (
-                          <span className="text-blue-500 text-sm font-mono font-semibold hidden md:inline">
-                            {account.displayBalance}
-                          </span>
-                        )}
-                      </button>
-                      {/* User Avatar Dropdown */}
-                      <div className="relative" ref={userMenuRef}>
-                        <button
-                          onClick={() => setUserMenuOpen(!userMenuOpen)}
-                          className="p-2 bg-white/[0.04] border border-white/[0.08] rounded-lg hover:bg-white/[0.08] text-muted-foreground hover:text-blue-500 transition-colors"
-                          title={t("nav.myProfile")}
-                        >
-                          <User className="w-4 h-4" />
-                        </button>
-                        {userMenuOpen && (
-                          <div className="absolute top-full right-0 mt-2 bg-card border border-border rounded-xl shadow-xl z-50 min-w-[220px] py-1">
-                            {/* Profile link at top */}
-                            <button
-                              onClick={() => {
-                                navigate("/profile");
-                                setUserMenuOpen(false);
-                              }}
-                              className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors border-b border-border ${
-                                activePage === "profile"
-                                  ? "text-blue-500"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                              }`}
-                            >
-                              <User className="w-4 h-4" />
-                              <span>{t("nav.myProfile")}</span>
-                            </button>
-                            {USER_MENU_ITEMS.map((item) => {
-                              const isActive = activePage === item.id;
-                              return (
-                                <button
-                                  key={item.id}
-                                  onClick={() => {
-                                    navigate(item.path);
-                                    setUserMenuOpen(false);
-                                  }}
-                                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
-                                    isActive
-                                      ? "text-blue-500"
-                                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                                  }`}
-                                >
-                                  <item.icon className="w-4 h-4" />
-                                  <span>{t(item.labelKey)}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
+                  <User className="w-4 h-4" />
+                </button>
+                {userMenuOpen && (
+                  <div className="absolute top-full right-0 mt-2 bg-card border border-border rounded-xl shadow-xl z-50 min-w-[220px] py-1">
+                    {/* Profile link at top */}
                     <button
-                      onClick={openConnectModal}
-                      className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-white/[0.08] rounded-lg hover:border-blue-500/50 text-foreground hover:text-blue-400 bg-white/[0.04] font-semibold text-sm transition-colors"
+                      onClick={() => {
+                        navigate("/profile");
+                        setUserMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors border-b border-border ${
+                        activePage === "profile"
+                          ? "text-blue-500"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                      }`}
                     >
-                      <Wallet className="w-4 h-4" />
-                      <span className="hidden sm:inline">{t("nav.connectWallet")}</span>
+                      <User className="w-4 h-4" />
+                      <span>{t("nav.myProfile")}</span>
                     </button>
-                  )}
-                </div>
-              );
-            }}
-          </ConnectButton.Custom>
+                    {/* Admin link - only visible to admins */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          navigate("/admin/pending");
+                          setUserMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
+                          activePage === "admin"
+                            ? "text-blue-500"
+                            : "text-amber-400 hover:text-amber-300 hover:bg-accent"
+                        }`}
+                      >
+                        <Shield className="w-4 h-4" />
+                        <span>{t("admin.pendingMarkets")}</span>
+                      </button>
+                    )}
+                    {USER_MENU_ITEMS.map((item) => {
+                      const isActive = activePage === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            navigate(item.path);
+                            setUserMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
+                            isActive
+                              ? "text-blue-500"
+                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                          }`}
+                        >
+                          <item.icon className="w-4 h-4" />
+                          <span>{t(item.labelKey)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => openWeb3Modal()}
+              className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-white/[0.08] rounded-lg hover:border-blue-500/50 text-foreground hover:text-blue-400 bg-white/[0.04] font-semibold text-sm transition-colors"
+            >
+              <Wallet className="w-4 h-4" />
+              <span className="hidden sm:inline">{t("nav.connectWallet")}</span>
+            </button>
+          )}
 
           {/* Mobile Hamburger */}
           <button
@@ -531,10 +544,8 @@ export function AppHeader() {
               <item.icon className="w-4 h-4" />
               <span>{t(item.labelKey)}</span>
               {isActive && (
-                <motion.div
-                  layoutId="nav-indicator"
+                <div
                   className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 shadow-[0_2px_8px] shadow-blue-500/30"
-                  transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
                 />
               )}
             </button>
