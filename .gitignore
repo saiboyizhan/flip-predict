@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+horse-sprite.png
+horse_frames/
+*.py
 server/.env
 contracts/.env.contracts
 *.log
@@ -13,3 +16,4 @@ server/data.db-wal
 contracts/artifacts/
 contracts/cache/
 contracts/typechain-types/
+.next/
