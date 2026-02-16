@@ -6,7 +6,7 @@
  */
 
 // BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_PM_ADDRESS = '0xf250530B3938329F40FA24996e0975Ccdd7381d7'
+const DEFAULT_PM_ADDRESS = '0x63b0A24897b48535663c742eA43A88686307f17A'
 
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
