@@ -7,12 +7,12 @@ import { getLearningMetrics } from '../engine/agent-learning';
 import { syncOwnerProfile, getOwnerInfluence } from '../engine/agent-owner-learning';
 import { encrypt, decrypt, maskApiKey } from '../utils/crypto';
 import { ethers } from 'ethers';
+import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
 
 const router = Router();
 
 const VALID_STRATEGIES = ['conservative', 'aggressive', 'contrarian', 'momentum', 'random'];
-const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
-const NFA_RPC_URL = process.env.NFA_RPC_URL || process.env.BSC_RPC_URL || DEFAULT_BSC_RPC;
+const NFA_RPC_URL = getRpcUrl('NFA_RPC_URL');
 const RAW_NFA_CONTRACT_ADDRESS =
   process.env.NFA_CONTRACT_ADDRESS ||
   process.env.VITE_NFA_CONTRACT_ADDRESS ||
@@ -83,9 +83,15 @@ async function verifyAgentMintTxOnChain(params: {
   const provider = getNfaProvider();
 
   try {
+    const network = await provider.getNetwork();
+    const connectedChainId = Number(network.chainId);
     const receipt = await provider.getTransactionReceipt(params.txHash);
     if (!receipt) {
-      return { ok: false, statusCode: 400, error: 'mintTxHash not found or not confirmed yet' };
+      return {
+        ok: false,
+        statusCode: 400,
+        error: `mintTxHash not found on chain ${connectedChainId}. Check NFA_RPC_URL/BSC_RPC_URL and contract network alignment`,
+      };
     }
     if (receipt.status !== 1) {
       return { ok: false, statusCode: 400, error: 'mintTxHash failed on-chain' };
@@ -142,7 +148,11 @@ async function verifyAgentMintTxOnChain(params: {
     return { ok: true, blockNumber: receipt.blockNumber };
   } catch (err) {
     console.error('Agent mint tx verification error:', err);
-    return { ok: false, statusCode: 503, error: 'NFA mint verification service unavailable' };
+    return {
+      ok: false,
+      statusCode: 503,
+      error: `NFA mint verification service unavailable (expected chain ${BSC_CHAIN_ID})`,
+    };
   }
 }
 

@@ -10,6 +10,7 @@ import { resolvePredictions } from '../engine/agent-prediction';
 import { getOraclePrice, SUPPORTED_PAIRS } from '../engine/oracle';
 import { fetchTokenPrice } from '../engine/dexscreener';
 import { ADMIN_ADDRESSES } from '../config';
+import { getRpcUrl } from '../config/network';
 
 const router = Router();
 const DEFAULT_CHALLENGE_WINDOW_MS = Math.max(
@@ -20,8 +21,7 @@ const MAX_CHALLENGES_PER_PROPOSAL = Math.max(
   1,
   Number(process.env.SETTLEMENT_MAX_CHALLENGES || 5),
 );
-const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
-const SETTLEMENT_RPC_URL = process.env.SETTLEMENT_RPC_URL || process.env.BSC_RPC_URL || DEFAULT_BSC_RPC;
+const SETTLEMENT_RPC_URL = getRpcUrl('SETTLEMENT_RPC_URL');
 const RAW_SETTLEMENT_CONTRACT_ADDRESS =
   process.env.SETTLEMENT_CONTRACT_ADDRESS ||
   process.env.PREDICTION_MARKET_ADDRESS ||
@@ -1275,8 +1275,8 @@ router.post('/:marketId/finalize', authMiddleware, adminMiddleware, async (req: 
       now,
     ]);
 
-    await client.query('COMMIT');
     committed = true;
+    await client.query('COMMIT');
     res.json({
       success: true,
       marketId,
@@ -1523,9 +1523,9 @@ router.post('/:marketId/resolve', authMiddleware, adminMiddleware, async (req: A
       WHERE market_id = $3 AND status IN ('proposed', 'challenged')
     `, [now, userAddress, marketId]);
 
-    await client.query('COMMIT');
     const resolvedOutcome = isMulti ? (winningOptionId || outcome) : outcome;
     committed = true;
+    await client.query('COMMIT');
     res.json({ success: true, outcome: resolvedOutcome, marketId });
   } catch (txErr) {
     if (!committed) {

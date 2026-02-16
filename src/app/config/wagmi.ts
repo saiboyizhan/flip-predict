@@ -20,7 +20,7 @@ const bscTestnet = defineChain({
   name: "BNB Smart Chain Testnet",
   nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://data-seed-prebsc-1-s1.binance.org:8545/"] },
+    default: { http: ["https://bsc-testnet-rpc.publicnode.com"] },
   },
   blockExplorers: {
     default: { name: "BscScan Testnet", url: "https://testnet.bscscan.com" },
@@ -42,7 +42,7 @@ const wagmiAdapter = new WagmiAdapter({
   networks: chains,
   transports: {
     [bsc.id]: http("https://bsc-dataseed.binance.org/"),
-    [bscTestnet.id]: http("https://data-seed-prebsc-1-s1.binance.org:8545/"),
+    [bscTestnet.id]: http("https://bsc-testnet-rpc.publicnode.com"),
   },
 });
 

@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
+import { ethers } from 'ethers';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
 
@@ -14,6 +15,11 @@ router.post('/follow', authMiddleware, async (req: AuthRequest, res: Response) =
 
     if (typeof followedAddress !== 'string' || !followedAddress.trim()) {
       res.status(400).json({ error: 'followedAddress is required' });
+      return;
+    }
+
+    if (!ethers.isAddress(followedAddress)) {
+      res.status(400).json({ error: 'Invalid address format' });
       return;
     }
 
@@ -58,6 +64,11 @@ router.delete('/unfollow', authMiddleware, async (req: AuthRequest, res: Respons
 
     if (typeof followedAddress !== 'string' || !followedAddress.trim()) {
       res.status(400).json({ error: 'followedAddress is required' });
+      return;
+    }
+
+    if (!ethers.isAddress(followedAddress)) {
+      res.status(400).json({ error: 'Invalid address format' });
       return;
     }
 

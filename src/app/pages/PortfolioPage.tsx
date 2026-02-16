@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { Wallet } from "lucide-react";
+import { toast } from "sonner";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { PositionList } from "../components/portfolio/PositionList";
 import { usePortfolioStore } from "../stores/usePortfolioStore";
@@ -42,7 +43,10 @@ export default function PortfolioPage() {
           }));
           setHistory(records);
         })
-        .catch((err) => console.error("Failed to load trade history:", err));
+        .catch((err) => {
+          console.error("Failed to load trade history:", err);
+          toast.error(t("portfolio.loadHistoryFailed", { defaultValue: "Failed to load trade history" }));
+        });
     }
   }, [address, fetchFromAPI]);
 

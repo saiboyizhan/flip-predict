@@ -298,6 +298,11 @@ router.post('/confirm-on-chain', authMiddleware, async (req: AuthRequest, res: R
       return;
     }
 
+    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      res.status(400).json({ error: 'Invalid txHash format' });
+      return;
+    }
+
     // Update trade with tx hash
     const result = await db.query(
       'UPDATE copy_trades SET tx_hash = $1 WHERE id = $2 AND follower_address = $3 RETURNING *',

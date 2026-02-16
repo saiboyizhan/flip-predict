@@ -55,7 +55,6 @@ export default function DashboardPage() {
           value: stats.totalMarkets.toLocaleString(),
           icon: BarChart3,
           iconColor: "text-blue-400",
-          bgGradient: "from-blue-900/20 to-secondary",
           borderColor: "border-blue-500/30",
         },
         {
@@ -63,7 +62,6 @@ export default function DashboardPage() {
           value: stats.activeMarkets.toLocaleString(),
           icon: Activity,
           iconColor: "text-emerald-400",
-          bgGradient: "from-emerald-900/20 to-secondary",
           borderColor: "border-emerald-500/30",
           sub: t('dashboard.activeRate', { rate: ((stats.activeMarkets / Math.max(stats.totalMarkets, 1)) * 100).toFixed(0) }),
         },
@@ -72,7 +70,7 @@ export default function DashboardPage() {
           value: `$${stats.totalVolume >= 1000000 ? (stats.totalVolume / 1000000).toFixed(1) + "M" : stats.totalVolume >= 1000 ? (stats.totalVolume / 1000).toFixed(1) + "K" : stats.totalVolume.toLocaleString()}`,
           icon: DollarSign,
           iconColor: "text-blue-400",
-          bgGradient: "from-blue-900/20 to-secondary",
+
           borderColor: "border-blue-500/30",
         },
         {
@@ -80,7 +78,7 @@ export default function DashboardPage() {
           value: stats.totalUsers.toLocaleString(),
           icon: Users,
           iconColor: "text-purple-400",
-          bgGradient: "from-purple-900/20 to-secondary",
+
           borderColor: "border-purple-500/30",
         },
         {
@@ -88,7 +86,7 @@ export default function DashboardPage() {
           value: stats.todayNewMarkets.toLocaleString(),
           icon: ArrowUpRight,
           iconColor: "text-emerald-400",
-          bgGradient: "from-card to-secondary",
+
           borderColor: "border-border",
           sub: t('dashboard.today'),
         },
@@ -97,7 +95,7 @@ export default function DashboardPage() {
           value: stats.todayTrades.toLocaleString(),
           icon: Zap,
           iconColor: "text-blue-400",
-          bgGradient: "from-card to-secondary",
+
           borderColor: "border-border",
           sub: t('dashboard.today'),
         },
@@ -155,13 +153,10 @@ export default function DashboardPage() {
           </motion.div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-            {statCards.map((card, i) => (
-              <motion.div
+            {statCards.map((card) => (
+              <div
                 key={card.label}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className={`bg-gradient-to-br ${card.bgGradient} border ${card.borderColor} p-4 hover:scale-[1.01] transition-transform`}
+                className={`bg-secondary border ${card.borderColor} p-4 hover:scale-[1.01] transition-transform`}
               >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-8 h-8 bg-muted/50 border border-border flex items-center justify-center rounded">
@@ -177,7 +172,7 @@ export default function DashboardPage() {
                 {card.sub && (
                   <div className="text-muted-foreground text-xs mt-0.5">{card.sub}</div>
                 )}
-              </motion.div>
+              </div>
             ))}
           </div>
         )}

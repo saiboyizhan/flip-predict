@@ -471,6 +471,7 @@ function SettlementActionPanel({
   isAdmin,
   onUpdated,
 }: SettlementActionPanelProps) {
+  const { t } = useTranslation();
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
@@ -496,7 +497,7 @@ function SettlementActionPanel({
         animate={{ opacity: 1, y: 0 }}
         className="bg-amber-500/10 border border-amber-500/30 p-4 text-sm text-amber-300"
       >
-        当前链上仲裁流程仅支持二元市场（YES/NO）。多选市场请勿使用链上仲裁入口。
+        {t("settlement.multiMarketNotSupported", { defaultValue: "On-chain arbitration currently only supports binary markets (YES/NO). Do not use the on-chain arbitration entry for multi-option markets." })}
       </motion.div>
     );
   }
@@ -537,15 +538,15 @@ function SettlementActionPanel({
 
   async function handlePropose() {
     if (!isAuthenticated) {
-      toast.error("Please connect wallet first");
+      toast.error(t("settlement.connectWalletFirst", { defaultValue: "Please connect wallet first" }));
       return;
     }
     if (!/^0x[a-fA-F0-9]{64}$/.test(proposeTxHash.trim())) {
-      toast.error("Invalid tx hash (must be 0x + 64 hex chars)");
+      toast.error(t("settlement.invalidTxHash", { defaultValue: "Invalid tx hash (must be 0x + 64 hex chars)" }));
       return;
     }
     if (isMulti && !proposeWinningOptionId) {
-      toast.error("Please select a winning option");
+      toast.error(t("settlement.selectWinningOption", { defaultValue: "Please select a winning option" }));
       return;
     }
 
@@ -557,12 +558,12 @@ function SettlementActionPanel({
         evidenceUrl: proposeEvidenceUrl.trim() || undefined,
         resolveTxHash: proposeTxHash.trim(),
       });
-      toast.success("Proposal submitted");
+      toast.success(t("settlement.proposalSubmitted", { defaultValue: "Proposal submitted" }));
       setProposeTxHash("");
       setProposeEvidenceUrl("");
       onUpdated();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit proposal");
+      toast.error(err instanceof Error ? err.message : t("settlement.failedToSubmitProposal", { defaultValue: "Failed to submit proposal" }));
     } finally {
       setBusy("");
     }
@@ -571,7 +572,7 @@ function SettlementActionPanel({
   async function handleChallenge() {
     if (!canChallenge || !proposalId) return;
     if (challengeReason.trim().length < 10) {
-      toast.error("Challenge reason must be at least 10 characters");
+      toast.error(t("settlement.challengeReasonMinLength", { defaultValue: "Challenge reason must be at least 10 characters" }));
       return;
     }
 
@@ -581,11 +582,11 @@ function SettlementActionPanel({
         proposalId,
         reason: challengeReason.trim(),
       });
-      toast.success("Challenge submitted");
+      toast.success(t("settlement.challengeSubmitted", { defaultValue: "Challenge submitted" }));
       setChallengeReason("");
       onUpdated();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit challenge");
+      toast.error(err instanceof Error ? err.message : t("settlement.failedToSubmitChallenge", { defaultValue: "Failed to submit challenge" }));
     } finally {
       setBusy("");
     }
@@ -593,30 +594,30 @@ function SettlementActionPanel({
 
   async function handleFinalize() {
     if (!isAuthenticated) {
-      toast.error("Please connect wallet first");
+      toast.error(t("settlement.connectWalletFirst", { defaultValue: "Please connect wallet first" }));
       return;
     }
     if (!isAdmin) {
-      toast.error("Finalize is admin-only");
+      toast.error(t("settlement.finalizeAdminOnly", { defaultValue: "Finalize is admin-only" }));
       return;
     }
     if (!publicClient) {
-      toast.error("Wallet client unavailable");
+      toast.error(t("settlement.walletClientUnavailable", { defaultValue: "Wallet client unavailable" }));
       return;
     }
     if (!proposalId) {
-      toast.error("No active proposal to finalize");
+      toast.error(t("settlement.noActiveProposal", { defaultValue: "No active proposal to finalize" }));
       return;
     }
     let onChainMarketId: bigint;
     try {
       onChainMarketId = BigInt(market.onChainMarketId);
     } catch {
-      toast.error("Invalid on-chain market ID");
+      toast.error(t("settlement.invalidOnChainMarketId", { defaultValue: "Invalid on-chain market ID" }));
       return;
     }
     if (isMulti && !finalizeWinningOptionId) {
-      toast.error("Please select a winning option");
+      toast.error(t("settlement.selectWinningOption", { defaultValue: "Please select a winning option" }));
       return;
     }
 
@@ -631,22 +632,22 @@ function SettlementActionPanel({
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
       if (receipt.status !== "success") {
-        throw new Error("On-chain finalize transaction reverted");
+        throw new Error(t("settlement.txReverted", { defaultValue: "On-chain finalize transaction reverted" }));
       }
 
       setFinalizeTxHash(txHash);
       await syncFinalizeWithTxHash(txHash);
       const scanUrl = getBscScanUrl(chainId);
-      toast.success("Market finalized", {
+      toast.success(t("settlement.marketFinalized", { defaultValue: "Market finalized" }), {
         action: {
-          label: "View on BscScan",
+          label: t("settlement.viewOnBscScan", { defaultValue: "View on BscScan" }),
           onClick: () => window.open(`${scanUrl}/tx/${txHash}`, "_blank"),
         },
       });
       onUpdated();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to finalize";
-      toast.error(`${message}. If on-chain tx already succeeded, use "Sync Existing TxHash".`);
+      const message = err instanceof Error ? err.message : t("settlement.failedToFinalize", { defaultValue: "Failed to finalize" });
+      toast.error(t("settlement.finalizeErrorHint", { defaultValue: "{{message}}. If on-chain tx already succeeded, use \"Sync Existing TxHash\".", message }));
     } finally {
       setBusy("");
     }
@@ -654,20 +655,20 @@ function SettlementActionPanel({
 
   async function handleFinalizeSync() {
     if (!isAuthenticated) {
-      toast.error("Please connect wallet first");
+      toast.error(t("settlement.connectWalletFirst", { defaultValue: "Please connect wallet first" }));
       return;
     }
     if (!isAdmin) {
-      toast.error("Finalize is admin-only");
+      toast.error(t("settlement.finalizeAdminOnly", { defaultValue: "Finalize is admin-only" }));
       return;
     }
     if (!proposalId) {
-      toast.error("No active proposal to finalize");
+      toast.error(t("settlement.noActiveProposal", { defaultValue: "No active proposal to finalize" }));
       return;
     }
     const txHash = finalizeTxHash.trim();
     if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
-      toast.error("Invalid tx hash (must be 0x + 64 hex chars)");
+      toast.error(t("settlement.invalidTxHash", { defaultValue: "Invalid tx hash (must be 0x + 64 hex chars)" }));
       return;
     }
 
@@ -675,15 +676,15 @@ function SettlementActionPanel({
     try {
       await syncFinalizeWithTxHash(txHash);
       const scanUrl = getBscScanUrl(chainId);
-      toast.success("Settlement synced", {
+      toast.success(t("settlement.settlementSynced", { defaultValue: "Settlement synced" }), {
         action: {
-          label: "View on BscScan",
+          label: t("settlement.viewOnBscScan", { defaultValue: "View on BscScan" }),
           onClick: () => window.open(`${scanUrl}/tx/${txHash}`, "_blank"),
         },
       });
       onUpdated();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to sync settlement");
+      toast.error(err instanceof Error ? err.message : t("settlement.failedToSyncSettlement", { defaultValue: "Failed to sync settlement" }));
     } finally {
       setBusy("");
     }
@@ -696,9 +697,9 @@ function SettlementActionPanel({
       className="bg-card border border-border p-4 sm:p-6 space-y-4"
     >
       <div>
-        <h3 className="text-sm sm:text-base font-bold text-foreground">Arbitration Actions</h3>
+        <h3 className="text-sm sm:text-base font-bold text-foreground">{t("settlement.arbitrationActions", { defaultValue: "Arbitration Actions" })}</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          提案、挑战、终裁。管理员终裁会自动发送链上 finalizeResolution 交易并完成后端同步。
+          {t("settlement.arbitrationDesc", { defaultValue: "Propose, challenge, finalize. Admin finalize will automatically send an on-chain finalizeResolution transaction and sync the backend." })}
         </p>
       </div>
 
@@ -726,13 +727,13 @@ function SettlementActionPanel({
         <input
           value={proposeTxHash}
           onChange={(e) => setProposeTxHash(e.target.value)}
-          placeholder="resolve/finalize tx hash (0x...)"
+          placeholder={t("settlement.txHashPlaceholder", { defaultValue: "resolve/finalize tx hash (0x...)" })}
           className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
         />
         <input
           value={proposeEvidenceUrl}
           onChange={(e) => setProposeEvidenceUrl(e.target.value)}
-          placeholder="Evidence URL (optional)"
+          placeholder={t("settlement.evidenceUrlPlaceholder", { defaultValue: "Evidence URL (optional)" })}
           className="bg-input-background border border-border text-foreground text-xs sm:text-sm py-2 px-3 sm:col-span-2"
         />
       </div>
@@ -741,15 +742,15 @@ function SettlementActionPanel({
         disabled={busy !== "" || !isAuthenticated}
         className="w-full sm:w-auto px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold disabled:opacity-50"
       >
-        {busy === "propose" ? "Submitting..." : "Submit Proposal"}
+        {busy === "propose" ? t("settlement.submitting", { defaultValue: "Submitting..." }) : t("settlement.submitProposal", { defaultValue: "Submit Proposal" })}
       </button>
 
       {activeProposal && (
         <div className="border-t border-border pt-4 space-y-3">
           <div className="text-xs text-muted-foreground">
-            Active proposal: <span className="text-foreground font-mono">{proposalId}</span>
+            {t("settlement.activeProposal", { defaultValue: "Active proposal" })}: <span className="text-foreground font-mono">{proposalId}</span>
             {challengeWindowEndsAt > 0 && (
-              <> | Challenge window ends: {new Date(challengeWindowEndsAt).toLocaleString()}</>
+              <> | {t("settlement.challengeWindowEnds", { defaultValue: "Challenge window ends" })}: {new Date(challengeWindowEndsAt).toLocaleString()}</>
             )}
           </div>
 
@@ -757,7 +758,7 @@ function SettlementActionPanel({
             <input
               value={challengeReason}
               onChange={(e) => setChallengeReason(e.target.value)}
-              placeholder="Challenge reason (>=10 chars)"
+              placeholder={t("settlement.challengeReasonPlaceholder", { defaultValue: "Challenge reason (>=10 chars)" })}
               className="bg-input-background border border-border text-foreground text-sm py-2 px-3 md:col-span-2"
             />
           </div>
@@ -766,7 +767,7 @@ function SettlementActionPanel({
             disabled={busy !== "" || !canChallenge}
             className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold disabled:opacity-50"
           >
-            {busy === "challenge" ? "Submitting..." : "Submit Challenge"}
+            {busy === "challenge" ? t("settlement.submitting", { defaultValue: "Submitting..." }) : t("settlement.submitChallenge", { defaultValue: "Submit Challenge" })}
           </button>
 
           {isAdmin ? (
@@ -795,7 +796,7 @@ function SettlementActionPanel({
                 <input
                   value={finalizeTxHash}
                   onChange={(e) => setFinalizeTxHash(e.target.value)}
-                  placeholder="finalizeResolution tx hash (0x...)"
+                  placeholder={t("settlement.finalizeTxHashPlaceholder", { defaultValue: "finalizeResolution tx hash (0x...)" })}
                   className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
                 />
               </div>
@@ -804,19 +805,19 @@ function SettlementActionPanel({
                 disabled={busy !== "" || !isAuthenticated || challengeOpen}
                 className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold disabled:opacity-50"
               >
-                {busy === "finalize" ? "Finalizing..." : "Finalize On-Chain (Admin)"}
+                {busy === "finalize" ? t("settlement.finalizing", { defaultValue: "Finalizing..." }) : t("settlement.finalizeOnChain", { defaultValue: "Finalize On-Chain (Admin)" })}
               </button>
               <button
                 onClick={handleFinalizeSync}
                 disabled={busy !== "" || !isAuthenticated}
                 className="px-4 py-2 bg-zinc-600 hover:bg-zinc-500 text-white text-sm font-semibold disabled:opacity-50"
               >
-                {busy === "finalize" ? "Syncing..." : "Sync Existing TxHash (Backend only)"}
+                {busy === "finalize" ? t("settlement.syncing", { defaultValue: "Syncing..." }) : t("settlement.syncExistingTxHash", { defaultValue: "Sync Existing TxHash (Backend only)" })}
               </button>
             </>
           ) : (
             <div className="text-xs text-muted-foreground pt-1">
-              Finalize is restricted to admin accounts.
+              {t("settlement.finalizeAdminRestricted", { defaultValue: "Finalize is restricted to admin accounts." })}
             </div>
           )}
         </div>

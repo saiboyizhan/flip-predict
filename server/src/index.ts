@@ -32,6 +32,9 @@ import profileRoutes from './routes/profile';
 import copyTradingRoutes from './routes/copy-trading';
 
 import favoritesRoutes from './routes/favorites';
+import { authMiddleware, AuthRequest } from './routes/middleware/auth';
+import { adminMiddleware } from './routes/middleware/admin';
+import { BSC_CHAIN_ID, BSC_NETWORK, logNetworkConfigSummary } from './config/network';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -69,6 +72,8 @@ const publicReadLimiter = rateLimit({
 });
 
 async function main() {
+  logNetworkConfigSummary();
+
   // Initialize database
   const pool = await initDatabase();
 
@@ -80,6 +85,9 @@ async function main() {
 
   // Middleware
   const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+  if (IS_PRODUCTION && !process.env.CORS_ORIGIN) {
+    console.warn('WARNING: CORS_ORIGIN is not set in production. All browser requests will be blocked.');
+  }
   app.use(cors({
     origin: function (origin, callback) {
       // Allow requests with no origin (health checks, curl, server-to-server)
@@ -129,7 +137,14 @@ async function main() {
 
   // Health check
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: Date.now() });
+    res.json({
+      status: 'ok',
+      timestamp: Date.now(),
+      network: {
+        bscNetwork: BSC_NETWORK,
+        bscChainId: BSC_CHAIN_ID,
+      },
+    });
   });
 
   // Testnet faucet: credit platform balance (testnet only)
@@ -140,7 +155,8 @@ async function main() {
         res.status(400).json({ error: 'address required' });
         return;
       }
-      const credit = Number(amount) || 10000;
+      const MAX_FAUCET = 10000;
+      const credit = Math.min(Math.max(Number(amount) || 1000, 1), MAX_FAUCET);
       await pool.query(
         `INSERT INTO balances (user_address, available, locked)
          VALUES ($1, $2, 0)
@@ -248,7 +264,7 @@ async function main() {
         // participants is computed in API layer, not a DB column
 
         await client.query('COMMIT');
-        console.log('Seed data cleanup completed:', results);
+        console.info('Seed data cleanup completed.');
         res.json({ success: true, deleted: results });
       } catch (err) {
         await client.query('ROLLBACK');
@@ -263,7 +279,7 @@ async function main() {
   });
 
   // Admin: sync on-chain NFA to backend DB (testnet helper)
-  app.post('/api/agents/admin-sync', async (req, res) => {
+  app.post('/api/agents/admin-sync', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
     try {
       const { address, tokenId, name, avatar, mintTxHash } = req.body;
       if (!address || typeof address !== 'string') {

@@ -162,7 +162,7 @@ router.get('/portfolio/:address/history', authMiddleware, async (req: AuthReques
       return { ...o, result, pnl };
     });
 
-    res.json({ orders: enriched, trades: enriched, total });
+    res.json({ trades: enriched, total });
   } catch (err: any) {
     console.error('Portfolio history error:', err);
     res.status(500).json({ error: 'Internal server error' });

@@ -131,7 +131,7 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
   return (
     <div
       onClick={onClick}
-      className={`relative flex flex-col h-full bg-card border border-gray-200 dark:border-white/[0.12] rounded-xl hover:border-blue-500/40 dark:hover:border-blue-500/30 shadow-sm dark:shadow-none transition-colors duration-150 cursor-pointer ${
+      className={`relative flex flex-col h-full bg-card border border-gray-200 dark:border-white/[0.12] rounded-xl hover:border-blue-500/40 dark:hover:border-blue-500/30 transition-colors duration-150 cursor-pointer ${
         isCompact ? "p-3 sm:p-4" : isLarge ? "p-4 sm:p-6 md:p-8" : "p-3 sm:p-4 md:p-6"
       }`}
     >

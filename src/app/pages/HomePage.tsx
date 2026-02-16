@@ -1,16 +1,12 @@
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { motion } from "motion/react";
-import { Sparkles, ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CategoryNav } from "../components/explore/CategoryNav";
 import { TimeFilter } from "../components/explore/TimeFilter";
 import { MarketGrid } from "../components/explore/MarketGrid";
 import { useMarketStore } from "../stores/useMarketStore";
-import { useAuthStore } from "../stores/useAuthStore";
-import { useAgentStore } from "../stores/useAgentStore";
 import { useShallow } from "zustand/react/shallow";
 import { CATEGORIES } from "../data/markets";
-import { PRESET_AVATARS } from "../config/avatars";
 import type { Market } from "../types/market.types";
 
 // Convert store Market to MarketCard format
@@ -96,13 +92,6 @@ export default function HomePage() {
     navigate(`/market/${marketId}`);
   };
 
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const { hasAgent, setShowMintModal } = useAgentStore(
-    useShallow((s) => ({ hasAgent: s.hasAgent, setShowMintModal: s.setShowMintModal }))
-  );
-
-  const showMintBanner = isAuthenticated && !hasAgent;
-
   return (
     <div className="relative pt-4">
       {/* Decorative blur */}
@@ -116,7 +105,7 @@ export default function HomePage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden bg-gradient-to-r from-blue-500/[0.08] via-card to-emerald-500/[0.04] border border-blue-500/10 rounded-xl p-4 sm:p-6 md:p-8 cursor-pointer hover:border-blue-500/30 transition-colors shadow-lg shadow-blue-500/[0.06] card-highlight"
+            className="relative overflow-hidden bg-card border border-blue-500/10 rounded-xl p-4 sm:p-6 md:p-8 cursor-pointer hover:border-blue-500/30 transition-colors card-highlight"
             onClick={() => handleMarketClick(featuredMarkets[0].id)}
           >
             <div className="relative z-10">

@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { BSC_RPC_URL } from '../config/network';
 
 // Binance Oracle Feed Adapter ABI (read-only functions)
 const ORACLE_ABI = [
@@ -20,7 +21,7 @@ export const ORACLE_FEEDS: Record<string, string> = {
 
 export const SUPPORTED_PAIRS = Object.keys(ORACLE_FEEDS);
 
-const BSC_RPC = process.env.BSC_RPC_URL || 'https://bsc-dataseed.bnbchain.org';
+const BSC_RPC = BSC_RPC_URL;
 
 let cachedProvider: ethers.JsonRpcProvider | null = null;
 function getProvider(): ethers.JsonRpcProvider {

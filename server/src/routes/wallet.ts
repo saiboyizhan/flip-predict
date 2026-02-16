@@ -3,6 +3,7 @@ import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
 import crypto from 'crypto';
 import { ethers } from 'ethers';
+import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
 
 const router = Router();
 
@@ -11,11 +12,13 @@ const MAX_DEPOSIT_AMOUNT = 1_000_000;
 const MAX_DEPOSITS_PER_DAY = 50;
 const MAX_WITHDRAWAL_AMOUNT = 1_000_000;
 const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
-const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
-const DEPOSIT_RPC_URL = process.env.DEPOSIT_RPC_URL || process.env.BSC_RPC_URL || DEFAULT_BSC_RPC;
+const DEPOSIT_RPC_URL = getRpcUrl('DEPOSIT_RPC_URL');
 
-// BSC USDT contract address (18 decimals on BSC)
-const USDT_ADDRESS = (process.env.USDT_ADDRESS || '0x55d398326f99059fF775485246999027B3197955').toLowerCase();
+// BSC USDT contract address (18 decimals expected by current logic)
+const RAW_USDT_ADDRESS = process.env.USDT_ADDRESS || '';
+const USDT_ADDRESS = ethers.isAddress(RAW_USDT_ADDRESS)
+  ? RAW_USDT_ADDRESS.toLowerCase()
+  : null;
 // ERC-20 Transfer(address,address,uint256) event topic
 const TRANSFER_EVENT_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
@@ -45,13 +48,22 @@ async function verifyDepositTransaction(
   if (!receiver) {
     return { ok: false, statusCode: 503, error: 'Deposit verification is not configured' };
   }
+  if (!USDT_ADDRESS) {
+    return { ok: false, statusCode: 503, error: 'USDT_ADDRESS is not configured' };
+  }
 
   const provider = getDepositProvider();
 
   try {
+    const network = await provider.getNetwork();
+    const connectedChainId = Number(network.chainId);
     const receipt = await provider.getTransactionReceipt(txHash);
     if (!receipt) {
-      return { ok: false, statusCode: 400, error: 'Transaction not found or not confirmed yet' };
+      return {
+        ok: false,
+        statusCode: 400,
+        error: `Transaction not found on chain ${connectedChainId}. Check DEPOSIT_RPC_URL/BSC_RPC_URL`,
+      };
     }
 
     if (receipt.status !== 1) {
@@ -105,7 +117,11 @@ async function verifyDepositTransaction(
     return { ok: true };
   } catch (err) {
     console.error('Deposit verification error:', err);
-    return { ok: false, statusCode: 503, error: 'Deposit verification service unavailable' };
+    return {
+      ok: false,
+      statusCode: 503,
+      error: `Deposit verification service unavailable (expected chain ${BSC_CHAIN_ID})`,
+    };
   }
 }
 
@@ -136,7 +152,14 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
     return;
   }
 
-  const verificationResult = await verifyDepositTransaction(normalizedTxHash, userAddress, amount);
+  let verificationResult;
+  try {
+    verificationResult = await verifyDepositTransaction(normalizedTxHash, userAddress, amount);
+  } catch (err: any) {
+    console.error('Deposit verification RPC error:', err.message);
+    res.status(503).json({ error: 'Transaction verification service unavailable, please try again' });
+    return;
+  }
   if (!verificationResult.ok) {
     res.status(verificationResult.statusCode).json({ error: verificationResult.error });
     return;

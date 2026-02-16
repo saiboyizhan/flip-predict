@@ -119,7 +119,7 @@ export default function UserProfilePage() {
                 <div className="h-4 bg-muted rounded w-1/2" />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="h-20 bg-muted rounded" />
               ))}

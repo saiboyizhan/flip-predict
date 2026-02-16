@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
-import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2 } from "lucide-react";
+import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { mintAgent } from "@/app/services/api";
@@ -10,7 +10,7 @@ import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
 import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
 import type { Agent } from "@/app/services/api";
 import { AgentCard } from "./AgentCard";
-import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
+import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract, useSwitchChain } from "wagmi";
 import { zeroAddress, zeroHash } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
@@ -45,7 +45,21 @@ export function MintAgent() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+  const { switchChainAsync } = useSwitchChain();
   const { agentCount, addAgent } = useAgentStore();
+
+  const BSC_TESTNET_CHAIN_ID = 97;
+  const isWrongChain = isConnected && chainId !== BSC_TESTNET_CHAIN_ID;
+
+  // Read on-chain mintCount for the connected address
+  const { data: onChainMintCount } = useReadContract({
+    address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+    abi: NFA_ABI,
+    functionName: "mintCount",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && NFA_CONTRACT_ADDRESS !== zeroAddress },
+  });
+
   const [name, setName] = useState("");
   const [persona, setPersona] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
@@ -75,7 +89,9 @@ export function MintAgent() {
     }
   }, [t]);
 
-  const remaining = MAX_AGENTS_PER_ADDRESS - agentCount;
+  // Prefer on-chain mintCount over backend agentCount for accuracy
+  const effectiveMintCount = onChainMintCount != null ? Number(onChainMintCount) : agentCount;
+  const remaining = MAX_AGENTS_PER_ADDRESS - effectiveMintCount;
 
   const STRATEGIES = [
     { id: "conservative", name: t("agent.strategies.conservative"), desc: t("agent.strategies.conservativeDesc") },
@@ -132,6 +148,14 @@ export function MintAgent() {
       toast.error(t("auth.pleaseConnectWallet", "Please connect wallet first"));
       return;
     }
+    if (chainId !== BSC_TESTNET_CHAIN_ID) {
+      try {
+        await switchChainAsync({ chainId: BSC_TESTNET_CHAIN_ID });
+      } catch {
+        toast.error(t("agent.switchChainFailed", { defaultValue: "Please switch to BSC Testnet (Chain ID: 97)" }));
+        return;
+      }
+    }
     if (!publicClient) {
       toast.error(t("agent.walletUnavailable", { defaultValue: "Wallet client unavailable" }));
       return;
@@ -143,6 +167,23 @@ export function MintAgent() {
 
     setLoading(true);
     try {
+      // Double-check on-chain mintCount before sending tx
+      if (publicClient) {
+        const chainCount = await publicClient.readContract({
+          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+          abi: NFA_ABI,
+          functionName: "mintCount",
+          args: [address],
+        }) as bigint;
+        if (Number(chainCount) >= MAX_AGENTS_PER_ADDRESS) {
+          toast.error(t("agent.maxAgentsReachedOnChain", {
+            defaultValue: `On-chain limit reached: you already minted ${chainCount}/${MAX_AGENTS_PER_ADDRESS} agents`,
+          }));
+          setLoading(false);
+          return;
+        }
+      }
+
       const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
       const txHash = await writeContractAsync({
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
@@ -165,6 +206,7 @@ export function MintAgent() {
         throw new Error("Mint transaction reverted on-chain");
       }
 
+      // Try to extract tokenId from Transfer event in receipt logs
       const TRANSFER_SIG = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
       let tokenId: bigint | null = null;
       for (const log of receipt.logs) {
@@ -178,8 +220,41 @@ export function MintAgent() {
         }
       }
 
+      // Fallback: BSC testnet RPCs sometimes return empty logs.
+      // Read on-chain state to find the tokenId instead.
       if (tokenId == null) {
-        throw new Error(`Mint tx confirmed but Transfer event not found. Receipt logs: ${receipt.logs.length}. Check: ${NFA_CONTRACT_ADDRESS}`);
+        const nfaAddr = NFA_CONTRACT_ADDRESS as `0x${string}`;
+        const balance = await publicClient.readContract({
+          address: nfaAddr,
+          abi: NFA_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        }) as bigint;
+        if (balance > 0n) {
+          tokenId = await publicClient.readContract({
+            address: nfaAddr,
+            abi: NFA_ABI,
+            functionName: "tokenOfOwnerByIndex",
+            args: [address, balance - 1n],
+          }) as bigint;
+        }
+      }
+
+      // Last resort: read totalSupply - 1
+      if (tokenId == null) {
+        const supply = await publicClient.readContract({
+          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+          abi: NFA_ABI,
+          functionName: "totalSupply",
+          args: [],
+        }) as bigint;
+        if (supply > 0n) {
+          tokenId = supply - 1n;
+        }
+      }
+
+      if (tokenId == null) {
+        tokenId = 0n; // absolute fallback
       }
 
       const agent = await mintAgent({
@@ -203,6 +278,67 @@ export function MintAgent() {
     }
   };
 
+  // Full-page state when mint limit reached
+  if (remaining <= 0) {
+    return (
+      <div className="p-4 sm:p-6">
+        <div className="max-w-lg mx-auto py-12 sm:py-20">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center"
+          >
+            {/* Icon */}
+            <div className="w-16 h-16 mx-auto mb-6 border border-border bg-card flex items-center justify-center">
+              <ShieldCheck className="w-8 h-8 text-blue-400" />
+            </div>
+
+            {/* Title */}
+            <h2 className="text-lg sm:text-xl font-bold text-foreground mb-2">
+              {t("agent.limitReachedTitle", { defaultValue: "Agent Slots Full" })}
+            </h2>
+
+            {/* Subtitle */}
+            <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+              {t("agent.limitReachedDesc", {
+                count: MAX_AGENTS_PER_ADDRESS,
+                defaultValue: `Each wallet can hold up to ${MAX_AGENTS_PER_ADDRESS} agents. You've used all available slots.`,
+              })}
+            </p>
+
+            {/* Progress bar */}
+            <div className="max-w-xs mx-auto mb-8">
+              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                <span>{t("agent.mintedCount", { defaultValue: "Minted" })}</span>
+                <span className="font-mono text-foreground">{effectiveMintCount}/{MAX_AGENTS_PER_ADDRESS}</span>
+              </div>
+              <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full" style={{ width: "100%" }} />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => navigate("/agents")}
+                className="px-6 py-2.5 bg-blue-500 hover:bg-blue-400 text-black font-semibold text-sm transition-colors flex items-center gap-2"
+              >
+                {t("agent.viewMyAgents", { defaultValue: "View My Agents" })}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => navigate("/")}
+                className="px-6 py-2.5 border border-border hover:border-blue-500/30 text-foreground text-sm transition-colors"
+              >
+                {t("agent.backToMarkets", { defaultValue: "Back to Markets" })}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 sm:p-6">
       <div className="max-w-4xl mx-auto">
@@ -219,16 +355,9 @@ export function MintAgent() {
           <p className="text-muted-foreground text-xs">
             {t("agent.mintSubtitle")}
           </p>
-          {remaining <= 0 && (
-            <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
-              {t("agent.maxAgentsReached")}
-            </div>
-          )}
-          {remaining > 0 && (
-            <div className="mt-1.5 text-xs text-muted-foreground">
-              {t("agent.remainingSlots", { count: remaining })}
-            </div>
-          )}
+          <div className="mt-1.5 text-xs text-muted-foreground">
+            {t("agent.remainingSlots", { count: remaining })}
+          </div>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
@@ -380,10 +509,31 @@ export function MintAgent() {
               </span>
             </div>
 
+            {/* Wrong Chain Warning */}
+            {isWrongChain && (
+              <div className="border border-yellow-500/30 bg-yellow-500/5 p-3 flex items-center justify-between">
+                <span className="text-yellow-400 text-xs">
+                  {t("agent.wrongChain", { defaultValue: "Please switch to BSC Testnet to mint" })}
+                </span>
+                <button
+                  onClick={async () => {
+                    try {
+                      await switchChainAsync({ chainId: BSC_TESTNET_CHAIN_ID });
+                    } catch {
+                      toast.error(t("agent.switchChainFailed", { defaultValue: "Failed to switch network" }));
+                    }
+                  }}
+                  className="px-3 py-1 bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-semibold transition-colors"
+                >
+                  {t("agent.switchChain", { defaultValue: "Switch Network" })}
+                </button>
+              </div>
+            )}
+
             {/* Mint Button */}
             <button
               onClick={handleMint}
-              disabled={loading || remaining <= 0}
+              disabled={loading || remaining <= 0 || isWrongChain}
               className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (

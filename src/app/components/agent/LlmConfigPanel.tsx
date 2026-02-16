@@ -229,7 +229,7 @@ export function LlmConfigPanel({ agentId }: LlmConfigPanelProps) {
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={config ? "Enter new key to update..." : t("agentDetail.llmConfig.apiKeyPlaceholder")}
+          placeholder={config ? t("agentDetail.llmConfig.updateKeyPlaceholder", { defaultValue: "Enter new key to update..." }) : t("agentDetail.llmConfig.apiKeyPlaceholder")}
           className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
         />
       </div>

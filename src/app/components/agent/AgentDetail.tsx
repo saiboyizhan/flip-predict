@@ -546,20 +546,20 @@ export function AgentDetail() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.13 }}
-          className="bg-gray-900 border border-white/10 p-6"
+          className="bg-card border border-border p-6"
         >
-          <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-            Chain Status
+          <h3 className="text-lg font-bold text-foreground mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+            {t("agentDetail.chainStatus", { defaultValue: "Chain Status" })}
           </h3>
           {!tokenId ? (
-            <div className="text-gray-400 text-sm">Not minted on-chain</div>
+            <div className="text-muted-foreground text-sm">{t("agentDetail.notMinted", { defaultValue: "Not minted on-chain" })}</div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <div className="text-gray-400 text-xs mb-1">Chain State</div>
+                <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.chainState", { defaultValue: "Chain State" })}</div>
                 <div className="flex items-center gap-2">
                   {stateLoading ? (
-                    <span className="text-gray-400 text-sm">Loading...</span>
+                    <span className="text-muted-foreground text-sm">{t("common.loading", { defaultValue: "Loading..." })}</span>
                   ) : (
                     <>
                       <div className={`w-2 h-2 rounded-full ${
@@ -579,14 +579,14 @@ export function AgentDetail() {
                 </div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs mb-1">Chain Balance</div>
-                <div className="font-mono text-sm text-white">
-                  {balanceLoading ? 'Loading...' : `${balanceUSDT} USDT`}
+                <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.chainBalance", { defaultValue: "Chain Balance" })}</div>
+                <div className="font-mono text-sm text-foreground">
+                  {balanceLoading ? t("common.loading", { defaultValue: "Loading..." }) : `${balanceUSDT} USDT`}
                 </div>
               </div>
               <div>
-                <div className="text-gray-400 text-xs mb-1">DB Balance <span className="text-gray-500">(Simulated)</span></div>
-                <div className="font-mono text-sm text-gray-400">
+                <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.dbBalance", { defaultValue: "DB Balance" })} <span className="text-muted-foreground/70">{t("agentDetail.simulated", { defaultValue: "(Simulated)" })}</span></div>
+                <div className="font-mono text-sm text-muted-foreground">
                   ${agent.wallet_balance.toFixed(2)} USDT
                 </div>
               </div>
@@ -600,14 +600,14 @@ export function AgentDetail() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.14 }}
-            className="bg-gray-900 border border-white/10 p-6"
+            className="bg-card border border-border p-6"
           >
-            <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-              Agent Funding
+            <h3 className="text-lg font-bold text-foreground mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              {t("agentDetail.agentFunding", { defaultValue: "Agent Funding" })}
             </h3>
             <div className="space-y-4">
               <div>
-                <div className="text-gray-400 text-sm mb-2">Balance: {balanceLoading ? 'Loading...' : `${balanceUSDT} USDT`}</div>
+                <div className="text-muted-foreground text-sm mb-2">{t("agentDetail.balanceLabel", { defaultValue: "Balance:" })} {balanceLoading ? t("common.loading", { defaultValue: "Loading..." }) : `${balanceUSDT} USDT`}</div>
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -619,8 +619,8 @@ export function AgentDetail() {
                   }}
                   min="0.01"
                   step="0.01"
-                  placeholder="Amount"
-                  className="flex-1 bg-gray-800 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
+                  placeholder={t("agentDetail.amountPlaceholder", { defaultValue: "Amount" })}
+                  className="flex-1 bg-secondary border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
                   style={{ fontFamily: 'Inter, sans-serif' }}
                 />
                 <button
@@ -632,7 +632,7 @@ export function AgentDetail() {
                   className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                   style={{ fontFamily: 'DM Sans, sans-serif' }}
                 >
-                  {isApproving ? 'Approving...' : isFunding ? 'Funding...' : approveNeeded ? 'Approve & Fund' : 'Fund'}
+                  {isApproving ? t("agentDetail.approving", { defaultValue: "Approving..." }) : isFunding ? t("agentDetail.funding", { defaultValue: "Funding..." }) : approveNeeded ? t("agentDetail.approveAndFund", { defaultValue: "Approve & Fund" }) : t("agentDetail.fund", { defaultValue: "Fund" })}
                 </button>
                 <button
                   onClick={() => {
@@ -640,14 +640,14 @@ export function AgentDetail() {
                     withdraw(tokenId, withdrawAmount);
                   }}
                   disabled={isWithdrawing || !withdrawAmount}
-                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
+                  className="px-6 py-2 bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed text-foreground text-sm font-semibold transition-colors"
                   style={{ fontFamily: 'DM Sans, sans-serif' }}
                 >
-                  {isWithdrawing ? 'Withdrawing...' : 'Withdraw'}
+                  {isWithdrawing ? t("agentDetail.withdrawing", { defaultValue: "Withdrawing..." }) : t("agentDetail.withdraw", { defaultValue: "Withdraw" })}
                 </button>
               </div>
-              <div className="text-gray-400 text-xs flex items-center gap-1">
-                <span>Funding requires USDT approval first</span>
+              <div className="text-muted-foreground text-xs flex items-center gap-1">
+                <span>{t("agentDetail.fundingApprovalNote", { defaultValue: "Funding requires USDT approval first" })}</span>
               </div>
             </div>
           </motion.div>
@@ -659,19 +659,19 @@ export function AgentDetail() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.145 }}
-            className="bg-gray-900 border border-white/10 p-6"
+            className="bg-card border border-border p-6"
           >
-            <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-              Agent Lifecycle
+            <h3 className="text-lg font-bold text-foreground mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+              {t("agentDetail.agentLifecycle", { defaultValue: "Agent Lifecycle" })}
             </h3>
             <div className="space-y-4">
               <div>
-                <div className="text-gray-400 text-sm mb-2">
-                  State: <span className={`font-mono font-semibold ${
+                <div className="text-muted-foreground text-sm mb-2">
+                  {t("agentDetail.stateLabel", { defaultValue: "State:" })} <span className={`font-mono font-semibold ${
                     stateValue === 0 ? 'text-green-400' :
                     stateValue === 1 ? 'text-yellow-400' :
                     'text-red-400'
-                  }`}>{stateLoading ? 'Loading...' : stateName}</span>
+                  }`}>{stateLoading ? t("common.loading", { defaultValue: "Loading..." }) : stateName}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -685,7 +685,7 @@ export function AgentDetail() {
                     className="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                     style={{ fontFamily: 'DM Sans, sans-serif' }}
                   >
-                    {isPausing ? 'Pausing...' : 'Pause Agent'}
+                    {isPausing ? t("agentDetail.pausing", { defaultValue: "Pausing..." }) : t("agentDetail.pauseAgent", { defaultValue: "Pause Agent" })}
                   </button>
                 )}
                 {stateValue === 1 && (
@@ -698,7 +698,7 @@ export function AgentDetail() {
                     className="px-6 py-2 bg-green-500 hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                     style={{ fontFamily: 'DM Sans, sans-serif' }}
                   >
-                    {isUnpausing ? 'Resuming...' : 'Resume Agent'}
+                    {isUnpausing ? t("agentDetail.resuming", { defaultValue: "Resuming..." }) : t("agentDetail.resumeAgent", { defaultValue: "Resume Agent" })}
                   </button>
                 )}
                 {stateValue !== 2 && (
@@ -708,22 +708,22 @@ export function AgentDetail() {
                     className="px-6 py-2 bg-red-500 hover:bg-red-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                     style={{ fontFamily: 'DM Sans, sans-serif' }}
                   >
-                    Terminate Agent
+                    {t("agentDetail.terminateAgent", { defaultValue: "Terminate Agent" })}
                   </button>
                 )}
                 {stateValue === 2 && (
                   <button
                     disabled
-                    className="px-6 py-2 bg-gray-700 text-gray-500 text-sm font-semibold cursor-not-allowed"
+                    className="px-6 py-2 bg-muted text-muted-foreground/70 text-sm font-semibold cursor-not-allowed"
                     style={{ fontFamily: 'DM Sans, sans-serif' }}
                   >
-                    Terminated
+                    {t("agentDetail.terminated", { defaultValue: "Terminated" })}
                   </button>
                 )}
               </div>
               <div className="text-yellow-400 text-xs flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
-                <span>Termination is irreversible</span>
+                <span>{t("agentDetail.terminationIrreversible", { defaultValue: "Termination is irreversible" })}</span>
               </div>
             </div>
           </motion.div>
@@ -743,25 +743,25 @@ export function AgentDetail() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-gray-900 border border-red-500/30 p-6 max-w-md w-full space-y-4"
+                className="bg-card border border-red-500/30 p-6 max-w-md w-full space-y-4"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center gap-3">
                   <AlertTriangle className="w-6 h-6 text-red-400" />
-                  <h3 className="text-xl font-bold text-white" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-                    Confirm Termination
+                  <h3 className="text-xl font-bold text-foreground" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                    {t("agentDetail.confirmTermination", { defaultValue: "Confirm Termination" })}
                   </h3>
                 </div>
-                <p className="text-gray-400 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
-                  This action will permanently terminate the agent and cannot be undone. The agent will no longer be able to operate or be resumed.
+                <p className="text-muted-foreground text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  {t("agentDetail.confirmTerminationDesc", { defaultValue: "This action will permanently terminate the agent and cannot be undone. The agent will no longer be able to operate or be resumed." })}
                 </p>
                 <div className="flex gap-3 pt-2">
                   <button
                     onClick={() => setShowTerminateConfirm(false)}
-                    className="flex-1 py-3 border border-white/10 text-gray-400 hover:text-white font-semibold transition-colors"
+                    className="flex-1 py-3 border border-border text-muted-foreground hover:text-foreground font-semibold transition-colors"
                     style={{ fontFamily: 'DM Sans, sans-serif' }}
                   >
-                    Cancel
+                    {t("common.cancel", { defaultValue: "Cancel" })}
                   </button>
                   <button
                     onClick={() => {
@@ -773,7 +773,7 @@ export function AgentDetail() {
                     className="flex-1 py-3 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-black font-bold transition-colors"
                     style={{ fontFamily: 'DM Sans, sans-serif' }}
                   >
-                    {isTerminating ? 'Terminating...' : 'Terminate'}
+                    {isTerminating ? t("agentDetail.terminating", { defaultValue: "Terminating..." }) : t("agentDetail.terminate", { defaultValue: "Terminate" })}
                   </button>
                 </div>
               </motion.div>
@@ -1095,7 +1095,7 @@ export function AgentDetail() {
                     { id: 'llm', label: t('agentDetail.tabLlm') },
                     { id: 'copyTrading', label: t('copyTrade.title') },
                     { id: 'earnings', label: t('earnings.title') },
-                    { id: 'onchain', label: 'On-Chain' },
+                    { id: 'onchain', label: t("agentDetail.tabOnchain", { defaultValue: "On-Chain" }) },
                   ]
                 : [
                     { id: 'trades', label: t('agentDetail.tabTrades') },
@@ -1216,52 +1216,52 @@ export function AgentDetail() {
 
           {activeDetailTab === 'onchain' && isOwner && tokenId && (
             <div className="space-y-6">
-              <div className="bg-gray-800/60 border border-white/[0.12] p-6">
-                <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-                  Learning Metrics
+              <div className="bg-secondary border border-border p-6">
+                <h3 className="text-lg font-bold text-foreground mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                  {t("agentDetail.learningMetrics", { defaultValue: "Learning Metrics" })}
                 </h3>
                 {learningMetrics ? (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <div className="text-gray-400 text-xs mb-1">Total Interactions</div>
-                        <div className="text-white font-mono">{learningMetrics.totalInteractions}</div>
+                        <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.totalInteractions", { defaultValue: "Total Interactions" })}</div>
+                        <div className="text-foreground font-mono">{learningMetrics.totalInteractions}</div>
                       </div>
                       <div>
-                        <div className="text-gray-400 text-xs mb-1">Successful Outcomes</div>
-                        <div className="text-white font-mono">{learningMetrics.successfulOutcomes}</div>
+                        <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.successfulOutcomes", { defaultValue: "Successful Outcomes" })}</div>
+                        <div className="text-foreground font-mono">{learningMetrics.successfulOutcomes}</div>
                       </div>
                       <div className="col-span-2">
-                        <div className="text-gray-400 text-xs mb-1">Learning Root</div>
-                        <div className="text-white font-mono text-sm break-all">
+                        <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.learningRoot", { defaultValue: "Learning Root" })}</div>
+                        <div className="text-foreground font-mono text-sm break-all">
                           {learningMetrics.learningRoot}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-400 text-xs mb-1">Last Updated</div>
-                        <div className="text-white font-mono text-sm">
+                        <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.lastUpdated", { defaultValue: "Last Updated" })}</div>
+                        <div className="text-foreground font-mono text-sm">
                           {learningMetrics.lastUpdated > 0
                             ? new Date(learningMetrics.lastUpdated * 1000).toLocaleString()
-                            : 'Never'}
+                            : t("agentDetail.never", { defaultValue: "Never" })}
                         </div>
                       </div>
                     </div>
-                    <div className="border-t border-white/[0.12] pt-4 mt-4">
-                      <div className="text-gray-400 text-sm mb-3">Update Learning Root</div>
+                    <div className="border-t border-border pt-4 mt-4">
+                      <div className="text-muted-foreground text-sm mb-3">{t("agentDetail.updateLearningRoot", { defaultValue: "Update Learning Root" })}</div>
                       <div className="space-y-3">
                         <input
                           type="text"
                           value={learningRoot}
                           onChange={(e) => setLearningRoot(e.target.value)}
                           placeholder="0x..."
-                          className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                          className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                         />
                         <input
                           type="text"
                           value={learningProof}
                           onChange={(e) => setLearningProof(e.target.value)}
-                          placeholder="Proof (0x...)"
-                          className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                          placeholder={t("agentDetail.proofPlaceholder", { defaultValue: "Proof (0x...)" })}
+                          className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                         />
                         <button
                           onClick={() => {
@@ -1271,57 +1271,57 @@ export function AgentDetail() {
                           disabled={isUpdatingLearning || !learningRoot || !learningProof}
                           className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                         >
-                          {isUpdatingLearning ? 'Updating...' : 'Update Root'}
+                          {isUpdatingLearning ? t("agentDetail.updating", { defaultValue: "Updating..." }) : t("agentDetail.updateRoot", { defaultValue: "Update Root" })}
                         </button>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="text-gray-400 text-sm">Loading metrics...</div>
+                  <div className="text-muted-foreground text-sm">{t("agentDetail.loadingMetrics", { defaultValue: "Loading metrics..." })}</div>
                 )}
               </div>
 
-              <div className="bg-gray-800/60 border border-white/[0.12] p-6">
-                <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-                  Memory Modules
+              <div className="bg-secondary border border-border p-6">
+                <h3 className="text-lg font-bold text-foreground mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                  {t("agentDetail.memoryModules", { defaultValue: "Memory Modules" })}
                 </h3>
                 <div className="space-y-4">
-                  <div className="border border-white/[0.12] p-4">
-                    <div className="text-gray-400 text-sm mb-3">Query Module</div>
+                  <div className="border border-border p-4">
+                    <div className="text-muted-foreground text-sm mb-3">{t("agentDetail.queryModule", { defaultValue: "Query Module" })}</div>
                     <div className="flex gap-3">
                       <input
                         type="text"
                         value={queryModuleAddress}
                         onChange={(e) => setQueryModuleAddress(e.target.value)}
-                        placeholder="Module Address (0x...)"
-                        className="flex-1 bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                        placeholder={t("agentDetail.moduleAddressPlaceholder", { defaultValue: "Module Address (0x...)" })}
+                        className="flex-1 bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                       />
                       <button
                         onClick={() => refetchModule()}
                         disabled={!queryModuleAddress}
-                        className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                        className="px-6 py-2 bg-muted hover:bg-muted/80 disabled:opacity-50 text-foreground text-sm font-semibold transition-colors"
                       >
-                        Query
+                        {t("agentDetail.query", { defaultValue: "Query" })}
                       </button>
                     </div>
                     {queriedModule && (
                       <div className="mt-4 space-y-2 text-sm">
                         <div>
-                          <span className="text-gray-400">Address:</span>{' '}
-                          <span className="text-white font-mono">{queriedModule.moduleAddress}</span>
+                          <span className="text-muted-foreground">{t("agentDetail.address", { defaultValue: "Address:" })}</span>{' '}
+                          <span className="text-foreground font-mono">{queriedModule.moduleAddress}</span>
                         </div>
                         <div>
-                          <span className="text-gray-400">Metadata:</span>{' '}
-                          <span className="text-white">{queriedModule.metadata}</span>
+                          <span className="text-muted-foreground">{t("agentDetail.metadata", { defaultValue: "Metadata:" })}</span>{' '}
+                          <span className="text-foreground">{queriedModule.metadata}</span>
                         </div>
                         <div>
-                          <span className="text-gray-400">Hash:</span>{' '}
-                          <span className="text-white font-mono text-xs break-all">{queriedModule.metadataHash}</span>
+                          <span className="text-muted-foreground">{t("agentDetail.hash", { defaultValue: "Hash:" })}</span>{' '}
+                          <span className="text-foreground font-mono text-xs break-all">{queriedModule.metadataHash}</span>
                         </div>
                         <div>
-                          <span className="text-gray-400">Status:</span>{' '}
+                          <span className="text-muted-foreground">{t("agentDetail.status", { defaultValue: "Status:" })}</span>{' '}
                           <span className={queriedModule.isActive ? 'text-green-400' : 'text-red-400'}>
-                            {queriedModule.isActive ? 'Active' : 'Inactive'}
+                            {queriedModule.isActive ? t("agentDetail.active", { defaultValue: "Active" }) : t("agentDetail.inactive", { defaultValue: "Inactive" })}
                           </span>
                         </div>
                         {queriedModule.isActive && (
@@ -1333,29 +1333,29 @@ export function AgentDetail() {
                             disabled={isDeactivatingModule}
                             className="mt-2 px-4 py-1.5 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-black text-sm font-semibold transition-colors"
                           >
-                            {isDeactivatingModule ? 'Deactivating...' : 'Deactivate'}
+                            {isDeactivatingModule ? t("agentDetail.deactivating", { defaultValue: "Deactivating..." }) : t("agentDetail.deactivate", { defaultValue: "Deactivate" })}
                           </button>
                         )}
                       </div>
                     )}
                   </div>
 
-                  <div className="border border-white/[0.12] p-4">
-                    <div className="text-gray-400 text-sm mb-3">Register New Module</div>
+                  <div className="border border-border p-4">
+                    <div className="text-muted-foreground text-sm mb-3">{t("agentDetail.registerNewModule", { defaultValue: "Register New Module" })}</div>
                     <div className="space-y-3">
                       <input
                         type="text"
                         value={moduleAddress}
                         onChange={(e) => setModuleAddress(e.target.value)}
-                        placeholder="Module Address (0x...)"
-                        className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                        placeholder={t("agentDetail.moduleAddressPlaceholder", { defaultValue: "Module Address (0x...)" })}
+                        className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                       />
                       <input
                         type="text"
                         value={moduleMetadata}
                         onChange={(e) => setModuleMetadata(e.target.value)}
-                        placeholder="Metadata (e.g., reasoning, memory, etc.)"
-                        className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
+                        placeholder={t("agentDetail.metadataPlaceholder", { defaultValue: "Metadata (e.g., reasoning, memory, etc.)" })}
+                        className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
                       />
                       <button
                         onClick={() => {
@@ -1365,49 +1365,49 @@ export function AgentDetail() {
                         disabled={isRegisteringModule || !moduleAddress || !moduleMetadata}
                         className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                       >
-                        {isRegisteringModule ? 'Registering...' : 'Register'}
+                        {isRegisteringModule ? t("agentDetail.registering", { defaultValue: "Registering..." }) : t("agentDetail.register", { defaultValue: "Register" })}
                       </button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gray-800/60 border border-white/[0.12] p-6">
-                <h3 className="text-lg font-bold text-white mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
-                  Vault Access Control
+              <div className="bg-secondary border border-border p-6">
+                <h3 className="text-lg font-bold text-foreground mb-4" style={{ fontFamily: 'DM Sans, sans-serif' }}>
+                  {t("agentDetail.vaultAccessControl", { defaultValue: "Vault Access Control" })}
                 </h3>
                 <div className="space-y-4">
-                  <div className="border border-white/[0.12] p-4">
-                    <div className="text-gray-400 text-sm mb-3">Delegate Access</div>
+                  <div className="border border-border p-4">
+                    <div className="text-muted-foreground text-sm mb-3">{t("agentDetail.delegateAccess", { defaultValue: "Delegate Access" })}</div>
                     <div className="space-y-3">
                       <input
                         type="text"
                         value={delegateAddress}
                         onChange={(e) => setDelegateAddress(e.target.value)}
-                        placeholder="Delegate Address (0x...)"
-                        className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                        placeholder={t("agentDetail.delegateAddressPlaceholder", { defaultValue: "Delegate Address (0x...)" })}
+                        className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                       />
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <div className="text-gray-400 text-xs mb-1">Permission Level</div>
+                          <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.permissionLevel", { defaultValue: "Permission Level" })}</div>
                           <select
                             value={delegateLevel}
                             onChange={(e) => setDelegateLevel(e.target.value)}
-                            className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
+                            className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50"
                           >
-                            <option value="1">Level 1 (Read)</option>
-                            <option value="2">Level 2 (Write)</option>
-                            <option value="3">Level 3 (Admin)</option>
+                            <option value="1">{t("agentDetail.levelRead", { defaultValue: "Level 1 (Read)" })}</option>
+                            <option value="2">{t("agentDetail.levelWrite", { defaultValue: "Level 2 (Write)" })}</option>
+                            <option value="3">{t("agentDetail.levelAdmin", { defaultValue: "Level 3 (Admin)" })}</option>
                           </select>
                         </div>
                         <div>
-                          <div className="text-gray-400 text-xs mb-1">Duration (hours)</div>
+                          <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.durationHours", { defaultValue: "Duration (hours)" })}</div>
                           <input
                             type="number"
                             value={delegateDuration}
                             onChange={(e) => setDelegateDuration(e.target.value)}
                             min="1"
-                            className="w-full bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                            className="w-full bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                           />
                         </div>
                       </div>
@@ -1420,49 +1420,49 @@ export function AgentDetail() {
                         disabled={isDelegating || !delegateAddress || !delegateDuration}
                         className="px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
                       >
-                        {isDelegating ? 'Delegating...' : 'Grant Access'}
+                        {isDelegating ? t("agentDetail.delegating", { defaultValue: "Delegating..." }) : t("agentDetail.grantAccess", { defaultValue: "Grant Access" })}
                       </button>
                     </div>
                   </div>
 
-                  <div className="border border-white/[0.12] p-4">
-                    <div className="text-gray-400 text-sm mb-3">Check Permission</div>
+                  <div className="border border-border p-4">
+                    <div className="text-muted-foreground text-sm mb-3">{t("agentDetail.checkPermission", { defaultValue: "Check Permission" })}</div>
                     <div className="flex gap-3">
                       <input
                         type="text"
                         value={checkPermissionAddress}
                         onChange={(e) => setCheckPermissionAddress(e.target.value)}
-                        placeholder="Address (0x...)"
-                        className="flex-1 bg-gray-900 border border-white/10 text-white text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                        placeholder={t("agentDetail.addressPlaceholder", { defaultValue: "Address (0x...)" })}
+                        className="flex-1 bg-card border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
                       />
                       <button
                         onClick={() => refetchPermission()}
                         disabled={!checkPermissionAddress}
-                        className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                        className="px-6 py-2 bg-muted hover:bg-muted/80 disabled:opacity-50 text-foreground text-sm font-semibold transition-colors"
                       >
-                        Check
+                        {t("agentDetail.check", { defaultValue: "Check" })}
                       </button>
                     </div>
                     {checkedPermission && (
                       <div className="mt-4 space-y-2 text-sm">
                         <div>
-                          <span className="text-gray-400">Level:</span>{' '}
-                          <span className="text-white">
-                            {checkedPermission.level === 1 ? 'Read' : checkedPermission.level === 2 ? 'Write' : 'Admin'}
+                          <span className="text-muted-foreground">{t("agentDetail.level", { defaultValue: "Level:" })}</span>{' '}
+                          <span className="text-foreground">
+                            {checkedPermission.level === 1 ? t("agentDetail.read", { defaultValue: "Read" }) : checkedPermission.level === 2 ? t("agentDetail.write", { defaultValue: "Write" }) : t("agentDetail.admin", { defaultValue: "Admin" })}
                           </span>
                         </div>
                         <div>
-                          <span className="text-gray-400">Expiry:</span>{' '}
-                          <span className="text-white">
+                          <span className="text-muted-foreground">{t("agentDetail.expiry", { defaultValue: "Expiry:" })}</span>{' '}
+                          <span className="text-foreground">
                             {checkedPermission.expiryTime > 0
                               ? new Date(checkedPermission.expiryTime * 1000).toLocaleString()
-                              : 'Never'}
+                              : t("agentDetail.never", { defaultValue: "Never" })}
                           </span>
                         </div>
                         <div>
-                          <span className="text-gray-400">Status:</span>{' '}
+                          <span className="text-muted-foreground">{t("agentDetail.status", { defaultValue: "Status:" })}</span>{' '}
                           <span className={checkedPermission.isActive ? 'text-green-400' : 'text-red-400'}>
-                            {checkedPermission.isActive ? 'Active' : 'Inactive'}
+                            {checkedPermission.isActive ? t("agentDetail.active", { defaultValue: "Active" }) : t("agentDetail.inactive", { defaultValue: "Inactive" })}
                           </span>
                         </div>
                         {checkedPermission.isActive && (
@@ -1474,7 +1474,7 @@ export function AgentDetail() {
                             disabled={isRevoking}
                             className="mt-2 px-4 py-1.5 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-black text-sm font-semibold transition-colors"
                           >
-                            {isRevoking ? 'Revoking...' : 'Revoke Access'}
+                            {isRevoking ? t("agentDetail.revoking", { defaultValue: "Revoking..." }) : t("agentDetail.revokeAccess", { defaultValue: "Revoke Access" })}
                           </button>
                         )}
                       </div>

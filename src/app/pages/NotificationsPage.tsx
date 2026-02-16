@@ -2,8 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { Bell, CheckCheck, Info, TrendingUp, Gavel, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useAuthStore } from "@/app/stores/useAuthStore";
+import { useNotificationStore } from "@/app/stores/useNotificationStore";
 import {
   fetchNotifications,
   markNotificationRead,
@@ -53,6 +55,7 @@ export default function NotificationsPage() {
   const { t } = useTranslation();
   const { navigate } = useTransitionNavigate();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const syncNotificationStore = useNotificationStore((s) => s.loadFromServer);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
@@ -82,22 +85,26 @@ export default function NotificationsPage() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true } : n))
       );
+      void syncNotificationStore();
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
+      toast.error(t("notifications.markReadFailed", { defaultValue: "Failed to update notification" }));
     }
-  }, []);
+  }, [syncNotificationStore]);
 
   const handleMarkAllRead = useCallback(async () => {
     setMarkingAll(true);
     try {
       await markAllNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      void syncNotificationStore();
     } catch (err) {
       console.error("Failed to mark all notifications as read:", err);
+      toast.error(t("notifications.markAllReadFailed", { defaultValue: "Failed to update notifications" }));
     } finally {
       setMarkingAll(false);
     }
-  }, []);
+  }, [syncNotificationStore]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 

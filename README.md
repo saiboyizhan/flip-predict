@@ -135,7 +135,7 @@ cd server
 npm install
 
 # Configure environment
-cp .env.example .env   # Add DATABASE_URL, OPENAI_API_KEY (ZhiPu), BSC_RPC_URL
+cp .env.example .env   # Add DATABASE_URL, ZHIPU_API_KEY, BSC_NETWORK/BSC_RPC_URL, NFA_CONTRACT_ADDRESS, PREDICTION_MARKET_ADDRESS, USDT_ADDRESS
 
 # Initialize database
 npm run seed

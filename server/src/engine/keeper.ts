@@ -72,7 +72,7 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
       // Skip multi-option markets -- keeper only handles binary markets
       if (market.market_type === 'multi') {
         await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
-        console.log(`Market ${market.id} skipped by keeper (multi-option), marked as pending_resolution`);
+        console.info(`Market ${market.id} skipped by keeper (multi-option), marked as pending_resolution`);
         continue;
       }
 
@@ -87,7 +87,7 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
             // Oracle fetch failed -- fall back to manual resolution instead of leaving stuck in pending_resolution
             console.error(`No cached price for ${market.oracle_pair}, falling back to manual for market ${market.id}`);
             await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
-            console.log(`Market ${market.id} marked as pending_resolution (oracle unavailable, needs manual resolution)`);
+            console.info(`Market ${market.id} marked as pending_resolution (oracle unavailable, needs manual resolution)`);
           } else {
             const result = await resolveByOracleInTx(client, market, priceData);
             if (result) {
@@ -96,7 +96,7 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
           }
         } else {
           await client.query("UPDATE markets SET status = 'pending_resolution' WHERE id = $1", [market.id]);
-          console.log(`Market ${market.id} marked as pending_resolution (manual)`);
+          console.info(`Market ${market.id} marked as pending_resolution (manual)`);
         }
         await client.query('RELEASE SAVEPOINT market_resolution_sp');
       } catch (err: any) {
@@ -176,7 +176,7 @@ async function resolveByOracleInTx(
     outcome: outcomeSide
   }), now]);
 
-  console.log(`Market ${market.id} resolved by oracle: ${market.oracle_pair} = $${priceData.price.toFixed(2)}, outcome = ${outcomeSide}`);
+  console.info(`Market ${market.id} resolved by oracle: ${market.oracle_pair} = $${priceData.price.toFixed(2)}, outcome = ${outcomeSide}`);
 
   return { marketId: market.id, outcome: outcomeSide, resolvedPrice: priceData.price };
 }

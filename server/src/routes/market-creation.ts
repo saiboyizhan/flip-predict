@@ -3,6 +3,7 @@ import { AuthRequest, authMiddleware } from './middleware/auth';
 import { adminMiddleware } from './middleware/admin';
 import { getDb } from '../db';
 import { ethers } from 'ethers';
+import { BSC_RPC_URL } from '../config/network';
 
 const router = Router();
 
@@ -14,12 +15,10 @@ const VALID_CATEGORIES = [
   'four-meme', 'flap', 'nfa', 'hackathon', 'other'
 ];
 const VALID_RESOLUTION_TYPES = ['manual', 'price_above', 'price_below'] as const;
-const DEFAULT_BSC_RPC = 'https://bsc-dataseed.bnbchain.org';
 const MARKET_CREATION_RPC_URL =
-  process.env.MARKET_CREATION_RPC_URL ||
-  process.env.SETTLEMENT_RPC_URL ||
-  process.env.BSC_RPC_URL ||
-  DEFAULT_BSC_RPC;
+  (process.env.MARKET_CREATION_RPC_URL || '').trim() ||
+  (process.env.SETTLEMENT_RPC_URL || '').trim() ||
+  BSC_RPC_URL;
 const RAW_PREDICTION_MARKET_CONTRACT_ADDRESS =
   process.env.PREDICTION_MARKET_ADDRESS ||
   process.env.SETTLEMENT_CONTRACT_ADDRESS ||

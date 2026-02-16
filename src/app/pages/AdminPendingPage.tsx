@@ -89,7 +89,7 @@ export default function AdminPendingPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
         <h1 className="text-2xl font-bold text-muted-foreground mb-4">403</h1>
-        <p className="text-muted-foreground mb-6">Admin access required</p>
+        <p className="text-muted-foreground mb-6">{t("admin.accessRequired", { defaultValue: "Admin access required" })}</p>
         <button
           onClick={() => navigate("/")}
           className="px-6 py-3 bg-blue-500 hover:bg-blue-400 text-black font-semibold text-sm transition-colors"
@@ -161,7 +161,7 @@ export default function AdminPendingPage() {
                   </p>
                 )}
                 <div className="text-xs text-muted-foreground">
-                  Ends: {new Date(market.endTime).toLocaleString()}
+                  {t("market.endsAt", { defaultValue: "Ends" })}: {new Date(market.endTime).toLocaleString()}
                 </div>
               </div>
 

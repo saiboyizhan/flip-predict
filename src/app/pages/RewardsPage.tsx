@@ -145,12 +145,12 @@ export default function RewardsPage() {
         </motion.div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05 }}
-            className="bg-gradient-to-br from-blue-900/20 to-secondary border border-blue-500/30 p-4"
+            className="bg-secondary border border-blue-500/30 p-4"
           >
             <div className="flex items-center gap-1.5 text-blue-400 text-xs mb-1.5">
               <Sparkles className="w-3.5 h-3.5" />
