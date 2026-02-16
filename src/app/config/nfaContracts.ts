@@ -1,5 +1,5 @@
 // BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_NFA_ADDRESS = '0x533C491fF59c0bc8CfFa407Ad0510CdAA656365c'
+const DEFAULT_NFA_ADDRESS = '0xf59Ecd163388197865fC53C6F51298352d925f0E'
 
 export const NFA_CONTRACT_ADDRESS = (
   import.meta.env.VITE_NFA_CONTRACT_ADDRESS ||
