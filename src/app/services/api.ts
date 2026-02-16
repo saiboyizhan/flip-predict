@@ -1419,3 +1419,12 @@ export async function toggleAgentLlm(agentId: string, enabled: boolean): Promise
     body: JSON.stringify({ enabled }),
   })
 }
+
+// === Testnet Faucet ===
+
+export async function claimPlatformFaucet(address: string, amount: number = 10000): Promise<{ success: boolean; balance: { available: number; locked: number } }> {
+  return request('/api/faucet', {
+    method: 'POST',
+    body: JSON.stringify({ address, amount }),
+  })
+}

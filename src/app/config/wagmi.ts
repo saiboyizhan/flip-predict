@@ -35,7 +35,7 @@ if (!projectId || projectId === "YOUR_WALLETCONNECT_PROJECT_ID") {
   );
 }
 
-const chains = [bsc, bscTestnet] as const;
+const chains = [bscTestnet, bsc] as const;
 
 const wagmiAdapter = new WagmiAdapter({
   projectId,

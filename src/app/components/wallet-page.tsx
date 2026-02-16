@@ -6,7 +6,7 @@ import { useAccount, useBalance, useDisconnect } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
 import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
-import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds } from "../services/api";
+import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, claimPlatformFaucet } from "../services/api";
 import { useDeposit, useWithdraw, useContractBalance, useTxNotifier, useMintTestUSDT } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 
@@ -71,6 +71,7 @@ export function WalletPage() {
   const [withdrawProcessing, setWithdrawProcessing] = useState(false);
   const [depositMode, setDepositMode] = useState<"contract" | "manual">("contract");
   const [withdrawMode, setWithdrawMode] = useState<"contract" | "manual">("contract");
+  const [platformFaucetLoading, setPlatformFaucetLoading] = useState(false);
 
   // On-chain contract hooks
   const contractDeposit = useDeposit();
@@ -483,7 +484,7 @@ export function WalletPage() {
             </div>
 
             {/* Deposit / Withdraw / Faucet Buttons */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <button
                 onClick={() => { setShowDepositForm(true); setShowWithdrawForm(false); }}
                 className="py-2.5 px-4 bg-card border border-border rounded-lg hover:border-blue-500/50 hover:bg-blue-500/5 text-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2"
@@ -504,7 +505,29 @@ export function WalletPage() {
                 className="py-2.5 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 hover:bg-emerald-500/15 text-emerald-500 font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Zap className="w-4 h-4" />
-                {mintTestUSDT.isLoading ? t('common.loading') : t('wallet.faucet', { defaultValue: 'Get 10K Test USDT' })}
+                {mintTestUSDT.isLoading ? t('common.loading') : t('wallet.faucet')}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!address) return;
+                  setPlatformFaucetLoading(true);
+                  try {
+                    const result = await claimPlatformFaucet(address);
+                    if (result.success) {
+                      setPlatformBalance({ available: result.balance.available, locked: result.balance.locked, total: result.balance.available + result.balance.locked });
+                      toast.success(t('wallet.platformFaucetSuccess'));
+                    }
+                  } catch (err: any) {
+                    toast.error(err.message || t('common.error'));
+                  } finally {
+                    setPlatformFaucetLoading(false);
+                  }
+                }}
+                disabled={platformFaucetLoading || !address}
+                className="py-2.5 px-4 bg-blue-500/10 border border-blue-500/30 rounded-lg hover:border-blue-500/50 hover:bg-blue-500/15 text-blue-500 font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <TrendingUp className="w-4 h-4" />
+                {platformFaucetLoading ? t('common.loading') : t('wallet.platformFaucet')}
               </button>
             </div>
 

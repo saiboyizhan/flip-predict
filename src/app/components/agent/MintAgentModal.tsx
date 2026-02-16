@@ -8,7 +8,7 @@ import { mintAgent } from "@/app/services/api";
 import { PRESET_AVATARS } from "@/app/config/avatars";
 import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
 import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract } from "wagmi";
-import { decodeEventLog, zeroAddress, zeroHash } from "viem";
+import { zeroAddress, zeroHash } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -128,32 +128,28 @@ export function MintAgentModal() {
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receipt.status === "reverted") {
+        throw new Error("Mint transaction reverted on-chain");
+      }
+
+      // Parse Transfer(address,address,uint256) event directly from topics
+      // topic[0] = keccak256("Transfer(address,address,uint256)")
+      const TRANSFER_SIG = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
       let tokenId: bigint | null = null;
       for (const log of receipt.logs) {
         if (log.address.toLowerCase() !== NFA_CONTRACT_ADDRESS.toLowerCase()) continue;
-        try {
-          const decoded = decodeEventLog({
-            abi: NFA_ABI,
-            data: log.data,
-            topics: log.topics,
-          });
-          if (decoded.eventName !== "Transfer") continue;
-          const args = decoded.args as { from?: string; to?: string; tokenId?: bigint };
-          if (
-            typeof args.tokenId === "bigint" &&
-            (args.from || "").toLowerCase() === zeroAddress &&
-            (args.to || "").toLowerCase() === address.toLowerCase()
-          ) {
-            tokenId = args.tokenId;
-            break;
-          }
-        } catch {
-          // Ignore non-matching logs
+        if (log.topics[0] !== TRANSFER_SIG || log.topics.length < 4) continue;
+        const from = ("0x" + log.topics[1].slice(26)).toLowerCase();
+        const to = ("0x" + log.topics[2].slice(26)).toLowerCase();
+        if (from === zeroAddress && to === address.toLowerCase()) {
+          tokenId = BigInt(log.topics[3]);
+          break;
         }
       }
 
       if (tokenId == null) {
-        throw new Error("Mint succeeded but tokenId was not found in receipt logs");
+        throw new Error(`Mint tx confirmed but Transfer event not found. Receipt logs: ${receipt.logs.length}. Check: ${NFA_CONTRACT_ADDRESS}`);
       }
 
       const agent = await mintAgent({

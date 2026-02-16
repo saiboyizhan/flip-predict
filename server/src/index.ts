@@ -157,6 +157,42 @@ async function main() {
     }
   });
 
+  // Admin: sync on-chain NFA to backend DB (testnet helper)
+  app.post('/api/agents/admin-sync', async (req, res) => {
+    try {
+      const { address, tokenId, name, avatar, mintTxHash } = req.body;
+      if (!address || typeof address !== 'string') {
+        res.status(400).json({ error: 'address required' });
+        return;
+      }
+      const tid = Number(tokenId);
+      if (!Number.isFinite(tid) || tid < 0) {
+        res.status(400).json({ error: 'valid tokenId required' });
+        return;
+      }
+      const agentName = name || `Agent #${tid}`;
+      const agentAvatar = avatar || '/avatars/default.png';
+      const id = 'agent-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+      const now = Date.now();
+      // Upsert: skip if tokenId already exists
+      const existing = await pool.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [tid]);
+      if (existing.rows.length > 0) {
+        const agent = (await pool.query('SELECT * FROM agents WHERE token_id = $1', [tid])).rows[0];
+        res.json({ agent, synced: false, message: 'already exists' });
+        return;
+      }
+      await pool.query(`
+        INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, token_id, mint_tx_hash, wallet_balance, level, experience, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1000, 1, 0, $10)
+      `, [id, agentName, address.toLowerCase(), 'random', '', '', agentAvatar, tid, mintTxHash || null, now]);
+      const agent = (await pool.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
+      res.json({ agent, synced: true });
+    } catch (err: any) {
+      console.error('Agent admin-sync error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Create HTTP server
   const server = http.createServer(app);
 
