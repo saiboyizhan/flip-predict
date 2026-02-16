@@ -157,15 +157,10 @@ async function main() {
   // Admin: cleanup all seed/fake data
   app.post('/api/admin/cleanup-seed', async (req, res) => {
     try {
-      // Verify admin (check auth header)
-      const authHeader = req.headers.authorization;
-      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-      if (!token) { res.status(401).json({ error: 'Auth required' }); return; }
-      const jwt = await import('jsonwebtoken');
-      const decoded = jwt.default.verify(token, process.env.JWT_SECRET || 'default-secret') as { address?: string };
-      const addr = decoded.address?.toLowerCase();
-      const adminAddrs = (process.env.ADMIN_ADDRESSES || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
-      if (!addr || !adminAddrs.includes(addr)) { res.status(403).json({ error: 'Admin only' }); return; }
+      // Verify admin via secret key (no wallet signature needed)
+      const { secret } = req.body;
+      const jwtSecret = process.env.JWT_SECRET || '';
+      if (!secret || secret !== jwtSecret) { res.status(403).json({ error: 'Invalid secret' }); return; }
 
       const SEED_ADDRESSES = [
         '0x742d35cc6634c0532925a3b844bc9e7595f0beb8',
