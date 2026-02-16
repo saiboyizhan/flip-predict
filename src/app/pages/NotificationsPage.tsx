@@ -99,7 +99,7 @@ export default function NotificationsPage() {
     }
   }, []);
 
-  const unreadCount = notification.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   if (!isAuthenticated) {
     return (
@@ -178,7 +178,7 @@ export default function NotificationsPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
           </div>
-        ) : notification.length === 0 ? (
+        ) : notifications.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -199,7 +199,7 @@ export default function NotificationsPage() {
           </motion.div>
         ) : (
           <div className="space-y-2">
-            {notification.map((notification, index) => (
+            {notifications.map((notification, index) => (
               <motion.div
                 key={notification.id}
                 initial={{ opacity: 0, y: 10 }}

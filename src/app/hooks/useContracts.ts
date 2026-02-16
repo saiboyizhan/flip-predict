@@ -326,6 +326,32 @@ export function useContractBalance(address?: `0x${string}`) {
 }
 
 // ----------------------------------------------------------------
+// usePredictionMarketBalance  --  reads PredictionMarket.balances(user)
+// ----------------------------------------------------------------
+
+export function usePredictionMarketBalance(address?: `0x${string}`) {
+  const { data, isLoading, error, refetch } = useReadContract({
+    address: PREDICTION_MARKET_ADDRESS,
+    abi: PREDICTION_MARKET_ABI,
+    functionName: 'balances',
+    args: address ? [address] : undefined,
+    query: {
+      enabled: !!address,
+    },
+  });
+
+  const balanceUSDT = data != null ? formatUnits(data as bigint, 18) : '0';
+
+  return {
+    balanceRaw: (data as bigint) ?? 0n,
+    balanceUSDT,
+    isLoading,
+    error,
+    refetch,
+  };
+}
+
+// ----------------------------------------------------------------
 // useUsdtAllowance  --  reads USDT allowance(owner, spender)
 // ----------------------------------------------------------------
 

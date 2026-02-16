@@ -134,7 +134,13 @@ export default function App() {
       addNotification(
         notification.type || 'system',
         notification.title || 'Notification',
-        notification.message || ''
+        notification.message || '',
+        {
+          id: typeof notification.id === 'string' ? notification.id : undefined,
+          timestamp: Number(notification.timestamp ?? notification.created_at) || Date.now(),
+          read: Boolean(notification.read ?? notification.is_read),
+          synced: typeof notification.id === 'string',
+        }
       );
     });
 

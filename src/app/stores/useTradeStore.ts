@@ -224,8 +224,11 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   executeAPIBuy: async (marketId, side, amount) => {
     const marketState = useMarketStore.getState()
 
-    // If not in API mode, fallback to local AMM
+    // In production, fail fast instead of creating local-only phantom trades.
     if (!marketState.apiMode) {
+      if (import.meta.env.PROD) {
+        return { success: false, shares: 0, price: 0, error: 'API_UNAVAILABLE' }
+      }
       const result = get().executeBuy(marketId, side, amount)
       return { success: result.success, shares: result.shares, price: result.avgPrice }
     }
@@ -283,6 +286,9 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const marketState = useMarketStore.getState()
 
     if (!marketState.apiMode) {
+      if (import.meta.env.PROD) {
+        return { success: false, amountOut: 0, price: 0, error: 'API_UNAVAILABLE' }
+      }
       const result = get().executeSell(marketId, side, shares)
       return { success: result.success, amountOut: result.payout, price: result.avgPrice }
     }

@@ -232,7 +232,7 @@ export function UserProfile() {
             {/* Member since + quick stats badges */}
             <div className="flex items-center justify-center sm:justify-start gap-3 flex-wrap">
               <span className="text-muted-foreground text-xs">
-                {t("profile.memberSince")}: 2026-01
+                {t("profile.memberSince")}
               </span>
               {stats && (
                 <>

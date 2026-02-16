@@ -4,11 +4,12 @@ import { Wallet, Copy, ExternalLink, TrendingUp, ArrowUpRight, ArrowDownRight, C
 import { toast } from "sonner";
 import { useAccount, useBalance, useDisconnect, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
-import { formatUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, claimPlatformFaucet } from "../services/api";
-import { useDeposit, useWithdraw, useContractBalance, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
+import { useDeposit, useWithdraw, useContractBalance, usePredictionMarketBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
+import { PREDICTION_MARKET_ADDRESS } from "../config/contracts";
 
 interface Transaction {
   id: string;
@@ -78,10 +79,27 @@ export function WalletPage() {
   const contractDeposit = useDeposit();
   const contractWithdraw = useWithdraw();
   const {
-    balanceUSDT: contractBalanceUSDT,
-    isLoading: contractBalanceLoading,
-    refetch: refetchContractBalance,
+    balanceUSDT: walletUsdtBalance,
+    refetch: refetchWalletUsdtBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
+  const {
+    balanceUSDT: predictionMarketBalanceUSDT,
+    isLoading: predictionMarketBalanceLoading,
+    refetch: refetchPredictionMarketBalance,
+  } = usePredictionMarketBalance(address as `0x${string}` | undefined);
+  const {
+    allowanceRaw: usdtAllowanceRaw,
+    refetch: refetchAllowance,
+  } = useUsdtAllowance(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
+  const {
+    approve: usdtApprove,
+    txHash: approveTxHash,
+    isWriting: approveWriting,
+    isConfirming: approveConfirming,
+    isConfirmed: approveConfirmed,
+    error: approveError,
+    reset: approveReset,
+  } = useUsdtApprove();
 
   // Testnet faucet
   const mintTestUSDT = useMintTestUSDT();
@@ -94,15 +112,16 @@ export function WalletPage() {
   );
   useEffect(() => {
     if (mintTestUSDT.isConfirmed) {
-      refetchContractBalance();
+      refetchWalletUsdtBalance();
       mintTestUSDT.reset();
     }
-  }, [mintTestUSDT.isConfirmed, refetchContractBalance, mintTestUSDT.reset]);
+  }, [mintTestUSDT.isConfirmed, refetchWalletUsdtBalance, mintTestUSDT.reset]);
 
   // Refs to capture values at submission time (avoids stale closures in confirm effects)
   const depositAmountRef = useRef(depositAmount);
   const withdrawAmountRef = useRef(withdrawAmount);
   const addressRef = useRef(address);
+  const pendingDepositAfterApproveRef = useRef(false);
 
   // Tx lifecycle toast notifications
   useTxNotifier(
@@ -119,6 +138,34 @@ export function WalletPage() {
     contractWithdraw.error as Error | null,
     "Withdraw",
   );
+  useTxNotifier(
+    approveTxHash,
+    approveConfirming,
+    approveConfirmed,
+    approveError as Error | null,
+    "USDT Approve",
+  );
+
+  // After USDT approval confirms, continue deposit flow automatically.
+  useEffect(() => {
+    if (!approveConfirmed || !approveTxHash || !pendingDepositAfterApproveRef.current) return;
+
+    pendingDepositAfterApproveRef.current = false;
+    refetchAllowance();
+
+    const amt = depositAmountRef.current;
+    if (parseFloat(amt) > 0) {
+      contractDeposit.deposit(amt);
+    }
+
+    approveReset();
+  }, [approveConfirmed, approveTxHash, refetchAllowance, approveReset, contractDeposit]);
+
+  useEffect(() => {
+    if (approveError) {
+      pendingDepositAfterApproveRef.current = false;
+    }
+  }, [approveError]);
 
   // After contract deposit confirms, notify the backend API and refresh
   useEffect(() => {
@@ -133,13 +180,14 @@ export function WalletPage() {
           })
           .catch(() => {});
       }
-      refetchContractBalance();
+      refetchWalletUsdtBalance();
+      refetchPredictionMarketBalance();
       refetchBnbBalance();
       setDepositAmount("");
       setShowDepositForm(false);
       contractDeposit.reset();
     }
-  }, [contractDeposit.isConfirmed, contractDeposit.txHash, refetchContractBalance, refetchBnbBalance, contractDeposit.reset]);
+  }, [contractDeposit.isConfirmed, contractDeposit.txHash, refetchWalletUsdtBalance, refetchPredictionMarketBalance, refetchBnbBalance, contractDeposit.reset]);
 
   // After contract withdraw confirms, notify backend and refresh
   useEffect(() => {
@@ -155,13 +203,14 @@ export function WalletPage() {
           })
           .catch(() => {});
       }
-      refetchContractBalance();
+      refetchWalletUsdtBalance();
+      refetchPredictionMarketBalance();
       refetchBnbBalance();
       setWithdrawAmount("");
       setShowWithdrawForm(false);
       contractWithdraw.reset();
     }
-  }, [contractWithdraw.isConfirmed, contractWithdraw.txHash, refetchContractBalance, refetchBnbBalance, contractWithdraw.reset]);
+  }, [contractWithdraw.isConfirmed, contractWithdraw.txHash, refetchWalletUsdtBalance, refetchPredictionMarketBalance, refetchBnbBalance, contractWithdraw.reset]);
 
   const walletAddress = address ?? "";
   const bnbBalance = balanceData?.value != null
@@ -226,21 +275,36 @@ export function WalletPage() {
     fetchBalance(address)
       .then((data) => setPlatformBalance(data))
       .catch(() => {});
-    refetchContractBalance();
+    refetchWalletUsdtBalance();
+    refetchPredictionMarketBalance();
+    refetchAllowance();
     refetchBnbBalance();
   };
 
   // Contract deposit handler
   const handleContractDeposit = () => {
+    if (!address) return;
+
     const amt = parseFloat(depositAmount);
     if (!amt || amt <= 0) {
       toast.error(t('wallet.invalidAmount'));
       return;
     }
-    if (amt > bnbBalance) {
+
+    if (amt > parseFloat(walletUsdtBalance)) {
       toast.error(t('wallet.insufficientBnb'));
       return;
     }
+
+    const amountWei = parseUnits(depositAmount, 18);
+    if (usdtAllowanceRaw < amountWei) {
+      pendingDepositAfterApproveRef.current = true;
+      depositAmountRef.current = depositAmount;
+      const maxUint256 = 2n ** 256n - 1n;
+      usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
+      return;
+    }
+
     depositAmountRef.current = depositAmount;
     contractDeposit.deposit(depositAmount);
   };
@@ -252,7 +316,7 @@ export function WalletPage() {
       toast.error(t('wallet.invalidAmount'));
       return;
     }
-    if (amt > parseFloat(contractBalanceUSDT)) {
+    if (amt > parseFloat(predictionMarketBalanceUSDT)) {
       toast.error(t('wallet.insufficientContractBalance'));
       return;
     }
@@ -353,7 +417,7 @@ export function WalletPage() {
     }
   };
 
-  const isContractDepositBusy = contractDeposit.isWriting || contractDeposit.isConfirming;
+  const isContractDepositBusy = contractDeposit.isWriting || contractDeposit.isConfirming || approveWriting || approveConfirming;
   const isContractWithdrawBusy = contractWithdraw.isWriting || contractWithdraw.isConfirming;
 
   return (
@@ -448,15 +512,15 @@ export function WalletPage() {
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-blue-500 text-xs font-medium">{t('wallet.contractBalanceLabel')}</div>
                   <button
-                    onClick={() => refetchContractBalance()}
+                    onClick={() => refetchPredictionMarketBalance()}
                     className="p-0.5 hover:bg-accent transition-colors rounded"
                     title={t('wallet.refreshBalance')}
                   >
-                    <RefreshCw className={`w-3 h-3 text-blue-400 ${contractBalanceLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3 h-3 text-blue-400 ${predictionMarketBalanceLoading ? 'animate-spin' : ''}`} />
                   </button>
                 </div>
                 <div className="text-xl sm:text-2xl font-semibold text-blue-500">
-                  {contractBalanceLoading ? "..." : `${parseFloat(contractBalanceUSDT).toFixed(4)}`}
+                  {predictionMarketBalanceLoading ? "..." : `${parseFloat(predictionMarketBalanceUSDT).toFixed(4)}`}
                 </div>
                 <div className="text-muted-foreground text-xs mt-1">USDT ({t('wallet.onChain')})</div>
               </div>
@@ -589,7 +653,7 @@ export function WalletPage() {
                       />
                       {depositMode === "contract" && (
                         <div className="text-muted-foreground text-xs mt-1">
-                          {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB (gas)
+                          {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB (gas) | USDT: {parseFloat(walletUsdtBalance).toFixed(4)}
                         </div>
                       )}
                     </div>
@@ -605,6 +669,30 @@ export function WalletPage() {
                           placeholder={t('wallet.txHashPlaceholder')}
                           className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-sm p-3 outline-none transition-colors font-mono placeholder:text-muted-foreground"
                         />
+                      </div>
+                    )}
+
+                    {/* Contract deposit: show tx status */}
+                    {depositMode === "contract" && approveTxHash && !contractDeposit.txHash && (
+                      <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
+                        {approveConfirming ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                        ) : approveConfirmed ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Clock className="w-4 h-4 text-blue-400" />
+                        )}
+                        <a
+                          href={`${getBscScanUrl(chainId)}/tx/${approveTxHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
+                        >
+                          {approveTxHash.slice(0, 16)}...{approveTxHash.slice(-8)}
+                        </a>
+                        <span className="text-muted-foreground text-xs ml-auto">
+                          {approveConfirming ? "Approving USDT..." : approveConfirmed ? "Approved" : "Approve submitted"}
+                        </span>
                       </div>
                     )}
 
@@ -633,11 +721,11 @@ export function WalletPage() {
                     )}
 
                     {/* Error display */}
-                    {depositMode === "contract" && contractDeposit.error && (
+                    {depositMode === "contract" && (approveError || contractDeposit.error) && (
                       <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                        {(contractDeposit.error as Error).message?.includes("User rejected")
+                        {((approveError || contractDeposit.error) as Error).message?.includes("User rejected")
                           ? t('trade.txCancelledByUser')
-                          : (contractDeposit.error as Error).message?.slice(0, 150) || t('trade.txFailed')}
+                          : ((approveError || contractDeposit.error) as Error).message?.slice(0, 150) || t('trade.txFailed')}
                       </div>
                     )}
 
@@ -649,7 +737,11 @@ export function WalletPage() {
                       {(depositMode === "contract" ? isContractDepositBusy : depositProcessing) ? (
                         <>
                           <Loader2 className="w-5 h-5 animate-spin" />
-                          {contractDeposit.isConfirming ? t('trade.confirmingOnChain') : t('wallet.processing')}
+                          {approveConfirming
+                            ? "Approving USDT..."
+                            : contractDeposit.isConfirming
+                              ? t('trade.confirmingOnChain')
+                              : t('wallet.processing')}
                         </>
                       ) : depositMode === "contract" ? (
                         <>
@@ -723,7 +815,7 @@ export function WalletPage() {
                         />
                         <div className="text-muted-foreground text-xs mt-1">
                           {withdrawMode === "contract"
-                            ? `${t('wallet.contractBalanceLabel')}: ${parseFloat(contractBalanceUSDT).toFixed(4)} USDT`
+                            ? `${t('wallet.contractBalanceLabel')}: ${parseFloat(predictionMarketBalanceUSDT).toFixed(4)} USDT`
                             : platformBalance
                               ? `${t('wallet.platformBalance')}: $${platformBalance.available.toLocaleString()}`
                               : ""}
@@ -920,4 +1012,3 @@ export function WalletPage() {
     </div>
   );
 }
-

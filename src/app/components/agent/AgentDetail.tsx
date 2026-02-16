@@ -949,7 +949,7 @@ export function AgentDetail() {
             {tokenId && (
               <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 text-yellow-400 text-sm">
                 <AlertTriangle className="w-4 h-4 inline mr-2" />
-                {t('agentDetail.onChainPurchaseNote', { default: 'This agent is minted on-chain. Purchase requires NFT transfer. Seller must approve your address first.' })}
+                {t('agentDetail.onChainPurchaseNote', { defaultValue: 'This agent is minted on-chain. Purchase requires NFT transfer. Seller must approve your address first.' })}
               </div>
             )}
             <button
@@ -957,8 +957,8 @@ export function AgentDetail() {
               disabled={actionLoading || isTransferring || isTransferConfirming}
               className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors"
             >
-              {isTransferring ? t('agentDetail.transferring', { default: 'Transferring...' }) :
-               isTransferConfirming ? t('agentDetail.confirmingTransfer', { default: 'Confirming...' }) :
+              {isTransferring ? t('agentDetail.transferring', { defaultValue: 'Transferring...' }) :
+               isTransferConfirming ? t('agentDetail.confirmingTransfer', { defaultValue: 'Confirming...' }) :
                t('agentDetail.buyAgent', { price: agent.sale_price?.toLocaleString() })}
             </button>
           </div>

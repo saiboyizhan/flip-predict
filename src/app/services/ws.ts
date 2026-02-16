@@ -112,7 +112,6 @@ export function connectWS(): void {
   ws = new WebSocket(WS_URL)
 
   ws.addEventListener('open', () => {
-    console.log('[WS] Connected successfully')
     reconnectAttempts = 0
 
     // Start heartbeat
@@ -158,15 +157,12 @@ export function connectWS(): void {
     }
 
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.log(`[WS] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`)
       connectionDead = true
       return
     }
 
     const delay = getReconnectDelay()
     reconnectAttempts++
-    console.log(`[WS] Connection lost. Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
-
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(() => {
       connectWS()

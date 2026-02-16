@@ -13,12 +13,18 @@ export interface Notification {
   message: string
   timestamp: number
   read: boolean
+  synced?: boolean
 }
 
 interface NotificationState {
   notifications: Notification[]
   loading: boolean
-  addNotification: (type: Notification['type'], title: string, message: string) => void
+  addNotification: (
+    type: Notification['type'],
+    title: string,
+    message: string,
+    options?: Partial<Pick<Notification, 'id' | 'timestamp' | 'read' | 'synced'>>
+  ) => void
   markAsRead: (id: string) => void
   markAllAsRead: () => void
   unreadCount: () => number
@@ -30,36 +36,44 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   loading: false,
 
-  addNotification: (type, title, message) => {
+  addNotification: (type, title, message, options) => {
     const notification: Notification = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: options?.id ?? (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
       type,
       title,
       message,
-      timestamp: Date.now(),
-      read: false,
+      timestamp: options?.timestamp ?? Date.now(),
+      read: options?.read ?? false,
+      synced: options?.synced ?? Boolean(options?.id),
     }
     set((state) => ({
-      notifications: [notification, ...state.notifications].slice(0, 50),
+      notifications: state.notifications.some((n) => n.id === notification.id)
+        ? state.notifications.map((n) => (n.id === notification.id ? { ...n, ...notification } : n))
+        : [notification, ...state.notifications].slice(0, 50),
     }))
   },
 
   markAsRead: (id) => {
+    const target = get().notifications.find((n) => n.id === id)
     set((state) => ({
       notifications: state.notifications.map((n) =>
         n.id === id ? { ...n, read: true } : n
       ),
     }))
-    // Sync to backend (fire-and-forget)
-    apiMarkRead(id).catch(() => {})
+    // Sync to backend only for server-sourced notifications
+    if (target?.synced) {
+      apiMarkRead(id).catch(() => {})
+    }
   },
 
   markAllAsRead: () => {
+    const hasSyncedUnread = get().notifications.some((n) => n.synced && !n.read)
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, read: true })),
     }))
-    // Sync to backend (fire-and-forget)
-    apiMarkAllRead().catch(() => {})
+    if (hasSyncedUnread) {
+      apiMarkAllRead().catch(() => {})
+    }
   },
 
   unreadCount: () => {
@@ -71,7 +85,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     try {
       const data = await apiFetchNotifications()
       const notifications = data.notifications ?? []
-      set({ notifications: notifications.slice(0, 50) })
+      set({
+        notifications: notifications
+          .slice(0, 50)
+          .map((n) => ({ ...n, synced: true })),
+      })
     } catch {
       // Keep existing notifications if server is unavailable
     } finally {

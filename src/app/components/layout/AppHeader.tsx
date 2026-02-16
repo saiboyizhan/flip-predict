@@ -498,6 +498,18 @@ export function AppHeader() {
                         </button>
                       );
                     })}
+                    <button
+                      onClick={() => {
+                        walletDisconnect();
+                        authDisconnect();
+                        setUserMenuOpen(false);
+                        toast.success(t("wallet.disconnected"));
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-red-400 hover:text-red-300 hover:bg-accent border-t border-border"
+                    >
+                      <X className="w-4 h-4" />
+                      <span>{t("wallet.disconnect")}</span>
+                    </button>
                   </div>
                 )}
               </div>

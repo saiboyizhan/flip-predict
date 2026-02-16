@@ -87,7 +87,7 @@ export function MintAgent() {
 
   const previewAgent: Agent = {
     id: "preview",
-    name: name || "My Agent",
+    name: name || t("agent.defaultName", { defaultValue: "My Agent" }),
     owner_address: "0x0000000000000000000000000000000000000000",
     avatar: avatarSrc,
     strategy: strategy || "random",
@@ -133,11 +133,11 @@ export function MintAgent() {
       return;
     }
     if (!publicClient) {
-      toast.error("Wallet client unavailable");
+      toast.error(t("agent.walletUnavailable", { defaultValue: "Wallet client unavailable" }));
       return;
     }
     if (NFA_CONTRACT_ADDRESS === "0x0000000000000000000000000000000000000000") {
-      toast.error("NFA contract address is not configured");
+      toast.error(t("agent.contractNotConfigured", { defaultValue: "NFA contract address is not configured" }));
       return;
     }
 
