@@ -88,6 +88,16 @@ export async function executeCopyTrades(
       const dailyLimit = Number(follower.daily_limit) || 0;
       if (dailyLimit > 0 && dailyUsed + copyAmount > dailyLimit) continue;
 
+      // Slippage circuit breaker: skip if current price > 10% above agent's entry price
+      const mktRes = await db.query('SELECT yes_price, no_price FROM markets WHERE id = $1', [trade.marketId]);
+      if (mktRes.rows[0]) {
+        const currentPrice = trade.side === 'yes' ? Number(mktRes.rows[0].yes_price) : Number(mktRes.rows[0].no_price);
+        if (currentPrice > trade.price * 1.10) {
+          console.log(`Skipping copy trade for ${follower.follower_address}: slippage too high (${currentPrice} vs ${trade.price})`);
+          continue;
+        }
+      }
+
       // Execute real AMM buy (handles balance check, AMM pricing, orders, positions)
       const orderResult = await executeBuy(
         db,

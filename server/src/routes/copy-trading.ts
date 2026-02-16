@@ -348,23 +348,19 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res: Response) =>
     try {
       await client.query('BEGIN');
 
-      const unclaimed = (await client.query(
-        'SELECT COALESCE(SUM(amount), 0) as total FROM agent_earnings WHERE agent_id = $1 AND claimed = 0',
+      // Atomic UPDATE + RETURNING to prevent concurrent double-claim.
+      // The UPDATE acquires row-level locks, so concurrent requests see no unclaimed rows.
+      const claimedRows = (await client.query(
+        'UPDATE agent_earnings SET claimed = 1 WHERE agent_id = $1 AND claimed = 0 RETURNING amount',
         [agentId]
-      )).rows[0];
+      )).rows;
 
-      const amount = Number(unclaimed.total);
+      const amount = claimedRows.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
       if (amount < 0.01) {
         await client.query('ROLLBACK');
         res.status(400).json({ error: 'No earnings to claim' });
         return;
       }
-
-      // Mark as claimed
-      await client.query(
-        'UPDATE agent_earnings SET claimed = 1 WHERE agent_id = $1 AND claimed = 0',
-        [agentId]
-      );
 
       // Credit owner's platform balance
       await client.query(`

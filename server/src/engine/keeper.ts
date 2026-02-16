@@ -346,15 +346,11 @@ export async function settleMarketPositions(client: any, marketId: string, winni
         const commission = Math.round(profit * (copyInfo.revenue_share_pct / 100) * 100) / 100;
         followerPayout = reward - commission;
 
-        // Credit commission to agent creator's balance
-        const agentAddress = `agent:${copyInfo.agent_id}`;
-        await client.query(
-          `INSERT INTO balances (user_address, available, locked) VALUES ($2, $1, 0)
-           ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $1`,
-          [commission, agentAddress]
-        );
+        // Commission is NOT credited to agent balance here to avoid double-spend.
+        // It stays in the contract pool until the creator claims via /claim endpoint,
+        // which reads agent_earnings and credits the creator's personal balance.
 
-        // Record in agent_earnings
+        // Record in agent_earnings (creator claims later via /claim)
         await client.query(`
           INSERT INTO agent_earnings (id, agent_id, source, amount, follower_address, claimed, created_at)
           VALUES ($1, $2, 'copy_trade_commission', $3, $4, 0, $5)

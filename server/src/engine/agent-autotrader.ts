@@ -162,14 +162,18 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
     } else if (d.action === 'sell') {
       // === SELL (take profit / stop loss) ===
       const posRes = await db.query(
-        'SELECT shares FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+        'SELECT shares, avg_cost FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
         [agentAddress, d.marketId, d.side]
       );
       const pos = posRes.rows[0];
       if (!pos || Number(pos.shares) < 0.01) continue;
 
-      const sharesToSell = Math.min(Number(pos.shares), d.amount);
+      // LLM d.amount is in USDT, pos.shares is in shares -- units don't match.
+      // For hackathon: sell entire position when LLM triggers sell.
+      const sharesToSell = Number(pos.shares);
       if (sharesToSell < 0.01) continue;
+
+      const costBasis = Number(pos.avg_cost) * sharesToSell;
 
       let sellResult;
       try {
@@ -178,6 +182,8 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
         console.error(`Agent ${agentId} AMM sell failed for market ${d.marketId}:`, sellErr.message);
         continue;
       }
+
+      const realProfit = sellResult.amountOut - costBasis;
 
       wallet_balance += sellResult.amountOut;
       total_trades += 1;
@@ -196,7 +202,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
         Math.round(sellResult.amountOut * 100) / 100,
         Math.round(sharesToSell * 100) / 100,
         Math.round(sellResult.price * 10000) / 10000,
-        Math.round(sellResult.amountOut * 100) / 100,
+        Math.round(realProfit * 100) / 100,
         Date.now()
       ]);
     }
