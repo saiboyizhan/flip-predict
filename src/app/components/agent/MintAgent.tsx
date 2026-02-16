@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
-import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
+import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2, ShieldCheck, ArrowRight, AlertTriangle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { mintAgent } from "@/app/services/api";
+import { mintAgent, recoverAgent } from "@/app/services/api";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
 import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
@@ -15,6 +15,7 @@ import { zeroAddress, zeroHash, parseGwei } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+const VALID_STRATEGIES_LIST = ["conservative", "aggressive", "contrarian", "momentum", "random"];
 const AVATAR_SIZE = 256;
 
 function resizeImage(file: File, size: number): Promise<string> {
@@ -293,6 +294,46 @@ export function MintAgent() {
     }
   };
 
+  // Detect desync: on-chain minted more than DB registered
+  const hasDesync = effectiveMintCount > agentCount;
+  const unsyncedCount = effectiveMintCount - agentCount;
+
+  // Recovery form state
+  const [recoverTxHash, setRecoverTxHash] = useState("");
+  const [recoverName, setRecoverName] = useState("");
+  const [recoverStrategy, setRecoverStrategy] = useState("random");
+  const [recoverAvatar, setRecoverAvatar] = useState<number>(0);
+  const [recoverLoading, setRecoverLoading] = useState(false);
+
+  const handleRecover = async () => {
+    if (!recoverTxHash.trim()) {
+      toast.error(t("agent.recoverTxRequired", { defaultValue: "Please enter the mint transaction hash" }));
+      return;
+    }
+    if (!recoverName.trim()) {
+      toast.error(t("agent.enterName"));
+      return;
+    }
+    setRecoverLoading(true);
+    try {
+      const agent = await recoverAgent({
+        name: recoverName.trim(),
+        strategy: recoverStrategy,
+        description: "",
+        avatar: PRESET_AVATARS[recoverAvatar].src,
+        mintTxHash: recoverTxHash.trim(),
+      });
+      addAgent(agent);
+      toast.success(t("agent.recoverSuccess", { defaultValue: "Agent recovered successfully!" }));
+      setRecoverTxHash("");
+      setRecoverName("");
+    } catch (err: any) {
+      toast.error(err?.message || t("agent.recoverFailed", { defaultValue: "Recovery failed. Please check your transaction hash." }));
+    } finally {
+      setRecoverLoading(false);
+    }
+  };
+
   // Full-page state when mint limit reached
   if (remaining <= 0) {
     return (
@@ -331,6 +372,97 @@ export function MintAgent() {
                 <div className="h-full bg-blue-500 rounded-full" style={{ width: "100%" }} />
               </div>
             </div>
+
+            {/* Desync Recovery Section */}
+            {hasDesync && (
+              <div className="max-w-md mx-auto mb-8 text-left">
+                <div className="border border-yellow-500/30 bg-yellow-500/5 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0" />
+                    <span className="text-sm font-semibold text-yellow-500">
+                      {t("agent.desyncDetected", {
+                        count: unsyncedCount,
+                        defaultValue: `${unsyncedCount} on-chain mint(s) not synced to backend`,
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    {t("agent.desyncDesc", {
+                      defaultValue: "Your wallet minted agents on-chain but they weren't registered in the backend. Paste your mint transaction hash below to recover.",
+                    })}
+                  </p>
+
+                  {/* Recovery form */}
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Tx Hash</label>
+                      <input
+                        type="text"
+                        value={recoverTxHash}
+                        onChange={(e) => setRecoverTxHash(e.target.value)}
+                        placeholder="0x..."
+                        className="w-full bg-input-background border border-border text-foreground text-xs py-2 px-3 focus:outline-none focus:border-yellow-500/50 transition-colors placeholder:text-muted-foreground font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">
+                        {t("agent.agentName")}
+                      </label>
+                      <input
+                        type="text"
+                        value={recoverName}
+                        onChange={(e) => setRecoverName(e.target.value)}
+                        placeholder={t("agent.agentNamePlaceholder")}
+                        maxLength={30}
+                        className="w-full bg-input-background border border-border text-foreground text-xs py-2 px-3 focus:outline-none focus:border-yellow-500/50 transition-colors placeholder:text-muted-foreground"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">
+                          {t("agent.stylePreference")}
+                        </label>
+                        <select
+                          value={recoverStrategy}
+                          onChange={(e) => setRecoverStrategy(e.target.value)}
+                          className="w-full bg-input-background border border-border text-foreground text-xs py-2 px-3 focus:outline-none focus:border-yellow-500/50 transition-colors"
+                        >
+                          {VALID_STRATEGIES_LIST.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Avatar</label>
+                        <div className="flex gap-1">
+                          {PRESET_AVATARS.slice(0, 4).map((av) => (
+                            <button
+                              key={av.id}
+                              onClick={() => setRecoverAvatar(av.id)}
+                              className={`w-8 h-8 border overflow-hidden ${recoverAvatar === av.id ? "border-yellow-500" : "border-border"}`}
+                            >
+                              <img src={av.src} alt={av.label} className="w-full h-full object-cover" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRecover}
+                      disabled={recoverLoading}
+                      className="w-full py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {recoverLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                      {t("agent.recoverAgent", { defaultValue: "Recover Agent" })}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

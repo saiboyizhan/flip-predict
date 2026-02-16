@@ -779,6 +779,21 @@ export async function mintAgent(data: {
   return res.agent
 }
 
+export async function recoverAgent(data: {
+  name: string
+  strategy: string
+  description: string
+  persona?: string
+  avatar: string
+  mintTxHash: string
+}): Promise<Agent> {
+  const res = await request<{ agent: Agent }>('/api/agents/recover', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  return res.agent
+}
+
 export async function getMyAgents(): Promise<Agent[]> {
   const data = await request<{ agents: Agent[] }>('/api/agents/my')
   return data.agents

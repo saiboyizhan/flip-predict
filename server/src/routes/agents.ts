@@ -400,6 +400,75 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
   }
 });
 
+// POST /api/agents/recover — recover on-chain minted agents that failed backend registration
+router.post('/recover', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDb();
+    const { name, strategy, description, persona, avatar, mintTxHash } = req.body;
+    const normalizedMintTxHash = typeof mintTxHash === 'string' ? mintTxHash.trim().toLowerCase() : null;
+
+    if (typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+    if (name.trim().length > 30) {
+      res.status(400).json({ error: 'Name must be 30 characters or less' });
+      return;
+    }
+    if (strategy && !VALID_STRATEGIES.includes(strategy)) {
+      res.status(400).json({ error: 'Invalid strategy' });
+      return;
+    }
+    if (!avatar || typeof avatar !== 'string') {
+      res.status(400).json({ error: 'Avatar is required' });
+      return;
+    }
+    if (!normalizedMintTxHash || !isTxHash(normalizedMintTxHash)) {
+      res.status(400).json({ error: 'A valid mintTxHash is required for recovery' });
+      return;
+    }
+
+    // Check duplicate txHash
+    const existingMintTx = await db.query('SELECT id FROM agents WHERE LOWER(mint_tx_hash) = LOWER($1) LIMIT 1', [normalizedMintTxHash]);
+    if (existingMintTx.rows.length > 0) {
+      res.status(409).json({ error: 'This transaction has already been registered' });
+      return;
+    }
+
+    // Verify on-chain — this confirms the tx is a valid NFA.mint from this wallet
+    const mintTxVerification = await verifyAgentMintTxOnChain({
+      txHash: normalizedMintTxHash,
+      expectedMinter: req.userAddress!,
+    });
+    if (!mintTxVerification.ok) {
+      res.status(mintTxVerification.statusCode).json({ error: mintTxVerification.error });
+      return;
+    }
+    const resolvedTokenId = mintTxVerification.tokenId;
+
+    // Check duplicate tokenId
+    const existingToken = await db.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [resolvedTokenId]);
+    if (existingToken.rows.length > 0) {
+      res.status(409).json({ error: 'This token ID has already been registered' });
+      return;
+    }
+
+    const id = generateId();
+    const now = Date.now();
+
+    await db.query(`
+      INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, token_id, mint_tx_hash, wallet_balance, level, experience, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1000, 1, 0, $10)
+    `, [id, name.trim(), req.userAddress, strategy || 'random', description || '', persona || '', avatar, resolvedTokenId, normalizedMintTxHash, now]);
+
+    const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
+    res.json({ agent });
+  } catch (err: any) {
+    console.error('Agent recover error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/agents/:id — update agent (owner only)
 router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {

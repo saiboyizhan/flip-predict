@@ -51,7 +51,7 @@ export function AgentCard({ agent, onClick }: AgentCardProps) {
       <div className="p-4">
         {/* Header: Avatar + Name + Level */}
         <div className="flex items-center gap-3 mb-3">
-          {agent.avatar && (agent.avatar.startsWith("data:") || agent.avatar.startsWith("http") || agent.avatar.startsWith("ipfs")) ? (
+          {agent.avatar && (agent.avatar.startsWith("data:") || agent.avatar.startsWith("http") || agent.avatar.startsWith("ipfs") || agent.avatar.startsWith("/")) ? (
             <div className="w-10 h-10 shrink-0 overflow-hidden border border-border">
               <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
             </div>
