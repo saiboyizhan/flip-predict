@@ -88,9 +88,12 @@ async function main() {
       // Allow requests with no origin (health checks, curl, server-to-server)
       if (!origin) return callback(null, true);
 
-      // Check against allowed origins
+      // Check against allowed origins (comma-separated)
       const allowed = process.env.CORS_ORIGIN;
-      if (allowed && origin === allowed) return callback(null, true);
+      if (allowed) {
+        const origins = allowed.split(',').map(o => o.trim());
+        if (origins.includes(origin)) return callback(null, true);
+      }
 
       // Development: allow localhost
       if (!IS_PRODUCTION && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
