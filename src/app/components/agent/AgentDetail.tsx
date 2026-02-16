@@ -500,17 +500,6 @@ export function AgentDetail() {
           </div>
         </motion.div>
 
-        {/* Owner Management Panels (collapsed by default) */}
-        <details className="group">
-          <summary className="flex items-center justify-between cursor-pointer bg-secondary border border-border p-4 text-sm font-semibold text-foreground select-none">
-            <span className="flex items-center gap-2">
-              <Settings className="w-4 h-4 text-blue-400" />
-              {t('agentDetail.managementPanel', { defaultValue: 'Management & On-Chain' })}
-            </span>
-            <span className="text-muted-foreground text-xs group-open:rotate-180 transition-transform">&#9660;</span>
-          </summary>
-          <div className="space-y-4 sm:space-y-6 mt-4">
-
         {/* Vault Info */}
         {(agent.vault_uri || isOwner) && (
           <motion.div
@@ -1087,9 +1076,6 @@ export function AgentDetail() {
             </motion.div>
           )}
         </AnimatePresence>
-
-          </div>
-        </details>
 
         {/* Detail Tabs */}
         <motion.div
