@@ -31,6 +31,8 @@ router.get('/', async (req: Request, res: Response) => {
       ? 'AND s.created_at >= $1'
       : '';
 
+    // Net profit only counts orders in resolved markets to avoid showing
+    // unrealized losses on open positions as actual losses.
     const result = await db.query(`
       SELECT
         o.user_address,
@@ -38,7 +40,7 @@ router.get('/', async (req: Request, res: Response) => {
         COALESCE(w.total_won, 0) AS total_won,
         COALESCE(w.win_count, 0) AS win_count,
         COUNT(o.id) AS total_orders,
-        COALESCE(w.total_won, 0) - COALESCE(SUM(o.amount), 0) AS net_profit,
+        COALESCE(w.total_won, 0) - COALESCE(resolved_spend.spent, 0) AS net_profit,
         CASE WHEN COALESCE(r.resolved_count, 0) > 0
           THEN ROUND((COALESCE(w.win_count, 0)::numeric / r.resolved_count::numeric) * 100, 1)
           ELSE 0
@@ -63,9 +65,19 @@ router.get('/', async (req: Request, res: Response) => {
         ${settlementTimeFilter}
         GROUP BY s.user_address
       ) r ON o.user_address = r.user_address
+      LEFT JOIN (
+        SELECT
+          ord.user_address,
+          SUM(ord.amount) AS spent
+        FROM orders ord
+        JOIN markets m ON m.id = ord.market_id
+        WHERE ord.status = 'filled' AND ord.type = 'buy'
+          AND m.status IN ('resolved', 'closed')
+        GROUP BY ord.user_address
+      ) resolved_spend ON o.user_address = resolved_spend.user_address
       WHERE o.status = 'filled'
       ${timeFilter}
-      GROUP BY o.user_address, w.total_won, w.win_count, r.resolved_count
+      GROUP BY o.user_address, w.total_won, w.win_count, r.resolved_count, resolved_spend.spent
       ORDER BY net_profit DESC
       LIMIT 50
     `, params);

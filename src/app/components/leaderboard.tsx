@@ -9,6 +9,11 @@ import { FollowButton } from "@/app/components/social/FollowButton";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import { useSocialStore } from "@/app/stores/useSocialStore";
 
+function formatPnL(value: number): { text: string; color: string } {
+  if (value >= 0) return { text: `+$${value.toLocaleString()}`, color: 'text-emerald-400' };
+  return { text: `-$${Math.abs(value).toLocaleString()}`, color: 'text-red-400' };
+}
+
 interface LeaderboardEntry {
   rank: number;
   address: string;
@@ -165,7 +170,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                 <Medal className="w-12 h-12 sm:w-16 sm:h-16 text-zinc-400 dark:text-zinc-300 mx-auto mb-3 sm:mb-4" />
                 <div className="text-muted-foreground text-sm tracking-wider uppercase mb-2">{t("leaderboard.runnerUp")}</div>
                 <div className="text-xl sm:text-2xl font-bold text-foreground mb-2">{top3[1].nickname}</div>
-                <div className="text-emerald-400 text-2xl sm:text-3xl font-bold mb-1">+${top3[1].netProfit.toLocaleString()}</div>
+                <div className={`${formatPnL(top3[1].netProfit).color} text-2xl sm:text-3xl font-bold mb-1`}>{formatPnL(top3[1].netProfit).text}</div>
                 <div className="text-muted-foreground text-sm">{t("leaderboard.winRate")} {top3[1].winRate}%</div>
               </div>
             </div>
@@ -178,7 +183,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                 <Crown className="w-16 h-16 sm:w-20 sm:h-20 text-blue-400 mx-auto mb-3 sm:mb-4" />
                 <div className="text-blue-400 text-sm tracking-wider uppercase mb-2">{t("leaderboard.champion")}</div>
                 <div className="text-2xl sm:text-3xl font-bold text-foreground mb-2">{top3[0].nickname}</div>
-                <div className="text-emerald-400 text-3xl sm:text-4xl font-bold mb-1">+${top3[0].netProfit.toLocaleString()}</div>
+                <div className={`${formatPnL(top3[0].netProfit).color} text-3xl sm:text-4xl font-bold mb-1`}>{formatPnL(top3[0].netProfit).text}</div>
                 <div className="text-muted-foreground text-sm mb-4">{t("leaderboard.winRate")} {top3[0].winRate}%</div>
                 <div className="flex items-center justify-center gap-2 text-blue-400 text-sm">
                   <TrendingUp className="w-4 h-4" />
@@ -195,7 +200,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                 <Award className="w-12 h-12 sm:w-16 sm:h-16 text-orange-600 mx-auto mb-3 sm:mb-4" />
                 <div className="text-orange-400 text-sm tracking-wider uppercase mb-2">{t("leaderboard.thirdPlace")}</div>
                 <div className="text-xl sm:text-2xl font-bold text-foreground mb-2">{top3[2].nickname}</div>
-                <div className="text-emerald-400 text-2xl sm:text-3xl font-bold mb-1">+${top3[2].netProfit.toLocaleString()}</div>
+                <div className={`${formatPnL(top3[2].netProfit).color} text-2xl sm:text-3xl font-bold mb-1`}>{formatPnL(top3[2].netProfit).text}</div>
                 <div className="text-muted-foreground text-sm">{t("leaderboard.winRate")} {top3[2].winRate}%</div>
               </div>
             </div>
@@ -261,7 +266,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
                       <div className="text-emerald-400 font-bold text-sm">{entry.winRate}%</div>
                     </td>
                     <td className="p-3 sm:p-4 text-right">
-                      <div className="text-emerald-400 text-base sm:text-lg font-bold">+${entry.netProfit.toLocaleString()}</div>
+                      <div className={`${formatPnL(entry.netProfit).color} text-base sm:text-lg font-bold`}>{formatPnL(entry.netProfit).text}</div>
                     </td>
                     <td className="p-3 sm:p-4 text-right hidden lg:table-cell">
                       <div className="flex items-center justify-end gap-2">
