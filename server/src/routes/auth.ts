@@ -19,12 +19,13 @@ function getInitialSignupBalance(): number {
 // GET /api/auth/nonce/:address
 router.get('/nonce/:address', async (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
+    const rawAddress = req.params.address;
 
-    if (!ethers.isAddress(address)) {
+    if (!ethers.isAddress(rawAddress.toLowerCase())) {
       res.status(400).json({ error: 'Invalid address' });
       return;
     }
+    const address = rawAddress.toLowerCase();
 
     const db = getDb();
     const nonce = crypto.randomBytes(16).toString('hex');
@@ -35,7 +36,7 @@ router.get('/nonce/:address', async (req: Request, res: Response) => {
       INSERT INTO users (address, nonce, created_at)
       VALUES ($1, $2, $3)
       ON CONFLICT (address) DO UPDATE SET nonce = $4
-    `, [address.toLowerCase(), nonce, now, nonce]);
+    `, [address, nonce, now, nonce]);
 
     // Ensure user has a balance entry
     const initialBalance = getInitialSignupBalance();
@@ -62,7 +63,7 @@ router.post('/verify', async (req: Request, res: Response) => {
       return;
     }
 
-    if (!ethers.isAddress(address)) {
+    if (!ethers.isAddress(address.toLowerCase())) {
       res.status(400).json({ error: 'Invalid address' });
       return;
     }
