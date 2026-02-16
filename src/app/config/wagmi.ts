@@ -1,5 +1,5 @@
 import { http, createConfig } from "wagmi";
-import { defineChain } from "viem";
+import { defineChain, parseGwei } from "viem";
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 
@@ -26,6 +26,11 @@ const bscTestnet = defineChain({
     default: { name: "BscScan Testnet", url: "https://testnet.bscscan.com" },
   },
   testnet: true,
+  fees: {
+    async estimateFeesPerGas() {
+      return { gasPrice: parseGwei("5") };
+    },
+  },
 });
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";

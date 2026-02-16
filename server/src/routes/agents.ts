@@ -66,14 +66,14 @@ function isTxHash(value: unknown): value is string {
 async function verifyAgentMintTxOnChain(params: {
   txHash: string;
   expectedMinter: string;
-  expectedTokenId: number;
-}): Promise<{ ok: true; blockNumber: number } | { ok: false; statusCode: number; error: string }> {
+  expectedTokenId?: number | null;
+}): Promise<{ ok: true; blockNumber: number; tokenId: number } | { ok: false; statusCode: number; error: string }> {
   if (!NFA_CONTRACT_ADDRESS) {
     return { ok: false, statusCode: 503, error: 'NFA mint verification is not configured' };
   }
 
   const expectedMinter = params.expectedMinter.toLowerCase();
-  const expectedTokenId = String(params.expectedTokenId);
+  const expectedTokenId = params.expectedTokenId == null ? null : String(params.expectedTokenId);
   const mintSelector = ethers.id('mint((string,string,bytes32,string,string,bytes32,uint8))').slice(0, 10);
   const transferTopic = ethers.id('Transfer(address,address,uint256)');
   const iface = new ethers.Interface([
@@ -123,7 +123,7 @@ async function verifyAgentMintTxOnChain(params: {
       return { ok: false, statusCode: 400, error: 'mintTxHash calldata decode failed' };
     }
 
-    let foundTransfer = false;
+    let resolvedTokenId: number | null = null;
     for (const log of receipt.logs) {
       if ((log.address || '').toLowerCase() !== NFA_CONTRACT_ADDRESS) continue;
       if (!log.topics?.length || log.topics[0] !== transferTopic) continue;
@@ -131,9 +131,16 @@ async function verifyAgentMintTxOnChain(params: {
         const decoded = iface.decodeEventLog('Transfer', log.data, log.topics);
         const from = String(decoded[0] || '').toLowerCase();
         const to = String(decoded[1] || '').toLowerCase();
-        const tokenId = (decoded[2] as bigint).toString();
-        if (from === ethers.ZeroAddress && to === expectedMinter && tokenId === expectedTokenId) {
-          foundTransfer = true;
+        const tokenIdRaw = (decoded[2] as bigint).toString();
+        if (from === ethers.ZeroAddress && to === expectedMinter) {
+          if (expectedTokenId !== null && tokenIdRaw !== expectedTokenId) {
+            continue;
+          }
+          const parsedTokenId = Number(tokenIdRaw);
+          if (!Number.isSafeInteger(parsedTokenId) || parsedTokenId < 0) {
+            return { ok: false, statusCode: 400, error: 'mintTxHash tokenId is out of supported range' };
+          }
+          resolvedTokenId = parsedTokenId;
           break;
         }
       } catch {
@@ -141,11 +148,14 @@ async function verifyAgentMintTxOnChain(params: {
       }
     }
 
-    if (!foundTransfer) {
-      return { ok: false, statusCode: 400, error: 'mintTxHash does not prove ownership of the provided tokenId' };
+    if (resolvedTokenId == null) {
+      if (expectedTokenId !== null) {
+        return { ok: false, statusCode: 400, error: 'mintTxHash does not prove ownership of the provided tokenId' };
+      }
+      return { ok: false, statusCode: 400, error: 'mintTxHash does not contain a valid mint Transfer event for current wallet' };
     }
 
-    return { ok: true, blockNumber: receipt.blockNumber };
+    return { ok: true, blockNumber: receipt.blockNumber, tokenId: resolvedTokenId };
   } catch (err) {
     console.error('Agent mint tx verification error:', err);
     return {
@@ -347,8 +357,8 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
       res.status(400).json({ error: 'mintTxHash must be a valid transaction hash' });
       return;
     }
-    if (parsedTokenId == null || normalizedMintTxHash == null) {
-      res.status(400).json({ error: 'tokenId and mintTxHash are required for on-chain mint sync' });
+    if (normalizedMintTxHash == null) {
+      res.status(400).json({ error: 'mintTxHash is required for on-chain mint sync' });
       return;
     }
 
@@ -361,8 +371,9 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
       res.status(mintTxVerification.statusCode).json({ error: mintTxVerification.error });
       return;
     }
+    const resolvedTokenId = mintTxVerification.tokenId;
 
-    const existingToken = await db.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [parsedTokenId]);
+    const existingToken = await db.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [resolvedTokenId]);
     if (existingToken.rows.length > 0) {
       res.status(409).json({ error: 'tokenId already exists' });
       return;
@@ -379,7 +390,7 @@ router.post('/mint', authMiddleware, async (req: AuthRequest, res: Response) => 
     await db.query(`
       INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, token_id, mint_tx_hash, wallet_balance, level, experience, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1000, 1, 0, $10)
-    `, [id, name.trim(), req.userAddress, strategy || 'random', description || '', persona || '', avatar, parsedTokenId, normalizedMintTxHash, now]);
+    `, [id, name.trim(), req.userAddress, strategy || 'random', description || '', persona || '', avatar, resolvedTokenId, normalizedMintTxHash, now]);
 
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
     res.json({ agent });
