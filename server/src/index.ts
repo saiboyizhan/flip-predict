@@ -135,6 +135,28 @@ async function main() {
     res.json({ status: 'ok', timestamp: Date.now() });
   });
 
+  // Testnet faucet: credit platform balance (testnet only)
+  app.post('/api/faucet', async (req, res) => {
+    try {
+      const { address, amount } = req.body;
+      if (!address || typeof address !== 'string') {
+        res.status(400).json({ error: 'address required' });
+        return;
+      }
+      const credit = Number(amount) || 10000;
+      await pool.query(
+        `INSERT INTO balances (user_address, available, locked)
+         VALUES ($1, $2, 0)
+         ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2`,
+        [address.toLowerCase(), credit]
+      );
+      const bal = await pool.query('SELECT available, locked FROM balances WHERE user_address = $1', [address.toLowerCase()]);
+      res.json({ success: true, balance: bal.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Create HTTP server
   const server = http.createServer(app);
 
