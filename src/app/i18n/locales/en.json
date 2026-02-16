@@ -398,7 +398,17 @@
     "pendingApproval": "Pending Review",
     "submitForReview": "Market submitted for admin review",
     "approved": "Market approved",
-    "rejected": "Market rejected"
+    "rejected": "Market rejected",
+    "pendingBadge": "Pending",
+    "lowLiquidity": "Low Liquidity",
+    "lowLiquidityWarning": "Low Liquidity Warning",
+    "lowLiquidityDesc": "This market has low trading volume{{volume}} and/or limited liquidity. Large orders may experience significant price impact.",
+    "lowLiquidityCaution": "Low liquidity -- trade with caution",
+    "recentActivity": "Recent Activity",
+    "tradesCount": "{{count}} trades",
+    "relatedMarkets": "Related Markets",
+    "tradeBuy": "BUY",
+    "tradeSell": "SELL"
   },
   "admin": {
     "pendingMarkets": "Pending Markets",
@@ -506,7 +516,8 @@
     "insufficientContractBalance": "Insufficient USDT balance. You have {{balance}} USDT.",
     "riskWarningTitle": "Risk Warning",
     "riskWarningMessage": "Prediction markets involve risk, and you may lose all of your invested capital. Please confirm you understand the risks before proceeding.",
-    "riskAccept": "I Understand, Continue"
+    "riskAccept": "I Understand, Continue",
+    "onChainSellNotSupported": "On-chain mode currently supports buy only"
   },
   "claim": {
     "missedTitle": "Prediction Missed",

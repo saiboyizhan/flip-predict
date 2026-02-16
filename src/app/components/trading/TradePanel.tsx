@@ -250,7 +250,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     }
     // Prevent accidental fallback to API sell when user selected on-chain mode
     if (useOnChain && tradeMode === "sell") {
-      toast.error("On-chain mode currently supports buy only");
+      toast.error(t('trade.onChainSellNotSupported'));
       return;
     }
 
@@ -290,7 +290,10 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         // Notify parent to refresh market data (price, volume, chart)
         onTradeComplete?.();
       } else {
-        toast.error(result.error || t('trade.tradeFailed'));
+        const message = result.error === 'API_UNAVAILABLE'
+          ? 'Backend unavailable. Trade execution is disabled until API reconnects.'
+          : (result.error || t('trade.tradeFailed'));
+        toast.error(message);
       }
     } catch {
       toast.error(t('trade.tradeFailed'));

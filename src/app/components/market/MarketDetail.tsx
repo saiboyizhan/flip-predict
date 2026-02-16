@@ -67,13 +67,13 @@ interface MarketDetailProps {
   };
 }
 
-/** Format a timestamp (ms epoch) to relative time string */
-function timeAgo(timestamp: number): string {
+/** Format a timestamp (ms epoch) to relative time string (i18n-aware) */
+function timeAgo(timestamp: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const diff = Date.now() - timestamp;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+  if (diff < 60_000) return t('notification.justNow');
+  if (diff < 3_600_000) return t('notification.minutesAgo', { count: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t('notification.hoursAgo', { count: Math.floor(diff / 3_600_000) });
+  return t('notification.daysAgo', { count: Math.floor(diff / 86_400_000) });
 }
 
 /** Truncate address to 0x1234...abcd */
@@ -247,9 +247,9 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
               <div>
-                <h4 className="text-sm font-bold text-amber-400">Low Liquidity Warning</h4>
+                <h4 className="text-sm font-bold text-amber-400">{t('market.lowLiquidityWarning')}</h4>
                 <p className="text-amber-300/60 text-xs mt-0.5">
-                  This market has low trading volume{market.volume < 1000 ? ` ($${market.volume.toFixed(0)})` : ""} and/or limited liquidity. Large orders may experience significant price impact.
+                  {t('market.lowLiquidityDesc', { volume: market.volume < 1000 ? ` ($${market.volume.toFixed(0)})` : "" })}
                 </p>
               </div>
             </div>
@@ -407,7 +407,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
           {isLowLiquidity && !isResolved && (
             <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-400">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              <span>Low liquidity -- trade with caution</span>
+              <span>{t('market.lowLiquidityCaution')}</span>
             </div>
           )}
           {isResolved && outcome ? (
@@ -827,14 +827,15 @@ function SettlementActionPanel({
 
 /** Recent Activity Section */
 function RecentActivitySection({ activity }: { activity: MarketActivity[] }) {
+  const { t } = useTranslation();
   if (activity.length === 0) return null;
 
   return (
     <div className="bg-card border border-border p-6 rounded-xl">
       <div className="flex items-center gap-2 mb-4">
         <Activity className="w-5 h-5 text-blue-400" />
-        <h2 className="text-lg font-bold text-foreground">Recent Activity</h2>
-        <span className="text-xs text-muted-foreground ml-auto">{activity.length} trades</span>
+        <h2 className="text-lg font-bold text-foreground">{t('market.recentActivity')}</h2>
+        <span className="text-xs text-muted-foreground ml-auto">{t('market.tradesCount', { count: activity.length })}</span>
       </div>
       <div className="space-y-0 divide-y divide-border">
         {activity.map((item) => (
@@ -845,7 +846,7 @@ function RecentActivitySection({ activity }: { activity: MarketActivity[] }) {
                   ? "bg-red-500/20 text-red-400"
                   : "bg-emerald-500/20 text-emerald-400"
               }`}>
-                {item.type === "sell" ? "SELL" : "BUY"}
+                {item.type === "sell" ? t('market.tradeSell') : t('market.tradeBuy')}
               </span>
               <div>
                 <div className="flex items-center gap-2">
@@ -873,7 +874,7 @@ function RecentActivitySection({ activity }: { activity: MarketActivity[] }) {
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-[60px] justify-end">
                 <Clock className="w-3 h-3" />
-                {timeAgo(item.createdAt)}
+                {timeAgo(item.createdAt, t)}
               </div>
             </div>
           </div>
@@ -885,6 +886,7 @@ function RecentActivitySection({ activity }: { activity: MarketActivity[] }) {
 
 /** Related Markets Section */
 function RelatedMarketsSection({ markets }: { markets: MarketType[] }) {
+  const { t } = useTranslation();
   const { navigate } = useTransitionNavigate();
 
   // Map MarketType to the MarketCard's Market interface
@@ -907,7 +909,7 @@ function RelatedMarketsSection({ markets }: { markets: MarketType[] }) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-bold text-foreground">Related Markets</h2>
+      <h2 className="text-lg font-bold text-foreground">{t('market.relatedMarkets')}</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {markets.map((m) => (
           <MarketCard

@@ -35,17 +35,17 @@ function getNotificationBorderColor(type: string) {
   }
 }
 
-function formatTimestamp(ts: number): string {
+function formatTimestamp(ts: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const now = Date.now();
   const diff = now - ts;
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
 
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
+  if (minutes < 1) return t('notification.justNow');
+  if (minutes < 60) return t('notification.minutesAgo', { count: minutes });
+  if (hours < 24) return t('notification.hoursAgo', { count: hours });
+  if (days < 7) return t('notification.daysAgo', { count: days });
   return new Date(ts).toLocaleDateString();
 }
 
@@ -253,7 +253,7 @@ export default function NotificationsPage() {
 
                   {/* Timestamp */}
                   <span className="text-xs text-muted-foreground/50 flex-shrink-0 whitespace-nowrap">
-                    {formatTimestamp(notification.timestamp)}
+                    {formatTimestamp(notification.timestamp, t)}
                   </span>
                 </div>
               </motion.div>

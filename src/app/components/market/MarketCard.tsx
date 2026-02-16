@@ -153,7 +153,7 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
       {isPending && (
         <div className="absolute top-0 right-0 px-3 py-1 text-xs font-bold bg-amber-500/90 text-black rounded-tr-xl">
           <Bot className="w-3 h-3 inline mr-1" />
-          Pending
+          {t('market.pendingBadge')}
         </div>
       )}
 
@@ -166,7 +166,7 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
           {isLowLiquidity && !isResolved && (
             <span className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/25">
               <AlertTriangle className="w-3 h-3" />
-              Low Liquidity
+              {t('market.lowLiquidity')}
             </span>
           )}
         </div>

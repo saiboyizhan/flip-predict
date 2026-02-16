@@ -16,16 +16,16 @@ function colorFromAddress(seed: string): string {
   return `hsl(${hue}, 65%, 45%)`;
 }
 
-function formatTimeAgo(ts: number): string {
+function formatTimeAgo(ts: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const diff = Date.now() - ts;
   const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return t('notification.justNow');
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) return t('notification.minutesAgo', { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (hours < 24) return t('notification.hoursAgo', { count: hours });
   const days = Math.floor(hours / 24);
-  return `${days}d`;
+  return t('notification.daysAgo', { count: days });
 }
 
 export function TradingFeed() {
@@ -147,7 +147,7 @@ export function TradingFeed() {
                 >
                   {displayName}
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">{formatTimeAgo(ts)}</span>
+                <span className="font-mono text-xs text-muted-foreground">{formatTimeAgo(ts, t)}</span>
               </div>
               <div className="flex items-center gap-1.5 text-sm">
                 {isBuy ? (
