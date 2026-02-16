@@ -1,6 +1,17 @@
-# Synapse -- AI Swarm-Driven Prediction Market on BNB Smart Chain
+# Synapse -- Prediction Market for BSC Meme Ecosystem
 
-An application-level prediction market on BSC where 4 AI agents independently analyze tokens through structured multi-round debate, converge on consensus scores via 16 independent LLM calls, and feed results into a closed-loop trading system with NFA (Non-Fungible Agent) integration, hybrid order execution, and on-chain settlement.
+> **Hackathon Starter Kit Navigation**
+>
+> | Document | Description |
+> |----------|-------------|
+> | [bsc.address](./bsc.address) | Deployed contract addresses + explorer links |
+> | [docs/PROJECT.md](./docs/PROJECT.md) | Problem, solution, business impact, limitations |
+> | [docs/TECHNICAL.md](./docs/TECHNICAL.md) | Architecture, setup guide, demo walkthrough |
+> | [docs/EXTRAS.md](./docs/EXTRAS.md) | Demo video + slide deck |
+>
+> **Live**: https://flippredict.net | **API**: https://flip-backend-production.up.railway.app | **Chain**: BSC Testnet
+
+An application-level prediction market on BSC with NFA (Non-Fungible Agent) integration, hybrid order execution (AMM + CLOB + LMSR), and on-chain settlement.
 
 Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curve graduations, NFA agent performance, and BNB Chain hackathon outcomes.
 
@@ -50,8 +61,6 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 
 ## Key Features
 
-**AI Swarm Consensus** -- 4 specialized agents (security, social, whale, momentum) run through 4 phases with 16 independent GLM calls per analysis. Each agent produces its own assessment, then they cross-review, revise scores based on peer feedback, and a leader agent synthesizes a weighted final score. This is real multi-agent debate, not a single prompt pretending to be multiple agents.
-
 **NFA (Non-Fungible Agent)** -- ERC-721 agents built on the BAP-578 standard. Each NFA has a prediction profile tracking accuracy and reputation, 5 strategy types (conservative, aggressive, contrarian, momentum, random), auto-trade authorization with daily caps, copy-trading for followers, and revenue sharing on profitable copy trades. Agents learn from outcomes and evolve their weights over time.
 
 **Hybrid Trading Engine** -- Three execution paths working together:
@@ -71,7 +80,7 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 | NFA | AI agent ecosystem performance and on-chain metrics |
 | Hackathon | BNB Chain hackathon and community event outcomes |
 
-**A2A Protocol Compatible** -- Each swarm agent publishes a standard A2A Agent Card declaring capabilities, skills, input/output modes, and multi-round discussion support, following the A2A protocol specification.
+**A2A Protocol Compatible** -- Each NFA agent publishes a standard A2A Agent Card declaring capabilities, skills, and input/output modes, following the A2A protocol specification.
 
 **Bilingual Interface** -- Full English and Chinese localization via react-i18next. Language auto-detected from browser with manual toggle.
 
@@ -85,7 +94,7 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 | **Position Assets** | YES/NO are CTF ERC-1155 outcome tokens -- freely transferable, composable, split/merge/redeem | Positions stored in contract mappings (`mapping(uint256 => mapping(address => Position))`), not freely transferable tokens |
 | **Settlement** | UMA Optimistic Oracle: propose answer -> challenge window -> dispute escalation -> DVM vote | Manual + price oracle with backend evidence hash, propose/challenge/finalize flow, on-chain `resolveMarket` |
 | **Pricing** | Orderbook bid/ask midpoint determines probability | AMM complementary pricing (`yesPrice + noPrice = 1`) + LMSR cost function for multi-option |
-| **AI Integration** | None -- pure infrastructure | Core differentiator: NFA agents with strategy types, auto-trading, copy-trading, revenue sharing, learning, swarm consensus |
+| **AI Integration** | None -- pure infrastructure | Core differentiator: NFA agents with strategy types, auto-trading, copy-trading, revenue sharing, and learning |
 | **Scope** | General-purpose prediction infrastructure (any topic) | BSC meme ecosystem vertical: Four.meme, Flap, NFA agents, BNB hackathons |
 | **Architecture** | Standardized market infrastructure (CLOB + CTF + UMA) | Application-level closed loop (PredictionMarket contract + NFA integration + hybrid trading paths) |
 
@@ -100,7 +109,7 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 | Internationalization | react-i18next (English + Chinese) |
 | Backend | Express 5 + TypeScript + PostgreSQL |
 | Real-time | WebSocket (ws) + Server-Sent Events |
-| AI Engine | OpenAI SDK with ZhiPu GLM (16 independent calls per analysis) |
+| AI Engine | OpenAI SDK with ZhiPu GLM |
 | Oracle | Binance Oracle feeds (Chainlink-compatible) + DexScreener API |
 | Market Engine | AMM (constant product) + LMSR + Order Book matching |
 | Smart Contracts | Solidity 0.8.20 + OpenZeppelin v5 + Hardhat |

@@ -1,0 +1,25 @@
+{
+  "contracts": {
+    "PredictionMarket": {
+      "address": "0xbf7eC4e574f27c93f24BFDE9623380804ebaBca5",
+      "explorer": "https://testnet.bscscan.com/address/0xbf7eC4e574f27c93f24BFDE9623380804ebaBca5"
+    },
+    "NFA": {
+      "address": "0xf59Ecd163388197865fC53C6F51298352d925f0E",
+      "explorer": "https://testnet.bscscan.com/address/0xf59Ecd163388197865fC53C6F51298352d925f0E"
+    },
+    "MockUSDT": {
+      "address": "0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F",
+      "explorer": "https://testnet.bscscan.com/address/0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F"
+    }
+  },
+  "network": {
+    "name": "BNB Smart Chain Testnet",
+    "chainId": 97,
+    "rpc": "https://data-seed-prebsc-1-s1.bnbchain.org:8545"
+  },
+  "deployment": {
+    "frontendUrl": "https://flippredict.net",
+    "backendApi": "https://flip-backend-production.up.railway.app"
+  }
+}
