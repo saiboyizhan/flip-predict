@@ -1,4 +1,4 @@
-# Synapse -- Prediction Market for BSC Meme Ecosystem
+# Synapse -- Prediction Market for BSC Ecosystem
 
 > **Hackathon Starter Kit Navigation**
 >
@@ -13,7 +13,7 @@
 
 An application-level prediction market on BSC with NFA (Non-Fungible Agent) integration, hybrid order execution (AMM + CLOB + LMSR), and on-chain settlement.
 
-Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curve graduations, NFA agent performance, and BNB Chain hackathon outcomes.
+Built for the BSC ecosystem: Four.meme token launches, Flap.sh bonding curve graduations, NFA agent performance, and BNB Chain hackathon outcomes.
 
 ## Architecture
 
@@ -71,7 +71,7 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 
 **Settlement Pipeline** -- Multi-step resolution flow: preview (oracle price snapshot) -> propose (with evidence hash) -> optional challenge window -> finalize. Supports manual resolution, price oracle resolution (`price_above` / `price_below` with target), and backend evidence verification with proof digest.
 
-**BSC Meme Ecosystem Focus** -- Four purpose-built market categories:
+**BSC Ecosystem Focus** -- Four purpose-built market categories:
 
 | Category | Focus |
 |----------|-------|
@@ -95,7 +95,7 @@ Built for the BSC meme ecosystem: Four.meme token launches, Flap.sh bonding curv
 | **Settlement** | UMA Optimistic Oracle: propose answer -> challenge window -> dispute escalation -> DVM vote | Manual + price oracle with backend evidence hash, propose/challenge/finalize flow, on-chain `resolveMarket` |
 | **Pricing** | Orderbook bid/ask midpoint determines probability | AMM complementary pricing (`yesPrice + noPrice = 1`) + LMSR cost function for multi-option |
 | **AI Integration** | None -- pure infrastructure | Core differentiator: NFA agents with strategy types, auto-trading, copy-trading, revenue sharing, and learning |
-| **Scope** | General-purpose prediction infrastructure (any topic) | BSC meme ecosystem vertical: Four.meme, Flap, NFA agents, BNB hackathons |
+| **Scope** | General-purpose prediction infrastructure (any topic) | BSC ecosystem vertical: Four.meme, Flap, NFA agents, BNB hackathons |
 | **Architecture** | Standardized market infrastructure (CLOB + CTF + UMA) | Application-level closed loop (PredictionMarket contract + NFA integration + hybrid trading paths) |
 
 ## Tech Stack
