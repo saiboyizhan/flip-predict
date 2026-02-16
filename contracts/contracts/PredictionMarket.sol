@@ -284,9 +284,10 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     // --- CTF: Split / Merge ---
 
     /// @notice Split collateral into YES + NO tokens (1:1:1)
+    /// @dev Restricted to owner (Relayer) to prevent bypassing off-chain AMM.
     /// @param marketId The market to split into
     /// @param amount Amount of USDT (from balance) to split
-    function splitPosition(uint256 marketId, uint256 amount) external nonReentrant whenNotPaused {
+    function splitPosition(uint256 marketId, uint256 amount) external onlyOwner nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         Market storage market = markets[marketId];
         require(market.exists, "Market does not exist");
@@ -304,9 +305,10 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     }
 
     /// @notice Merge YES + NO tokens back into collateral (1:1:1)
+    /// @dev Restricted to owner (Relayer) to prevent bypassing off-chain AMM.
     /// @param marketId The market to merge from
     /// @param amount Amount of YES+NO token pairs to merge
-    function mergePositions(uint256 marketId, uint256 amount) external nonReentrant whenNotPaused {
+    function mergePositions(uint256 marketId, uint256 amount) external onlyOwner nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         Market storage market = markets[marketId];
         require(market.exists, "Market does not exist");
@@ -353,12 +355,13 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     // --- Trading ---
 
     /// @notice Take a YES or NO position on a market using deposited balance
-    /// @dev Mints ERC1155 tokens for the chosen side only (single-sided)
+    /// @dev Restricted to owner (Relayer) to prevent bypassing off-chain AMM pricing.
+    ///      Users trade via the backend AMM; only the Relayer syncs state on-chain.
     function takePosition(
         uint256 marketId,
         bool isYes,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
+    ) external onlyOwner nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         Market storage market = markets[marketId];
         require(market.exists, "Market does not exist");
@@ -381,8 +384,8 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     // --- Claim Winnings ---
 
     /// @notice Claim winnings from a resolved (non-cancelled) market
-    /// @dev Burns winning tokens, pays out proportional share of totalCollateral
-    function claimWinnings(uint256 marketId) external nonReentrant whenNotPaused {
+    /// @dev Restricted to owner (Relayer). Settlement is handled off-chain by keeper.
+    function claimWinnings(uint256 marketId) external onlyOwner nonReentrant whenNotPaused {
         Market storage market = markets[marketId];
         require(market.exists, "Market does not exist");
         require(market.resolved, "Market not resolved");
@@ -512,16 +515,14 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
         marketCreator[marketId] = msg.sender;
 
-        // Initial liquidity: split into YES + NO tokens
+        // Initial liquidity: split into YES + NO tokens (CTF 1:1:1 -- 1 USDT = 1 YES + 1 NO)
         if (initialLiquidity > 0) {
             require(balances[msg.sender] >= initialLiquidity, "Insufficient balance for liquidity");
             balances[msg.sender] -= initialLiquidity;
             markets[marketId].totalCollateral += initialLiquidity;
 
-            uint256 half = initialLiquidity / 2;
-            uint256 otherHalf = initialLiquidity - half;
-            _mint(msg.sender, getYesTokenId(marketId), half, "");
-            _mint(msg.sender, getNoTokenId(marketId), otherHalf, "");
+            _mint(msg.sender, getYesTokenId(marketId), initialLiquidity, "");
+            _mint(msg.sender, getNoTokenId(marketId), initialLiquidity, "");
         }
 
         emit MarketCreated(marketId, title, endTime);

@@ -11,6 +11,13 @@ import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
 
 const router = Router();
 
+/** Check if user is the owner OR active renter of an agent */
+function isOwnerOrRenter(agent: any, userAddress: string): boolean {
+  if (agent.owner_address === userAddress) return true;
+  if (agent.rented_by === userAddress && agent.rent_expires && agent.rent_expires > Date.now()) return true;
+  return false;
+}
+
 const VALID_STRATEGIES = ['conservative', 'aggressive', 'contrarian', 'momentum', 'random'];
 const NFA_RPC_URL = getRpcUrl('NFA_RPC_URL');
 const RAW_NFA_CONTRACT_ADDRESS =
@@ -554,8 +561,8 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: 'Agent not found' });
       return;
     }
-    if (agent.owner_address !== req.userAddress) {
-      res.status(403).json({ error: 'Not the owner' });
+    if (!isOwnerOrRenter(agent, req.userAddress!)) {
+      res.status(403).json({ error: 'Not the owner or renter' });
       return;
     }
 
@@ -717,6 +724,9 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
       UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL WHERE id = $2
     `, [req.userAddress, req.params.id]);
 
+    // Clear previous owner's LLM config (API keys) to prevent key leakage
+    await client.query('DELETE FROM agent_llm_config WHERE agent_id = $1', [req.params.id]);
+
     await client.query('COMMIT');
     committed = true;
 
@@ -825,7 +835,7 @@ router.post('/:id/predict', authMiddleware, async (req: AuthRequest, res: Respon
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const { marketId, prediction, confidence, reasoning } = req.body;
     const parsedConfidence = Number(confidence);
@@ -897,7 +907,7 @@ router.post('/:id/suggest', authMiddleware, async (req: AuthRequest, res: Respon
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const { marketId } = req.body;
     const suggestion = await generateSuggestion(db, req.params.id as string, marketId);
@@ -920,7 +930,7 @@ router.post('/:id/execute-suggestion', authMiddleware, async (req: AuthRequest, 
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const { suggestionId, riskConfirmed } = req.body;
     if (!riskConfirmed) {
@@ -949,7 +959,7 @@ router.post('/:id/authorize-trade', authMiddleware, async (req: AuthRequest, res
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const parsedMaxPerTrade = parsePositiveNumber(req.body?.maxPerTrade);
     const parsedMaxDailyAmount = parsePositiveNumber(req.body?.maxDailyAmount);
@@ -989,7 +999,7 @@ router.post('/:id/revoke-trade', authMiddleware, async (req: AuthRequest, res: R
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     await db.query(`
       UPDATE agents SET
@@ -1017,8 +1027,8 @@ router.put('/:id/vault', authMiddleware, async (req: AuthRequest, res: Response)
 
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address.toLowerCase() !== userAddress!.toLowerCase()) {
-      res.status(403).json({ error: 'Not owner' });
+    if (!isOwnerOrRenter(agent, userAddress!)) {
+      res.status(403).json({ error: 'Not owner or renter' });
       return;
     }
 
@@ -1066,7 +1076,7 @@ router.post('/:id/learn-from-owner', authMiddleware, async (req: AuthRequest, re
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const { enabled } = req.body;
     const val = enabled ? 1 : 0;
@@ -1095,7 +1105,7 @@ router.get('/:id/owner-profile', authMiddleware, async (req: AuthRequest, res: R
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     if (!agent.learn_from_owner) {
       res.json({ profile: null, influence: null, enabled: false });
@@ -1123,7 +1133,7 @@ router.put('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Resp
     const db = getDb();
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const { provider, model, apiKey, baseUrl, systemPrompt, temperature, maxTokens } = req.body;
 
@@ -1181,7 +1191,7 @@ router.get('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Resp
     const db = getDb();
     const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const config = (await db.query('SELECT * FROM agent_llm_config WHERE agent_id = $1', [req.params.id])).rows[0] as any;
     if (!config) {
@@ -1224,7 +1234,7 @@ router.delete('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: R
     const db = getDb();
     const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     await db.query('DELETE FROM agent_llm_config WHERE agent_id = $1', [req.params.id]);
     res.json({ success: true });
@@ -1240,7 +1250,7 @@ router.post('/:id/llm-config/toggle', authMiddleware, async (req: AuthRequest, r
     const db = getDb();
     const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (agent.owner_address !== req.userAddress) { res.status(403).json({ error: 'Not the owner' }); return; }
+    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
     const { enabled } = req.body;
     const val = enabled ? 1 : 0;

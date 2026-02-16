@@ -4,7 +4,7 @@ import { StrategyType } from './agent-strategy';
 import { executeCopyTrades } from './copy-trade';
 import { generateLlmDecisions } from './agent-llm-adapter';
 import { syncOwnerProfile, getOwnerInfluence } from './agent-owner-learning';
-import { executeBuy } from './matching';
+import { executeBuy, executeSell } from './matching';
 
 interface AutoTradeAgent {
   id: string;
@@ -80,44 +80,44 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 
   const maxPerTrade = agent.max_per_trade || 100;
 
-  let { wallet_balance, total_trades, winning_trades, total_profit, experience, level } = agent;
+  let { wallet_balance, total_trades, experience, level } = agent;
   let totalDailyUsed = dailyUsed;
   let executedTrades = 0;
 
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
+  // NO outer transaction -- executeBuy/executeSell each manage their own transactions.
+  // Wrapping them in an outer BEGIN would cause deadlocks (connection A holds row lock,
+  // executeBuy gets connection B which waits for the same lock).
+  const agentAddress = `agent:${agentId}`;
 
-    // Ensure agent has a balances row for AMM trading (use agent id as virtual address: "agent:<id>")
-    const agentAddress = `agent:${agentId}`;
-    await client.query(`
-      INSERT INTO balances (user_address, available, locked)
-      VALUES ($1, $2, 0)
-      ON CONFLICT (user_address) DO UPDATE SET available = $2
-    `, [agentAddress, wallet_balance]);
+  // Ensure agent has a balances row for AMM trading (DO NOTHING to avoid overwriting
+  // keeper settlement rewards with stale wallet_balance)
+  await db.query(`
+    INSERT INTO balances (user_address, available, locked)
+    VALUES ($1, $2, 0)
+    ON CONFLICT (user_address) DO NOTHING
+  `, [agentAddress, wallet_balance]);
 
-    for (const d of decisions) {
-      if (d.action !== 'buy') continue;
+  for (const d of decisions) {
+    if (d.action === 'hold') continue;
+    if (d.action !== 'buy' && d.action !== 'sell') continue;
 
-      // Apply per-trade limit
+    // Circuit breaker: stop if daily losses exceed 20% of max daily
+    const todayStartMs = todayDay * 86400000;
+    const dailyProfit = (await db.query(
+      "SELECT COALESCE(SUM(profit), 0) as total FROM agent_trades WHERE agent_id = $1 AND created_at >= $2",
+      [agentId, todayStartMs]
+    )).rows[0] as any;
+
+    if (dailyProfit && dailyProfit.total < -(maxDaily * 0.2)) {
+      break;
+    }
+
+    if (d.action === 'buy') {
+      // === BUY ===
       const tradeAmount = Math.min(d.amount, maxPerTrade);
       if (tradeAmount > wallet_balance || tradeAmount < 0.01) continue;
-
-      // Check daily limit
       if (totalDailyUsed + tradeAmount > maxDaily) continue;
 
-      // Circuit breaker: stop if daily losses exceed 20% of max daily
-      const todayStartMs = todayDay * 86400000;
-      const dailyProfit = (await client.query(
-        "SELECT COALESCE(SUM(profit), 0) as total FROM agent_trades WHERE agent_id = $1 AND created_at >= $2",
-        [agentId, todayStartMs]
-      )).rows[0] as any;
-
-      if (dailyProfit && dailyProfit.total < -(maxDaily * 0.2)) {
-        break;
-      }
-
-      // Execute real AMM trade (no more Math.random simulation)
       let orderResult;
       try {
         orderResult = await executeBuy(db, agentAddress, d.marketId, d.side as 'yes' | 'no', tradeAmount);
@@ -135,23 +135,19 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       const newLevel = Math.min(10, Math.floor(experience / 100) + 1);
       if (newLevel > level) level = newLevel;
 
-      // Record agent trade (outcome pending -- settled by keeper.ts)
       const tradeId = randomUUID();
-      await client.query(`
+      await db.query(`
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 0, $8)
       `, [
-        tradeId,
-        agentId,
-        d.marketId,
-        d.side,
+        tradeId, agentId, d.marketId, d.side,
         tradeAmount,
         Math.round(orderResult.shares * 100) / 100,
         Math.round(orderResult.price * 10000) / 10000,
         Date.now()
       ]);
 
-      // Execute copy trades for followers (also goes through real AMM now)
+      // Copy trades for followers
       try {
         await executeCopyTrades(db, agentId, tradeId, {
           marketId: d.marketId,
@@ -162,40 +158,75 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       } catch (copyErr: any) {
         console.error(`Copy trade execution error for agent ${agentId}:`, copyErr.message);
       }
+
+    } else if (d.action === 'sell') {
+      // === SELL (take profit / stop loss) ===
+      const posRes = await db.query(
+        'SELECT shares FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+        [agentAddress, d.marketId, d.side]
+      );
+      const pos = posRes.rows[0];
+      if (!pos || Number(pos.shares) < 0.01) continue;
+
+      const sharesToSell = Math.min(Number(pos.shares), d.amount);
+      if (sharesToSell < 0.01) continue;
+
+      let sellResult;
+      try {
+        sellResult = await executeSell(db, agentAddress, d.marketId, d.side as 'yes' | 'no', sharesToSell);
+      } catch (sellErr: any) {
+        console.error(`Agent ${agentId} AMM sell failed for market ${d.marketId}:`, sellErr.message);
+        continue;
+      }
+
+      wallet_balance += sellResult.amountOut;
+      total_trades += 1;
+      executedTrades += 1;
+      experience += 10;
+
+      const newLevel = Math.min(10, Math.floor(experience / 100) + 1);
+      if (newLevel > level) level = newLevel;
+
+      const tradeId = randomUUID();
+      await db.query(`
+        INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'sold', $8, $9)
+      `, [
+        tradeId, agentId, d.marketId, d.side,
+        Math.round(sellResult.amountOut * 100) / 100,
+        Math.round(sharesToSell * 100) / 100,
+        Math.round(sellResult.price * 10000) / 10000,
+        Math.round(sellResult.amountOut * 100) / 100,
+        Date.now()
+      ]);
     }
-
-    // Sync balances table back to wallet_balance
-    const finalBal = (await client.query(
-      'SELECT available FROM balances WHERE user_address = $1', [agentAddress]
-    )).rows[0];
-    if (finalBal) wallet_balance = Number(finalBal.available);
-
-    await client.query(`
-      UPDATE agents SET
-        wallet_balance = $1,
-        total_trades = $2,
-        experience = $3,
-        level = $4,
-        daily_trade_used = $5,
-        last_trade_at = $6
-      WHERE id = $7
-    `, [
-      Math.round(wallet_balance * 100) / 100,
-      total_trades,
-      experience,
-      level,
-      totalDailyUsed,
-      executedTrades > 0 ? now : agent.last_trade_at,
-      agentId
-    ]);
-
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
   }
+
+  // Sync balances table back to wallet_balance
+  const finalBal = (await db.query(
+    'SELECT available FROM balances WHERE user_address = $1', [agentAddress]
+  )).rows[0];
+  if (finalBal) wallet_balance = Number(finalBal.available);
+
+  // Update agent stats (no wrapping transaction needed -- single atomic UPDATE)
+  await db.query(`
+    UPDATE agents SET
+      wallet_balance = $1,
+      total_trades = $2,
+      experience = $3,
+      level = $4,
+      daily_trade_used = $5,
+      last_trade_at = $6
+    WHERE id = $7
+  `, [
+    Math.round(wallet_balance * 100) / 100,
+    total_trades,
+    experience,
+    level,
+    totalDailyUsed,
+    executedTrades > 0 ? now : agent.last_trade_at,
+    agentId
+  ]);
 }
 
 export function startAutoTrader(db: Pool, intervalMs: number = 60000): NodeJS.Timeout {

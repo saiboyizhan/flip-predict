@@ -305,22 +305,30 @@ export async function settleMarketPositions(client: any, marketId: string, winni
     return;
   }
 
-  // Bug SETTLE-1 Fix: Calculate actual net deposits from filled orders instead of
-  // using shares * avg_cost. The old formula (principal + bonus) can overpay when
-  // users have done intermediate sells at profit — the AMM already paid out money
-  // that the position-based accounting doesn't track.
-  // net_deposits = total buy amounts - total sell payouts = actual money in pool.
-  const netDepositRes = await client.query(`
-    SELECT
-      COALESCE(SUM(CASE WHEN type = 'buy' THEN amount ELSE 0 END), 0) -
-      COALESCE(SUM(CASE WHEN type = 'sell' THEN amount ELSE 0 END), 0) as net_deposits
-    FROM orders
-    WHERE market_id = $1 AND status = 'filled'
-  `, [marketId]);
-  const netDeposits = Math.max(0, Number(netDepositRes.rows[0].net_deposits));
+  // Pre-fetch copy trade relationships for this market to calculate revenue sharing.
+  // Maps follower_address -> { agent_id, revenue_share_pct, copy_trade_id, cost }
+  const copyTradeMap = new Map<string, { agent_id: string; revenue_share_pct: number; copy_trade_id: string; cost: number }>();
+  const ctRes = await client.query(
+    `SELECT ct.id, ct.follower_address, ct.agent_id, ct.amount as cost,
+            COALESCE(af.revenue_share_pct, 10) as revenue_share_pct
+     FROM copy_trades ct
+     JOIN agent_followers af ON af.agent_id = ct.agent_id AND af.follower_address = ct.follower_address
+     WHERE ct.market_id = $1 AND ct.side = $2 AND ct.status = 'open'`,
+    [marketId, winningSide]
+  );
+  for (const row of ctRes.rows) {
+    copyTradeMap.set(row.follower_address, {
+      agent_id: row.agent_id,
+      revenue_share_pct: Number(row.revenue_share_pct),
+      copy_trade_id: row.id,
+      cost: Number(row.cost),
+    });
+  }
 
+  // CTF settlement: 1 winning share = 1 USDT (not pari-mutuel proportional split).
+  // In CPMM + CTF model, winning shares redeem 1:1 against the collateral pool.
   for (const winner of winners) {
-    const reward = (Number(winner.shares) / totalWinnerShares) * netDeposits;
+    const reward = Number(winner.shares);
 
     // P1-7 Fix: Validate reward is finite and non-negative before crediting
     if (!Number.isFinite(reward) || reward < 0) {
@@ -328,21 +336,82 @@ export async function settleMarketPositions(client: any, marketId: string, winni
       continue;
     }
 
-    // Bug C7 Fix: Use UPSERT to handle users who may not have a balance row yet
+    let followerPayout = reward;
+    const copyInfo = copyTradeMap.get(winner.user_address);
+
+    // Revenue sharing: if this winner is a copy-trade follower, deduct commission
+    if (copyInfo) {
+      const profit = reward - copyInfo.cost;
+      if (profit > 0) {
+        const commission = Math.round(profit * (copyInfo.revenue_share_pct / 100) * 100) / 100;
+        followerPayout = reward - commission;
+
+        // Credit commission to agent creator's balance
+        const agentAddress = `agent:${copyInfo.agent_id}`;
+        await client.query(
+          `INSERT INTO balances (user_address, available, locked) VALUES ($2, $1, 0)
+           ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $1`,
+          [commission, agentAddress]
+        );
+
+        // Record in agent_earnings
+        await client.query(`
+          INSERT INTO agent_earnings (id, agent_id, source, amount, follower_address, claimed, created_at)
+          VALUES ($1, $2, 'copy_trade_commission', $3, $4, 0, $5)
+        `, [randomUUID(), copyInfo.agent_id, commission, winner.user_address, now]);
+
+        // Update copy_trades record
+        await client.query(
+          `UPDATE copy_trades SET status = 'settled', outcome = 'won', profit = $1, revenue_share = $2 WHERE id = $3`,
+          [profit, commission, copyInfo.copy_trade_id]
+        );
+
+        await client.query(`
+          INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
+          VALUES ($1, $2, 'revenue_share', $3, $4, $5, $6)
+        `, [
+          randomUUID(), marketId, winner.user_address, commission,
+          JSON.stringify({ agent_id: copyInfo.agent_id, profit, pct: copyInfo.revenue_share_pct, commission }),
+          now
+        ]);
+      } else {
+        // No profit (or loss) -- no commission, but still settle the copy trade record
+        await client.query(
+          `UPDATE copy_trades SET status = 'settled', outcome = 'won', profit = $1, revenue_share = 0 WHERE id = $2`,
+          [profit, copyInfo.copy_trade_id]
+        );
+      }
+    }
+
+    // Credit winner's balance (after commission deduction if applicable)
     await client.query(
       `INSERT INTO balances (user_address, available, locked) VALUES ($2, $1, 0)
        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $1`,
-      [reward, winner.user_address]
+      [followerPayout, winner.user_address]
     );
 
     await client.query(`
       INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
       VALUES ($1, $2, 'settle_winner', $3, $4, $5, $6)
     `, [
-      randomUUID(), marketId, winner.user_address, reward,
-      JSON.stringify({ shares: Number(winner.shares), reward, pool: netDeposits, side: winningSide }),
+      randomUUID(), marketId, winner.user_address, followerPayout,
+      JSON.stringify({ shares: Number(winner.shares), reward, payout: followerPayout, side: winningSide }),
       now
     ]);
+  }
+
+  // Settle losing copy trades
+  for (const loser of losers) {
+    const loserCopy = await client.query(
+      `SELECT id FROM copy_trades WHERE market_id = $1 AND follower_address = $2 AND side = $3 AND status = 'open'`,
+      [marketId, loser.user_address, loser.side]
+    );
+    for (const ct of loserCopy.rows) {
+      await client.query(
+        `UPDATE copy_trades SET status = 'settled', outcome = 'lost', profit = 0, revenue_share = 0 WHERE id = $1`,
+        [ct.id]
+      );
+    }
   }
 
   for (const loser of losers) {
