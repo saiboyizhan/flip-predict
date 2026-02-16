@@ -18,7 +18,8 @@ import { LimitOrderForm } from "../trading/LimitOrderForm";
 import { OpenOrders } from "../trading/OpenOrders";
 import { CommentSection } from "./CommentSection";
 import { PriceChart } from "./PriceChart";
-import { challengeSettlement, finalizeSettlement, getSettlement, proposeSettlement, fetchMarketActivity, fetchRelatedMarkets } from "@/app/services/api";
+import { challengeSettlement, finalizeSettlement, getSettlement, proposeSettlement, fetchMarketActivity, fetchRelatedMarkets, fetchMarket } from "@/app/services/api";
+import { subscribeMarket, unsubscribeMarket } from "@/app/services/ws";
 import type { MarketActivity } from "@/app/services/api";
 import type { Market as MarketType } from "@/app/types/market.types";
 import { useAuthStore } from "@/app/stores/useAuthStore";
@@ -88,6 +89,48 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isAdmin = useAuthStore((s) => s.isAdmin);
   const [prefilledPrice, setPrefilledPrice] = useState<number | undefined>();
+
+  // Live price state (overrides props when WS updates arrive)
+  const [liveYesPrice, setLiveYesPrice] = useState(market.yesPrice);
+  const [liveNoPrice, setLiveNoPrice] = useState(market.noPrice);
+  const [liveVolume, setLiveVolume] = useState(market.volume);
+  const [liveParticipants, setLiveParticipants] = useState(market.participants);
+  const [chartRefreshKey, setChartRefreshKey] = useState(0);
+
+  // Sync from props when market changes (e.g. navigating between markets)
+  useEffect(() => {
+    setLiveYesPrice(market.yesPrice);
+    setLiveNoPrice(market.noPrice);
+    setLiveVolume(market.volume);
+    setLiveParticipants(market.participants);
+  }, [market.id, market.yesPrice, market.noPrice, market.volume, market.participants]);
+
+  // Subscribe to WebSocket price updates
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (data.type === 'price_update') {
+        setLiveYesPrice(data.yesPrice);
+        setLiveNoPrice(data.noPrice);
+      }
+    };
+    subscribeMarket(market.id, handler);
+    return () => { unsubscribeMarket(market.id, handler); };
+  }, [market.id]);
+
+  // Callback when a trade completes -- refetch market data
+  const handleTradeComplete = useCallback(() => {
+    fetchMarket(market.id).then((m) => {
+      setLiveVolume(m.volume);
+      setLiveParticipants(m.participants);
+      setLiveYesPrice(m.yesPrice);
+      setLiveNoPrice(m.noPrice);
+    }).catch(() => {});
+    // Trigger chart re-fetch
+    setChartRefreshKey((k) => k + 1);
+  }, [market.id]);
+
+  // Build a live version of market for child components
+  const liveMarket = { ...market, yesPrice: liveYesPrice, noPrice: liveNoPrice, volume: liveVolume, participants: liveParticipants };
   const [settlement, setSettlement] = useState<{
     resolution_type?: string;
     oracle_pair?: string;
@@ -175,7 +218,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
       {/* Left Column */}
       <div className="lg:col-span-8 space-y-4 sm:space-y-6">
         {/* Header */}
-        <MarketHeader market={market} />
+        <MarketHeader market={liveMarket} />
 
         {/* Status + Countdown + Resolution Badge */}
         <div className="flex flex-wrap items-center gap-2">
@@ -318,7 +361,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
             <h2 className="text-sm sm:text-base font-bold text-foreground">{t('market.probTrend')}</h2>
           </div>
           <div className="w-full overflow-x-auto">
-            <PriceChart marketId={market.id} marketType={market.marketType} options={market.options} />
+            <PriceChart key={chartRefreshKey} marketId={market.id} marketType={market.marketType} options={market.options} />
           </div>
         </div>
 
@@ -388,6 +431,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
                 status={market.status}
                 marketType={market.marketType}
                 options={market.options}
+                onTradeComplete={handleTradeComplete}
               />
               <OrderBook
                 marketId={market.id}

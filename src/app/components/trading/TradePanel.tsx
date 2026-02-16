@@ -20,12 +20,13 @@ interface TradePanelProps {
   status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved" | "pending" | "closed" | "disputed";
   marketType?: "binary" | "multi";
   options?: MarketOption[];
+  onTradeComplete?: () => void;
 }
 
 const QUICK_AMOUNTS = [10, 50, 100, 500];
 const RISK_ACCEPTED_KEY = "prediction_risk_accepted";
 
-export function TradePanel({ marketId, onChainMarketId, marketTitle, status, marketType, options }: TradePanelProps) {
+export function TradePanel({ marketId, onChainMarketId, marketTitle, status, marketType, options, onTradeComplete }: TradePanelProps) {
   const { t } = useTranslation();
   const { address } = useAccount();
   const chainId = useChainId();
@@ -286,6 +287,8 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
           setAmount("10");
         }
         setTimeout(() => setShowSuccess(false), 1500);
+        // Notify parent to refresh market data (price, volume, chart)
+        onTradeComplete?.();
       } else {
         toast.error(result.error || t('trade.tradeFailed'));
       }
