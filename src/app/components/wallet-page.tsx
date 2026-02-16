@@ -7,7 +7,7 @@ import { useAppKit } from "@reown/appkit/react";
 import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds } from "../services/api";
-import { useDeposit, useWithdraw, useContractBalance, useTxNotifier } from "../hooks/useContracts";
+import { useDeposit, useWithdraw, useContractBalance, useTxNotifier, useMintTestUSDT } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 
 interface Transaction {
@@ -80,6 +80,22 @@ export function WalletPage() {
     isLoading: contractBalanceLoading,
     refetch: refetchContractBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
+
+  // Testnet faucet
+  const mintTestUSDT = useMintTestUSDT();
+  useTxNotifier(
+    mintTestUSDT.txHash,
+    mintTestUSDT.isLoading && !mintTestUSDT.isConfirmed,
+    mintTestUSDT.isConfirmed,
+    mintTestUSDT.error as Error | null,
+    "Mint Test USDT",
+  );
+  useEffect(() => {
+    if (mintTestUSDT.isConfirmed) {
+      refetchContractBalance();
+      mintTestUSDT.reset();
+    }
+  }, [mintTestUSDT.isConfirmed, refetchContractBalance, mintTestUSDT.reset]);
 
   // Refs to capture values at submission time (avoids stale closures in confirm effects)
   const depositAmountRef = useRef(depositAmount);
@@ -466,8 +482,8 @@ export function WalletPage() {
               )}
             </div>
 
-            {/* Deposit / Withdraw Buttons */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Deposit / Withdraw / Faucet Buttons */}
+            <div className="grid grid-cols-3 gap-3">
               <button
                 onClick={() => { setShowDepositForm(true); setShowWithdrawForm(false); }}
                 className="py-2.5 px-4 bg-card border border-border rounded-lg hover:border-blue-500/50 hover:bg-blue-500/5 text-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2"
@@ -481,6 +497,14 @@ export function WalletPage() {
               >
                 <Minus className="w-4 h-4 text-blue-500" />
                 {t('wallet.withdraw')}
+              </button>
+              <button
+                onClick={() => address && mintTestUSDT.mint(address as `0x${string}`, '10000')}
+                disabled={mintTestUSDT.isLoading || !address}
+                className="py-2.5 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 hover:bg-emerald-500/15 text-emerald-500 font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Zap className="w-4 h-4" />
+                {mintTestUSDT.isLoading ? t('common.loading') : t('wallet.faucet', { defaultValue: 'Get 10K Test USDT' })}
               </button>
             </div>
 

@@ -19,6 +19,7 @@ import {
   PREDICTION_MARKET_ADDRESS,
   USDT_ADDRESS,
   ERC20_ABI,
+  MOCK_USDT_MINT_ABI,
 } from '@/app/config/contracts';
 
 // ----------------------------------------------------------------
@@ -669,4 +670,46 @@ export function useTxNotifier(
       toast.error(`${label}: ${msg}`);
     }
   }, [error, label, t]);
+}
+
+// ----------------------------------------------------------------
+// useMintTestUSDT  --  mint test USDT on testnet (MockUSDT)
+// ----------------------------------------------------------------
+
+export function useMintTestUSDT() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const mint = useCallback(
+    (to: `0x${string}`, amount: string = '10000') => {
+      reset();
+      writeContract({
+        address: USDT_ADDRESS,
+        abi: MOCK_USDT_MINT_ABI,
+        functionName: 'mint',
+        args: [to, parseUnits(amount, 18)],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    mint,
+    txHash,
+    isLoading: isWriting || isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
 }

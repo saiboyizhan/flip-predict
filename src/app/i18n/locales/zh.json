@@ -393,7 +393,8 @@
     "contractBalanceLabel": "合约余额",
     "insufficientBnb": "钱包 USDT 余额不足",
     "insufficientContractBalance": "合约余额不足",
-    "refreshBalance": "刷新合约余额"
+    "refreshBalance": "刷新合约余额",
+    "faucet": "领取 10K 测试 USDT"
   },
   "agents": {
     "title": "AI Agents",

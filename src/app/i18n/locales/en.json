@@ -322,7 +322,8 @@
     "contractBalanceLabel": "Contract Balance",
     "insufficientBnb": "Insufficient USDT balance in wallet",
     "insufficientContractBalance": "Insufficient contract balance",
-    "refreshBalance": "Refresh contract balance"
+    "refreshBalance": "Refresh contract balance",
+    "faucet": "Get 10K Test USDT"
   },
   "agents": {
     "title": "AI Agents",

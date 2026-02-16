@@ -17,7 +17,23 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
 // -----------------------------------------------------------------
 // BSC USDT (BEP-20) — 18 decimals
 // -----------------------------------------------------------------
-export const USDT_ADDRESS = '0x55d398326f99059fF775485246999027B3197955' as `0x${string}`;
+export const USDT_ADDRESS = (
+  import.meta.env.VITE_USDT_ADDRESS ||
+  '0x55d398326f99059fF775485246999027B3197955'
+) as `0x${string}`;
+
+export const MOCK_USDT_MINT_ABI = [
+  {
+    name: 'mint',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+] as const;
 
 export const ERC20_ABI = [
   {
