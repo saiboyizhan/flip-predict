@@ -3,24 +3,12 @@ import { defineChain, parseGwei } from "viem";
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 
-const bsc = defineChain({
-  id: 56,
-  name: "BNB Smart Chain",
-  nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://bsc-dataseed.binance.org/"] },
-  },
-  blockExplorers: {
-    default: { name: "BscScan", url: "https://bscscan.com" },
-  },
-});
-
 const bscTestnet = defineChain({
   id: 97,
   name: "BNB Smart Chain Testnet",
   nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://bsc-testnet-rpc.publicnode.com"] },
+    default: { http: ["https://data-seed-prebsc-1-s1.bnbchain.org:8545"] },
   },
   blockExplorers: {
     default: { name: "BscScan Testnet", url: "https://testnet.bscscan.com" },
@@ -40,25 +28,25 @@ if (!projectId || projectId === "YOUR_WALLETCONNECT_PROJECT_ID") {
   );
 }
 
-const chains = [bscTestnet, bsc] as const;
+const chains = [bscTestnet] as const;
 
 const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks: chains,
   transports: {
-    [bsc.id]: http("https://bsc-dataseed.binance.org/"),
-    [bscTestnet.id]: http("https://bsc-testnet-rpc.publicnode.com"),
+    [bscTestnet.id]: http("https://data-seed-prebsc-1-s1.bnbchain.org:8545"),
   },
 });
 
 createAppKit({
   adapters: [wagmiAdapter],
   networks: chains,
+  defaultNetwork: bscTestnet,
   projectId,
   metadata: {
     name: "Flip Prediction Market",
     description: "AI-Powered Prediction Market on BSC",
-    url: typeof window !== "undefined" ? window.location.origin : "https://flip.market",
+    url: typeof window !== "undefined" ? window.location.origin : "https://flippredict.net",
     icons: [],
   },
   themeMode: "dark",

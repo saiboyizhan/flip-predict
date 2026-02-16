@@ -11,7 +11,7 @@ import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
 import type { Agent } from "@/app/services/api";
 import { AgentCard } from "./AgentCard";
 import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract, useSwitchChain } from "wagmi";
-import { zeroAddress, zeroHash } from "viem";
+import { zeroAddress, zeroHash, parseGwei } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -68,6 +68,7 @@ export function MintAgent() {
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mintInFlightRef = useRef(false);
 
   const avatarSrc = uploadedAvatar ?? (selectedAvatar !== null ? PRESET_AVATARS[selectedAvatar].src : null);
 
@@ -128,6 +129,9 @@ export function MintAgent() {
   };
 
   const handleMint = async () => {
+    if (mintInFlightRef.current || loading) {
+      return;
+    }
     if (!name.trim()) {
       toast.error(t("agent.enterName"));
       return;
@@ -166,25 +170,47 @@ export function MintAgent() {
     }
 
     setLoading(true);
+    mintInFlightRef.current = true;
     try {
+      const bytecode = await publicClient.getBytecode({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+      });
+      if (!bytecode || bytecode === "0x") {
+        throw new Error(`NFA contract not deployed on chain ${BSC_TESTNET_CHAIN_ID}: ${NFA_CONTRACT_ADDRESS}`);
+      }
+
+      // Guard against nonce replacement failures caused by existing pending txs.
+      const latestNonce = await publicClient.getTransactionCount({
+        address,
+        blockTag: "latest",
+      });
+      const pendingNonce = await publicClient.getTransactionCount({
+        address,
+        blockTag: "pending",
+      });
+      if (pendingNonce > latestNonce) {
+        throw new Error(
+          "You have pending wallet transactions. Please Speed Up or Cancel pending tx first, then mint again."
+        );
+      }
+
       // Double-check on-chain mintCount before sending tx
-      if (publicClient) {
-        const chainCount = await publicClient.readContract({
-          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
-          abi: NFA_ABI,
-          functionName: "mintCount",
-          args: [address],
-        }) as bigint;
-        if (Number(chainCount) >= MAX_AGENTS_PER_ADDRESS) {
-          toast.error(t("agent.maxAgentsReachedOnChain", {
-            defaultValue: `On-chain limit reached: you already minted ${chainCount}/${MAX_AGENTS_PER_ADDRESS} agents`,
-          }));
-          setLoading(false);
-          return;
-        }
+      const chainCount = await publicClient.readContract({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: "mintCount",
+        args: [address],
+      }) as bigint;
+      if (Number(chainCount) >= MAX_AGENTS_PER_ADDRESS) {
+        toast.error(t("agent.maxAgentsReachedOnChain", {
+          defaultValue: `On-chain limit reached: you already minted ${chainCount}/${MAX_AGENTS_PER_ADDRESS} agents`,
+        }));
+        setLoading(false);
+        return;
       }
 
       const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
+      // Force gas price to 10 gwei to avoid "underpriced" rejection on BSC Testnet
       const txHash = await writeContractAsync({
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
         abi: NFA_ABI,
@@ -198,6 +224,8 @@ export function MintAgent() {
           vaultHash: zeroHash,
           avatarId,
         }],
+        gasPrice: parseGwei("10"),
+        gas: BigInt(500_000),
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
@@ -220,60 +248,47 @@ export function MintAgent() {
         }
       }
 
-      // Fallback: BSC testnet RPCs sometimes return empty logs.
-      // Read on-chain state to find the tokenId instead.
-      if (tokenId == null) {
-        const nfaAddr = NFA_CONTRACT_ADDRESS as `0x${string}`;
-        const balance = await publicClient.readContract({
-          address: nfaAddr,
-          abi: NFA_ABI,
-          functionName: "balanceOf",
-          args: [address],
-        }) as bigint;
-        if (balance > 0n) {
-          tokenId = await publicClient.readContract({
-            address: nfaAddr,
-            abi: NFA_ABI,
-            functionName: "tokenOfOwnerByIndex",
-            args: [address, balance - 1n],
-          }) as bigint;
-        }
-      }
-
-      // Last resort: read totalSupply - 1
-      if (tokenId == null) {
-        const supply = await publicClient.readContract({
-          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
-          abi: NFA_ABI,
-          functionName: "totalSupply",
-          args: [],
-        }) as bigint;
-        if (supply > 0n) {
-          tokenId = supply - 1n;
-        }
-      }
-
-      if (tokenId == null) {
-        tokenId = 0n; // absolute fallback
-      }
-
-      const agent = await mintAgent({
+      const payload: {
+        name: string;
+        strategy: string;
+        description: string;
+        persona: string;
+        avatar: string;
+        tokenId?: string;
+        mintTxHash: string;
+      } = {
         name: name.trim(),
         strategy,
         description: description.trim(),
         persona: persona.trim(),
         avatar: avatarSrc!,
-        tokenId: tokenId.toString(),
         mintTxHash: txHash,
-      });
+      };
+      if (tokenId != null) {
+        payload.tokenId = tokenId.toString();
+      }
+
+      const agent = await mintAgent(payload);
       addAgent(agent);
-      toast.success(`${t("agent.mintSuccess")} #${tokenId.toString()}`);
+      toast.success(tokenId != null ? `${t("agent.mintSuccess")} #${tokenId.toString()}` : t("agent.mintSuccess"));
       const scanUrl = getBscScanUrl(chainId);
       window.open(`${scanUrl}/tx/${txHash}`, "_blank");
       navigate("/agents");
     } catch (err: any) {
-      toast.error(err.message || t("agent.mintFailed"));
+      const message = err?.message || t("agent.mintFailed");
+      if (
+        typeof message === "string" &&
+        (message.toLowerCase().includes("replacement transaction underpriced") ||
+          message.toLowerCase().includes("nonce too low"))
+      ) {
+        toast.error(
+          "Pending transaction conflict detected. Please Speed Up/Cancel the pending tx in wallet, then retry mint."
+        );
+      } else {
+        toast.error(message);
+      }
     } finally {
+      mintInFlightRef.current = false;
       setLoading(false);
     }
   };
