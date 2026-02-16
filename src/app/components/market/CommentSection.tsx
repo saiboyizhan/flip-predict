@@ -290,7 +290,7 @@ export function CommentSection({ marketId }: CommentSectionProps) {
   const handleReply = async (parentId: string, content: string) => {
     try {
       const data = await fetch(
-        `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/api/comments/${marketId}`,
+        `${import.meta.env.VITE_API_URL || "https://flip-backend-production.up.railway.app"}/api/comments/${marketId}`,
         {
           method: "POST",
           headers: {

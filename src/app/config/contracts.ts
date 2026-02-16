@@ -5,9 +5,12 @@
  * balances, getMarket, getPosition, and key events.
  */
 
+// BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
+const DEFAULT_PM_ADDRESS = '0xf250530B3938329F40FA24996e0975Ccdd7381d7'
+
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
-  '0x0000000000000000000000000000000000000000'
+  DEFAULT_PM_ADDRESS
 ) as `0x${string}`;
 
 if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') {
@@ -17,9 +20,12 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
 // -----------------------------------------------------------------
 // BSC USDT (BEP-20) — 18 decimals
 // -----------------------------------------------------------------
+// BSC Testnet MockUSDT address
+const DEFAULT_USDT_ADDRESS = '0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F'
+
 export const USDT_ADDRESS = (
   import.meta.env.VITE_USDT_ADDRESS ||
-  '0x55d398326f99059fF775485246999027B3197955'
+  DEFAULT_USDT_ADDRESS
 ) as `0x${string}`;
 
 export const MOCK_USDT_MINT_ABI = [

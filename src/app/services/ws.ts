@@ -1,4 +1,4 @@
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001'
+const WS_URL = import.meta.env.VITE_WS_URL || 'wss://flip-backend-production.up.railway.app'
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null

@@ -1,6 +1,6 @@
 import type { Market, MarketOption } from '@/app/types/market.types'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://flip-backend-production.up.railway.app'
 
 // --- Token management ---
 let token: string | null = null
