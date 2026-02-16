@@ -19,7 +19,7 @@ function getInitialSignupBalance(): number {
 // GET /api/auth/nonce/:address
 router.get('/nonce/:address', async (req: Request, res: Response) => {
   try {
-    const rawAddress = req.params.address;
+    const rawAddress = req.params.address as string;
 
     if (!ethers.isAddress(rawAddress.toLowerCase())) {
       res.status(400).json({ error: 'Invalid address' });

@@ -77,15 +77,15 @@ export function calculateBuy(
   let sharesOut: number;
 
   if (side === 'yes') {
-    // Buying YES: add amount to noReserve, remove shares from yesReserve
+    // Buying YES: mint amount YES+NO, add NO to pool, swap out YES
     newNoReserve = noReserve + amount;
     newYesReserve = k / newNoReserve;
-    sharesOut = yesReserve - newYesReserve;
+    sharesOut = amount + (yesReserve - newYesReserve);
   } else {
-    // Buying NO: add amount to yesReserve, remove shares from noReserve
+    // Buying NO: mint amount YES+NO, add YES to pool, swap out NO
     newYesReserve = yesReserve + amount;
     newNoReserve = k / newYesReserve;
-    sharesOut = noReserve - newNoReserve;
+    sharesOut = amount + (noReserve - newNoReserve);
   }
 
   // Bug D1 Fix: Guard against reserve depletion causing extreme values.
@@ -138,22 +138,25 @@ export function calculateSell(
     throw new Error('Invalid sell shares');
   }
 
-  const k = yesReserve * noReserve;
-
   let newYesReserve: number;
   let newNoReserve: number;
   let amountOut: number;
 
   if (side === 'yes') {
-    // Selling YES: add shares to yesReserve, remove USDT from noReserve
-    newYesReserve = yesReserve + shares;
-    newNoReserve = k / newYesReserve;
-    amountOut = noReserve - newNoReserve;
+    // Selling YES: add shares to YES pool, pair-burn YES+NO to redeem USDT
+    // Solve quadratic: amountOut = (b - sqrt(b^2 - 4c)) / 2
+    const b = yesReserve + noReserve + shares;
+    const c = shares * noReserve;
+    amountOut = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    newYesReserve = yesReserve + shares - amountOut;
+    newNoReserve = noReserve - amountOut;
   } else {
-    // Selling NO: add shares to noReserve, remove USDT from yesReserve
-    newNoReserve = noReserve + shares;
-    newYesReserve = k / newNoReserve;
-    amountOut = yesReserve - newYesReserve;
+    // Selling NO: add shares to NO pool, pair-burn YES+NO to redeem USDT
+    const b = yesReserve + noReserve + shares;
+    const c = shares * yesReserve;
+    amountOut = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    newNoReserve = noReserve + shares - amountOut;
+    newYesReserve = yesReserve - amountOut;
   }
 
   // Bug D15 Fix: Guard against sell draining reserve below minimum.

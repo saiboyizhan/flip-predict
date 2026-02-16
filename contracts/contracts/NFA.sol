@@ -135,6 +135,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     ) external onlyActiveAgent(tokenId) nonReentrant returns (bytes memory) {
         require(target != address(0), "Invalid target address");
         require(target != address(this), "Cannot call self");
+        require(target != address(usdtToken), "Cannot call USDT token");
         require(target != predictionMarket, "Cannot call prediction market directly");
         address tokenOwner = ownerOf(tokenId);
         AutoTradeAuth storage auth = _autoTradeAuth[tokenId];
