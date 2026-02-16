@@ -794,6 +794,12 @@ export async function recoverAgent(data: {
   return res.agent
 }
 
+export async function autoSyncAgents(): Promise<{ synced: number; agents: Agent[] }> {
+  return request<{ synced: number; agents: Agent[] }>('/api/agents/auto-sync', {
+    method: 'POST',
+  })
+}
+
 export async function getMyAgents(): Promise<Agent[]> {
   const data = await request<{ agents: Agent[] }>('/api/agents/my')
   return data.agents

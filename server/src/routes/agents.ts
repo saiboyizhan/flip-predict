@@ -469,6 +469,82 @@ router.post('/recover', authMiddleware, async (req: AuthRequest, res: Response) 
   }
 });
 
+// POST /api/agents/auto-sync — automatically sync all on-chain minted agents not in DB
+router.post('/auto-sync', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!NFA_CONTRACT_ADDRESS) {
+      res.status(503).json({ error: 'NFA contract not configured' });
+      return;
+    }
+    const db = getDb();
+    const provider = getNfaProvider();
+    const nfaContract = new ethers.Contract(NFA_CONTRACT_ADDRESS, [
+      'function balanceOf(address owner) view returns (uint256)',
+      'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+      'function getAgentMetadata(uint256 tokenId) view returns (tuple(string name, string persona, bytes32 voiceHash, string animationURI, string vaultURI, bytes32 vaultHash, uint8 avatarId))',
+    ], provider);
+
+    const userAddress = req.userAddress!.toLowerCase();
+
+    // Read on-chain balance
+    const balance = Number(await nfaContract.balanceOf(userAddress));
+    if (balance === 0) {
+      res.json({ synced: 0, agents: [] });
+      return;
+    }
+
+    // Get all token IDs owned by user
+    const tokenIds: number[] = [];
+    for (let i = 0; i < balance; i++) {
+      const tokenId = Number(await nfaContract.tokenOfOwnerByIndex(userAddress, i));
+      tokenIds.push(tokenId);
+    }
+
+    // Check which tokens are already in DB
+    const existingTokens = (await db.query(
+      'SELECT token_id FROM agents WHERE token_id = ANY($1::int[])',
+      [tokenIds]
+    )).rows.map((r: any) => Number(r.token_id));
+
+    const missingTokenIds = tokenIds.filter(id => !existingTokens.includes(id));
+    if (missingTokenIds.length === 0) {
+      res.json({ synced: 0, agents: [] });
+      return;
+    }
+
+    // For each missing token, read on-chain metadata and create agent
+    const AVATAR_PATHS = ['/avatars/avatar_0.svg', '/avatars/avatar_1.svg', '/avatars/avatar_2.svg', '/avatars/avatar_3.svg'];
+    const syncedAgents: any[] = [];
+
+    for (const tokenId of missingTokenIds) {
+      try {
+        const metadata = await nfaContract.getAgentMetadata(tokenId);
+        const onChainName = metadata.name || `Agent #${tokenId}`;
+        const avatarId = Number(metadata.avatarId);
+        const avatarPath = AVATAR_PATHS[avatarId] || AVATAR_PATHS[0];
+
+        const id = generateId();
+        const now = Date.now();
+
+        await db.query(`
+          INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, token_id, wallet_balance, level, experience, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1000, 1, 0, $9)
+        `, [id, onChainName.slice(0, 30), userAddress, 'random', '', metadata.persona || '', avatarPath, tokenId, now]);
+
+        const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
+        syncedAgents.push(agent);
+      } catch (err) {
+        console.error(`Failed to sync token #${tokenId}:`, err);
+      }
+    }
+
+    res.json({ synced: syncedAgents.length, agents: syncedAgents });
+  } catch (err: any) {
+    console.error('Agent auto-sync error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/agents/:id — update agent (owner only)
 router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
