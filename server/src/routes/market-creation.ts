@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { adminMiddleware } from './middleware/admin';
 import { getDb } from '../db';
-import { createLMSRPool, getLMSRPrices } from '../engine/lmsr';
 import { ethers } from 'ethers';
 
 const router = Router();
@@ -10,8 +9,6 @@ const router = Router();
 function generateId(): string {
   return 'ucm-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
 }
-
-const OPTION_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
 
 const VALID_CATEGORIES = [
   'four-meme', 'flap', 'nfa', 'hackathon', 'other'
@@ -364,37 +361,13 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
         return;
       }
 
-      // Create market
+      // Create market (binary only - multi blocked above)
       const marketId = generateId();
-      const totalLiquidity = 10000;
-      // Bug D10 Fix: Truncate endTimeMs to integer to prevent storing fractional timestamps.
 
-      if (isMulti) {
-        const numOptions = optionLabels.length;
-        const pool = createLMSRPool(numOptions, totalLiquidity);
-        const initialPrices = getLMSRPrices(pool.reserves, pool.b);
-
-        await client.query(`
-          INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
-          VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', $7, $8, 0, $9, 0, 0, $10, 'multi')
-        `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), initialPrices[0], 1 - initialPrices[0], totalLiquidity, Math.floor(now)]);
-
-        // Insert market_options rows
-        for (let i = 0; i < numOptions; i++) {
-          const opt = optionLabels[i];
-          const optId = generateId();
-          const color = opt.color || OPTION_COLORS[i % OPTION_COLORS.length];
-          await client.query(`
-            INSERT INTO market_options (id, market_id, option_index, label, color, reserve, price)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-          `, [optId, marketId, i, opt.label.trim(), color, pool.reserves[i], initialPrices[i]]);
-        }
-      } else {
-        await client.query(`
-          INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
-          VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', 0.5, 0.5, 0, 10000, 10000, 10000, $7, 'binary')
-        `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), Math.floor(now)]);
-      }
+      await client.query(`
+        INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', 0.5, 0.5, 0, 10000, 10000, 10000, $7, 'binary')
+      `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), Math.floor(now)]);
 
       // Track in user_created_markets
       await client.query(`

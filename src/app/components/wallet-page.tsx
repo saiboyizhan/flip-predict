@@ -2,12 +2,12 @@ import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect, useRef } from "react";
 import { Wallet, Copy, ExternalLink, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, Link2, CheckCircle2, AlertCircle, Loader2, Plus, Minus, X, Zap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { useAccount, useBalance, useDisconnect } from "wagmi";
+import { useAccount, useBalance, useDisconnect, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
 import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, claimPlatformFaucet } from "../services/api";
-import { useDeposit, useWithdraw, useContractBalance, useTxNotifier, useMintTestUSDT } from "../hooks/useContracts";
+import { useDeposit, useWithdraw, useContractBalance, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 
 interface Transaction {
@@ -52,6 +52,7 @@ export function WalletPage() {
   const { address, isConnected } = useAccount();
   const { data: balanceData, refetch: refetchBnbBalance } = useBalance({ address });
   const { disconnect } = useDisconnect();
+  const chainId = useChainId();
   const { open: openConnectModal } = useAppKit();
   const [platformBalance, setPlatformBalance] = useState<{ available: number; locked: number; total: number } | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -618,7 +619,7 @@ export function WalletPage() {
                           <Clock className="w-4 h-4 text-blue-400" />
                         )}
                         <a
-                          href={`https://bscscan.com/tx/${contractDeposit.txHash}`}
+                          href={`${getBscScanUrl(chainId)}/tx/${contractDeposit.txHash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
@@ -755,7 +756,7 @@ export function WalletPage() {
                           <Clock className="w-4 h-4 text-blue-400" />
                         )}
                         <a
-                          href={`https://bscscan.com/tx/${contractWithdraw.txHash}`}
+                          href={`${getBscScanUrl(chainId)}/tx/${contractWithdraw.txHash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
@@ -817,7 +818,7 @@ export function WalletPage() {
                     <Copy className="w-4 h-4 text-muted-foreground" />
                   </button>
                   <a
-                    href={`https://bscscan.com/address/${walletAddress}`}
+                    href={`${getBscScanUrl(chainId)}/address/${walletAddress}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label="View on BSCScan"
@@ -889,7 +890,7 @@ export function WalletPage() {
                             <div className="text-muted-foreground text-xs">{tx.timestamp}</div>
                             {tx.txHash && (
                               <a
-                                href={`https://bscscan.com/tx/${tx.txHash}`}
+                                href={`${getBscScanUrl(chainId)}/tx/${tx.txHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-muted-foreground hover:text-blue-400 text-[10px] font-mono mt-0.5 hidden sm:inline-flex items-center gap-1 transition-colors"

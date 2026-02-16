@@ -63,8 +63,8 @@ router.post('/start', authMiddleware, async (req: AuthRequest, res: Response) =>
     const onChainFlag = onChain ? 1 : 0;
     await db.query(`
       INSERT INTO agent_followers (id, agent_id, follower_address, copy_percentage, max_per_trade, daily_limit, daily_used, revenue_share_pct, status, on_chain, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 0, 10, 'active', $8, $7)
-    `, [id, agentId, followerAddress, pct, mpt, dl, Date.now(), onChainFlag]);
+      VALUES ($1, $2, $3, $4, $5, $6, 0, 10, 'active', $7, $8)
+    `, [id, agentId, followerAddress, pct, mpt, dl, onChainFlag, Date.now()]);
 
     const record = (await db.query('SELECT * FROM agent_followers WHERE id = $1', [id])).rows[0];
     res.json({ follower: record });
@@ -361,7 +361,12 @@ router.post('/claim', authMiddleware, async (req: AuthRequest, res: Response) =>
         [agentId]
       );
 
-      // Mark as claimed (no double-crediting)
+      // Credit owner's platform balance
+      await client.query(`
+        INSERT INTO balances (user_address, available, locked)
+        VALUES ($1, $2, 0)
+        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2
+      `, [req.userAddress, amount]);
 
       await client.query('COMMIT');
 

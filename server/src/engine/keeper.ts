@@ -158,9 +158,10 @@ async function resolveByOracleInTx(
   await client.query("UPDATE markets SET status = 'resolved' WHERE id = $1", [market.id]);
 
   await client.query(`
-    UPDATE market_resolution
+    INSERT INTO market_resolution (id, market_id, outcome, resolved_price, resolved_at, resolved_by)
+    VALUES (gen_random_uuid(), $4, $1, $2, $3, 'oracle')
+    ON CONFLICT (market_id) DO UPDATE
     SET outcome = $1, resolved_price = $2, resolved_at = $3, resolved_by = 'oracle'
-    WHERE market_id = $4
   `, [outcomeSide, priceData.price, now, market.id]);
 
   await settleMarketPositions(client, market.id, outcomeSide);
