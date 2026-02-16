@@ -78,32 +78,25 @@ async function main() {
   // Create Express app
   const app = express();
 
-  // JWT secret check is handled by config.ts, which throws error in production
+  // Trust proxy (Railway, Cloudflare, etc.)
+  app.set('trust proxy', 1);
 
   // Middleware
   const IS_PRODUCTION = process.env.NODE_ENV === 'production';
   app.use(cors({
     origin: function (origin, callback) {
-      // Production: strict CORS policy
-      if (IS_PRODUCTION) {
-        const allowed = process.env.CORS_ORIGIN;
-        if (!allowed) {
-          return callback(new Error('CORS_ORIGIN not configured in production'));
-        }
-        if (origin === allowed) {
-          return callback(null, true);
-        }
-        return callback(new Error('Not allowed by CORS'));
-      }
-
-      // Development: relaxed CORS policy
-      // Allow requests with no origin (mobile apps, curl, etc.)
+      // Allow requests with no origin (health checks, curl, server-to-server)
       if (!origin) return callback(null, true);
-      // Allow all localhost ports in development
-      if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
-      // Allow configured origin
+
+      // Check against allowed origins
       const allowed = process.env.CORS_ORIGIN;
       if (allowed && origin === allowed) return callback(null, true);
+
+      // Development: allow localhost
+      if (!IS_PRODUCTION && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
