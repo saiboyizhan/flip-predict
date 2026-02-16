@@ -20,10 +20,12 @@ export default function CreateMarketPage() {
   });
 
   useEffect(() => {
-    getMarketCreationStats()
-      .then(setStats)
-      .catch(() => {});
-  }, []);
+    if (isAuthenticated) {
+      getMarketCreationStats()
+        .then(setStats)
+        .catch(() => {});
+    }
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (

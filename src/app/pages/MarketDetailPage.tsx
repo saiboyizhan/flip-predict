@@ -61,12 +61,12 @@ export default function MarketDetailPage() {
   const { t } = useTranslation();
   const storeMarket = useMarketStore((s) => id ? s.markets.find((m) => m.id === id) : undefined);
   const [apiMarket, setApiMarket] = useState<Market | null>(null);
-  const [loading, setLoading] = useState(!storeMarket && !!id);
+  const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
 
   // If market is not in store, try fetching it from the API (e.g. direct URL navigation)
   useEffect(() => {
-    if (!storeMarket && id && !apiMarket && !loading && !fetchError) {
+    if (!storeMarket && id && !apiMarket && !fetchError) {
       setLoading(true);
       fetchMarket(id)
         .then((m) => {
@@ -78,7 +78,7 @@ export default function MarketDetailPage() {
         })
         .finally(() => setLoading(false));
     }
-  }, [id, storeMarket, apiMarket, loading, fetchError]);
+  }, [id, storeMarket, apiMarket, fetchError]);
 
   const market = storeMarket || apiMarket;
 

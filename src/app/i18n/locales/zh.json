@@ -406,7 +406,8 @@
     "loginSuccess": "登录成功",
     "signFailed": "签名验证失败，请重试",
     "connectRequired": "请连接钱包",
-    "connectDescription": "请连接钱包以访问此页面"
+    "connectDescription": "请连接钱包以访问此页面",
+    "pleaseConnectWallet": "请先连接钱包"
   },
   "profile": {
     "title": "我的主页",

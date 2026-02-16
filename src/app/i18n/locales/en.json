@@ -335,7 +335,8 @@
     "loginSuccess": "Login successful",
     "signFailed": "Signature verification failed, please retry",
     "connectRequired": "Connect Wallet",
-    "connectDescription": "Please connect your wallet to access this page"
+    "connectDescription": "Please connect your wallet to access this page",
+    "pleaseConnectWallet": "Please connect wallet first"
   },
   "market": {
     "yes": "YES",

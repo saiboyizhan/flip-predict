@@ -90,12 +90,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
   // Skeleton loader — only on first load, not on tab switch
   if (initialLoading) {
     return (
-      <div className="min-h-screen p-4 sm:p-8">
-        <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-          <div className="flex items-center gap-3 mb-6 sm:mb-8">
-            <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
-          </div>
+      <div className="space-y-6 sm:space-y-8">
           {/* Skeleton Top 3 */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12">
             {[0, 1, 2].map((i) => (
@@ -126,7 +121,6 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
               ))}
             </div>
           </div>
-        </div>
       </div>
     );
   }
@@ -134,22 +128,14 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen p-4 sm:p-8">
-        <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-          <div className="flex items-center gap-3 mb-6 sm:mb-8">
-            <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
-          </div>
-          <div className="text-center py-20">
-            <p className="text-red-400 text-lg mb-4">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-6 py-2 bg-blue-500 hover:bg-blue-400 text-black font-semibold text-sm transition-colors w-full sm:w-auto"
-            >
-              {t("common.retry")}
-            </button>
-          </div>
-        </div>
+      <div className="text-center py-20">
+        <p className="text-red-400 text-lg mb-4">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-6 py-2 bg-blue-500 hover:bg-blue-400 text-black font-semibold text-sm transition-colors w-full sm:w-auto"
+        >
+          {t("common.retry")}
+        </button>
       </div>
     );
   }
@@ -157,17 +143,9 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
   // Empty state
   if (data.length === 0) {
     return (
-      <div className="min-h-screen p-4 sm:p-8">
-        <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-          <div className="flex items-center gap-3 mb-6 sm:mb-8">
-            <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
-          </div>
-          <div className="text-center py-20">
-            <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground text-lg">{t("common.noData")}</p>
-          </div>
-        </div>
+      <div className="text-center py-20">
+        <Trophy className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+        <p className="text-muted-foreground text-lg">{t("common.noData")}</p>
       </div>
     );
   }
@@ -175,14 +153,7 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
   const top3 = data.slice(0, 3);
 
   return (
-    <div className="min-h-screen p-4 sm:p-8">
-      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6 sm:mb-8">
-          <Trophy className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400" />
-          <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t("leaderboard.title")}</h1>
-        </div>
-
+    <div className="space-y-6 sm:space-y-8">
         {/* Top 3 Podium */}
         {top3.length >= 3 && (
           <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
@@ -304,7 +275,6 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
             </table>
           </div>
         </div>
-      </div>
     </div>
   );
 }
