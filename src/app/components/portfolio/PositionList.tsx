@@ -14,7 +14,7 @@ interface HistoryRecord {
   marketTitle: string;
   side: "yes" | "no";
   amount: number;
-  result: "won" | "lost";
+  result: "won" | "lost" | "pending";
   pnl: number;
   settledAt: string;
 }
@@ -83,8 +83,9 @@ export function PositionList({ history = [] }: PositionListProps) {
     }, 0),
     [positions]
   );
+  const settledHistory = history.filter((h) => h.result === "won" || h.result === "lost");
   const wonCount = history.filter((h) => h.result === "won").length;
-  const winRate = history.length > 0 ? (wonCount / history.length) * 100 : 0;
+  const winRate = settledHistory.length > 0 ? (wonCount / settledHistory.length) * 100 : 0;
 
   const stats = [
     {
@@ -238,15 +239,15 @@ export function PositionList({ history = [] }: PositionListProps) {
                       </td>
                       <td className="p-4 text-center">
                         <span className={`text-xs font-bold ${
-                          record.result === "won" ? "text-emerald-400" : "text-red-400"
+                          record.result === "won" ? "text-emerald-400" : record.result === "lost" ? "text-red-400" : "text-muted-foreground"
                         }`}>
-                          {record.result === "won" ? t('portfolio.won') : t('portfolio.lost')}
+                          {record.result === "won" ? t('portfolio.won') : record.result === "lost" ? t('portfolio.lost') : t('portfolio.pending', 'Open')}
                         </span>
                       </td>
                       <td className={`p-4 text-right font-mono text-sm font-bold ${
-                        record.pnl >= 0 ? "text-emerald-400" : "text-red-400"
+                        record.result === "pending" ? "text-muted-foreground" : record.pnl >= 0 ? "text-emerald-400" : "text-red-400"
                       }`}>
-                        {record.pnl >= 0 ? "+" : ""}${record.pnl.toFixed(2)}
+                        {record.result === "pending" ? "--" : `${record.pnl >= 0 ? "+" : ""}$${record.pnl.toFixed(2)}`}
                       </td>
                     </tr>
                   ))}

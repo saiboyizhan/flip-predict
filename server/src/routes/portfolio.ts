@@ -131,9 +131,11 @@ router.get('/portfolio/:address/history', authMiddleware, async (req: AuthReques
     const db = getDb();
 
     const { rows: orders } = await db.query(`
-      SELECT o.*, m.title as market_title
+      SELECT o.*, m.title as market_title, m.status as market_status,
+             mr.outcome as resolved_outcome
       FROM orders o
       LEFT JOIN markets m ON o.market_id = m.id
+      LEFT JOIN market_resolution mr ON o.market_id = mr.market_id
       WHERE o.user_address = $1
       ORDER BY o.created_at DESC
       LIMIT $2 OFFSET $3
@@ -145,7 +147,22 @@ router.get('/portfolio/:address/history', authMiddleware, async (req: AuthReques
     );
     const total = parseInt(countResult.rows[0].total);
 
-    res.json({ orders, trades: orders, total });
+    // Enrich orders with result/pnl for resolved markets
+    const enriched = orders.map((o: any) => {
+      const isResolved = o.market_status === 'resolved';
+      const isBuy = o.type === 'buy';
+      let result: string | null = null;
+      let pnl = 0;
+      if (isResolved && o.resolved_outcome && isBuy) {
+        const won = o.side === o.resolved_outcome;
+        result = won ? 'won' : 'lost';
+        // If won: payout = shares * 1.0 (full payout) - cost; if lost: cost is lost
+        pnl = won ? Number(o.shares || 0) - Number(o.amount || 0) : -Number(o.amount || 0);
+      }
+      return { ...o, result, pnl };
+    });
+
+    res.json({ orders: enriched, trades: enriched, total });
   } catch (err: any) {
     console.error('Portfolio history error:', err);
     res.status(500).json({ error: 'Internal server error' });

@@ -469,7 +469,7 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
     if (!agent.is_for_sale) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is not for sale' }); return; }
     if (agent.owner_address === req.userAddress) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Cannot buy your own agent' }); return; }
 
-    // If agent is minted on-chain, require txHash verification
+    // If agent is minted on-chain, require and verify txHash
     if (agent.token_id != null) {
       const { txHash } = req.body;
       if (!txHash || !isTxHash(txHash)) {
@@ -478,9 +478,45 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
         return;
       }
 
-      // Simple verification: check that txHash is valid format
-      // In production, you would verify the actual transferFrom event
-      // For now, we trust the client has called transferFrom on-chain
+      // Verify the on-chain Transfer event (seller -> buyer for this tokenId)
+      if (NFA_CONTRACT_ADDRESS) {
+        try {
+          const provider = getNfaProvider();
+          const receipt = await provider.getTransactionReceipt(txHash);
+          if (!receipt || receipt.status !== 1) {
+            await client.query('ROLLBACK');
+            res.status(400).json({ error: 'Transaction not found or failed on-chain' });
+            return;
+          }
+          const transferTopic = ethers.id('Transfer(address,address,uint256)');
+          const iface = new ethers.Interface(['event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)']);
+          let verified = false;
+          for (const log of receipt.logs) {
+            if ((log.address || '').toLowerCase() !== NFA_CONTRACT_ADDRESS) continue;
+            if (!log.topics?.length || log.topics[0] !== transferTopic) continue;
+            try {
+              const decoded = iface.decodeEventLog('Transfer', log.data, log.topics);
+              const from = String(decoded[0] || '').toLowerCase();
+              const to = String(decoded[1] || '').toLowerCase();
+              const tokenId = (decoded[2] as bigint).toString();
+              if (from === agent.owner_address && to === req.userAddress && tokenId === String(agent.token_id)) {
+                verified = true;
+                break;
+              }
+            } catch { continue; }
+          }
+          if (!verified) {
+            await client.query('ROLLBACK');
+            res.status(400).json({ error: 'On-chain NFT transfer not verified for this agent' });
+            return;
+          }
+        } catch (verifyErr: any) {
+          console.error('NFT transfer verification error:', verifyErr.message);
+          await client.query('ROLLBACK');
+          res.status(500).json({ error: 'Failed to verify on-chain transfer' });
+          return;
+        }
+      }
     }
 
     const price = agent.sale_price;

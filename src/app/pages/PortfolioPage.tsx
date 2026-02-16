@@ -13,7 +13,7 @@ interface HistoryRecord {
   marketTitle: string;
   side: "yes" | "no";
   amount: number;
-  result: "won" | "lost";
+  result: "won" | "lost" | "pending";
   pnl: number;
   settledAt: string;
 }
@@ -33,12 +33,12 @@ export default function PortfolioPage() {
         .then((data) => {
           const records: HistoryRecord[] = (data.trades ?? []).map((t: any) => ({
             id: String(t.id ?? t.orderId ?? Math.random()),
-            marketTitle: String(t.market ?? t.market_title ?? t.marketTitle ?? ""),
+            marketTitle: String(t.market_title ?? t.market ?? t.marketTitle ?? ""),
             side: t.side === "no" ? "no" : "yes",
             amount: Number(t.amount) || 0,
-            result: t.outcome === "win" || t.result === "won" || t.profit > 0 ? "won" : "lost",
-            pnl: Number(t.pnl ?? t.profit) || 0,
-            settledAt: String(t.settledAt ?? t.settled_at ?? t.timestamp ?? ""),
+            result: t.result === "won" ? "won" : t.result === "lost" ? "lost" : "pending",
+            pnl: Number(t.pnl) || 0,
+            settledAt: String(t.settled_at ?? t.settledAt ?? t.timestamp ?? new Date(Number(t.created_at) || Date.now()).toLocaleString()),
           }));
           setHistory(records);
         })
