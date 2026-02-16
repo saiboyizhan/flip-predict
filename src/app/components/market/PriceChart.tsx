@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  AreaChart,
-  Area,
   ComposedChart,
   Bar,
   LineChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -17,6 +16,7 @@ import {
   Legend,
 } from "recharts";
 import { fetchPriceHistory, type PricePoint } from "@/app/services/api";
+import { subscribeMarket, unsubscribeMarket } from "@/app/services/ws";
 import type { MarketOption } from "@/app/types/market.types";
 
 const INTERVALS = [
@@ -43,22 +43,35 @@ function formatTime(bucket: string, interval: string): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`;
 }
 
-// Convert local datetime-local value to UTC string for API
 function toUTCString(localDatetime: string): string {
   if (!localDatetime) return "";
   const d = new Date(localDatetime);
   return d.toISOString().replace("T", " ").replace("Z", "");
 }
 
-// Get default "from" date (7 days ago) in local datetime-local format
 function defaultFrom(): string {
   const d = new Date(Date.now() - 7 * 24 * 3600000);
   return d.toISOString().slice(0, 16);
 }
 
-// Get default "to" date (now) in local datetime-local format
 function defaultTo(): string {
   return new Date().toISOString().slice(0, 16);
+}
+
+/** Pulsing live dot rendered at the last data point */
+function LiveDot(props: any) {
+  const { cx, cy, index, data, stroke } = props;
+  if (index !== (data?.length ?? 0) - 1) return null;
+  if (cx == null || cy == null) return null;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={6} fill={stroke} opacity={0.25}>
+        <animate attributeName="r" values="6;10;6" dur="2s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.25;0.08;0.25" dur="2s" repeatCount="indefinite" />
+      </circle>
+      <circle cx={cx} cy={cy} r={3.5} fill={stroke} />
+    </g>
+  );
 }
 
 interface PriceChartProps {
@@ -76,6 +89,8 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
   const [customMode, setCustomMode] = useState(false);
   const [fromDate, setFromDate] = useState(() => defaultFrom());
   const [toDate, setToDate] = useState(() => defaultTo());
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const load = useCallback(async (abortSignal?: AbortSignal) => {
     setLoading(true);
@@ -92,15 +107,42 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
     }
   }, [marketId, timeInterval, customMode, fromDate, toDate]);
 
+  // Initial load only (no polling)
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
-    const timer = window.setInterval(() => { load(controller.signal); }, 30000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return () => { controller.abort(); };
   }, [load]);
+
+  // WebSocket: append live data point on price_update
+  useEffect(() => {
+    const handler = (msg: any) => {
+      if (msg.type === 'price_update' && msg.yesPrice != null) {
+        setData((prev) => {
+          const now = new Date().toISOString();
+          const newPoint: PricePoint = {
+            time_bucket: now,
+            yes_price: msg.yesPrice,
+            no_price: msg.noPrice ?? (1 - msg.yesPrice),
+            volume: 0,
+          };
+          // Replace last point if within same minute, otherwise append
+          const last = prev[prev.length - 1];
+          if (last) {
+            const lastTime = new Date(last.time_bucket.replace(" ", "T") + (last.time_bucket.includes("Z") ? "" : "Z")).getTime();
+            const nowTime = Date.now();
+            if (nowTime - lastTime < 60000) {
+              // Update last point in-place
+              return [...prev.slice(0, -1), { ...last, yes_price: msg.yesPrice, no_price: msg.noPrice ?? (1 - msg.yesPrice) }];
+            }
+          }
+          return [...prev, newPoint];
+        });
+      }
+    };
+    subscribeMarket(marketId, handler);
+    return () => { unsubscribeMarket(marketId, handler); };
+  }, [marketId]);
 
   const handlePresetClick = (key: string) => {
     setCustomMode(false);
@@ -193,11 +235,10 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
           </div>
         </div>
       ) : marketType === "multi" && options && options.length > 0 ? (
-        /* Multi-option line chart: one line per option */
+        /* Multi-option line chart */
         <ResponsiveContainer width="100%" height={256}>
           <LineChart
             data={(() => {
-              // Group option_price_history data by timestamp into combined rows
               const timeMap = new Map<string, Record<string, number>>();
               if (!data || !Array.isArray(data)) return [];
               for (const point of data as any[]) {
@@ -248,8 +289,9 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
                 dataKey={opt.label}
                 stroke={opt.color}
                 strokeWidth={2}
-                dot={false}
+                dot={<LiveDot />}
                 connectNulls
+                isAnimationActive={false}
               />
             ))}
           </LineChart>
@@ -276,7 +318,6 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
               tickLine={false}
               interval="preserveStartEnd"
             />
-            {/* Left Y-axis: price percentage */}
             <YAxis
               yAxisId="price"
               domain={[0, 1]}
@@ -285,7 +326,6 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
               axisLine={{ stroke: "#3f3f46" }}
               tickLine={false}
             />
-            {/* Right Y-axis: volume (hidden axis, just for scaling) */}
             <YAxis
               yAxisId="volume"
               orientation="right"
@@ -307,7 +347,7 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
                 return [value, name];
               }}
             />
-            {/* Volume bars at the bottom */}
+            {/* Volume bars */}
             <Bar
               yAxisId="volume"
               dataKey="volume"
@@ -318,7 +358,7 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
               barSize={8}
               isAnimationActive={false}
             />
-            {/* YES price area */}
+            {/* YES price line with live dot */}
             <Area
               yAxisId="price"
               type="monotone"
@@ -326,9 +366,10 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
               stroke="#22c55e"
               strokeWidth={2}
               fill="url(#yesGrad)"
-              dot={false}
+              dot={<LiveDot data={data} stroke="#22c55e" />}
+              isAnimationActive={false}
             />
-            {/* NO price area */}
+            {/* NO price line with live dot */}
             <Area
               yAxisId="price"
               type="monotone"
@@ -336,7 +377,8 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
               stroke="#ef4444"
               strokeWidth={2}
               fill="url(#noGrad)"
-              dot={false}
+              dot={<LiveDot data={data} stroke="#ef4444" />}
+              isAnimationActive={false}
             />
           </ComposedChart>
         </ResponsiveContainer>

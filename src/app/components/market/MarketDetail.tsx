@@ -95,7 +95,6 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   const [liveNoPrice, setLiveNoPrice] = useState(market.noPrice);
   const [liveVolume, setLiveVolume] = useState(market.volume);
   const [liveParticipants, setLiveParticipants] = useState(market.participants);
-  const [chartRefreshKey, setChartRefreshKey] = useState(0);
 
   // Sync from props when market changes (e.g. navigating between markets)
   useEffect(() => {
@@ -125,8 +124,6 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
       setLiveYesPrice(m.yesPrice);
       setLiveNoPrice(m.noPrice);
     }).catch(() => {});
-    // Trigger chart re-fetch
-    setChartRefreshKey((k) => k + 1);
   }, [market.id]);
 
   // Build a live version of market for child components
@@ -361,7 +358,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
             <h2 className="text-sm sm:text-base font-bold text-foreground">{t('market.probTrend')}</h2>
           </div>
           <div className="w-full overflow-x-auto">
-            <PriceChart key={chartRefreshKey} marketId={market.id} marketType={market.marketType} options={market.options} />
+            <PriceChart marketId={market.id} marketType={market.marketType} options={market.options} />
           </div>
         </div>
 
