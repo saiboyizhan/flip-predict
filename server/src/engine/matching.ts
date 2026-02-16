@@ -8,6 +8,8 @@ export interface OrderResult {
   price: number;
   newYesPrice: number;
   newNoPrice: number;
+  newYesReserve: number;
+  newNoReserve: number;
 }
 
 export interface SellOrderResult {
@@ -16,6 +18,8 @@ export interface SellOrderResult {
   price: number;
   newYesPrice: number;
   newNoPrice: number;
+  newYesReserve: number;
+  newNoReserve: number;
 }
 
 export async function executeBuy(
@@ -100,6 +104,8 @@ export async function executeBuy(
       price: result.pricePerShare,
       newYesPrice: result.newYesPrice,
       newNoPrice: result.newNoPrice,
+      newYesReserve: result.newYesReserve,
+      newNoReserve: result.newNoReserve,
     };
   } catch (err) {
     await client.query('ROLLBACK');
@@ -191,6 +197,8 @@ export async function executeSell(
       price: result.pricePerShare,
       newYesPrice: result.newYesPrice,
       newNoPrice: result.newNoPrice,
+      newYesReserve: result.newYesReserve,
+      newNoReserve: result.newNoReserve,
     };
   } catch (err) {
     await client.query('ROLLBACK');

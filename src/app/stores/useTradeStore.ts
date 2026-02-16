@@ -19,7 +19,34 @@ import { useNotificationStore } from './useNotificationStore'
 import { useAgentStore } from './useAgentStore'
 import { createOrder, sellOrder } from '@/app/services/api'
 
+// Match server's initial liquidity (markets are created with 10000)
 const DEFAULT_LIQUIDITY = 10000
+
+/**
+ * Build a Pool from actual server reserves when available.
+ * Falls back to reconstructing from price + totalLiquidity.
+ */
+function buildPool(market: {
+  yesPrice: number
+  noPrice?: number
+  yesReserve?: number
+  noReserve?: number
+  totalLiquidity?: number
+}): Pool {
+  // Prefer actual reserves from server
+  if (market.yesReserve && market.noReserve && market.yesReserve > 0 && market.noReserve > 0) {
+    return {
+      yesReserve: market.yesReserve,
+      noReserve: market.noReserve,
+      k: market.yesReserve * market.noReserve,
+      totalLiquidity: market.totalLiquidity || (market.yesReserve + market.noReserve),
+    }
+  }
+  // Fallback: reconstruct from price
+  const yesPrice = Math.max(0.01, Math.min(0.99, market.yesPrice))
+  const liquidity = market.totalLiquidity || DEFAULT_LIQUIDITY
+  return createPoolFromPrices(yesPrice, liquidity)
+}
 
 interface APITradeResult {
   success: boolean
@@ -45,6 +72,7 @@ interface TradeState {
   setAmount: (amount: number) => void
   setSelectedOptionId: (optionId: string | null) => void
   getOrCreatePool: (marketId: string) => Pool
+  refreshPool: (marketId: string) => Pool
   executeBuy: (marketId: string, side: 'yes' | 'no', amount: number) => { success: boolean; shares: number; avgPrice: number; priceImpact: number }
   executeSell: (marketId: string, side: 'yes' | 'no', shares: number) => { success: boolean; payout: number; avgPrice: number; priceImpact: number }
   executeAPIBuy: (marketId: string, side: 'yes' | 'no', amount: number) => Promise<APITradeResult>
@@ -72,9 +100,23 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     if (pools[marketId]) return pools[marketId]
 
     const market = useMarketStore.getState().getMarketById(marketId)
-    const yesPrice = market ? Math.max(0.01, Math.min(0.99, market.yesPrice)) : 0.5
-    const pool = createPoolFromPrices(yesPrice, DEFAULT_LIQUIDITY)
+    if (!market) {
+      const pool = createPoolFromPrices(0.5, DEFAULT_LIQUIDITY)
+      set({ pools: { ...get().pools, [marketId]: pool } })
+      return pool
+    }
 
+    const pool = buildPool(market)
+    set({ pools: { ...get().pools, [marketId]: pool } })
+    return pool
+  },
+
+  // Force-rebuild pool from current market store data (call after trades or WS updates)
+  refreshPool: (marketId: string) => {
+    const market = useMarketStore.getState().getMarketById(marketId)
+    if (!market) return get().getOrCreatePool(marketId)
+
+    const pool = buildPool(market)
     set({ pools: { ...get().pools, [marketId]: pool } })
     return pool
   },
@@ -191,8 +233,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await createOrder({ marketId, side, amount })
 
-      // P0-3 fix: Atomic update to prevent race condition
-      // Use atomic setState to prevent concurrent trades from overwriting each other's volume updates
+      // Update market store with new prices from server
       const marketData = useMarketStore.getState().getMarketById(marketId)
       useMarketStore.getState().updateMarketPrices(
         marketId,
@@ -200,6 +241,20 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         res.newNoPrice,
         (marketData?.volume || 0) + amount
       )
+
+      // Rebuild local pool from server's actual reserves (or fallback to price)
+      const newPool = (res.newYesReserve && res.newNoReserve && res.newYesReserve > 0 && res.newNoReserve > 0)
+        ? {
+            yesReserve: res.newYesReserve,
+            noReserve: res.newNoReserve,
+            k: res.newYesReserve * res.newNoReserve,
+            totalLiquidity: res.newYesReserve + res.newNoReserve,
+          }
+        : createPoolFromPrices(
+            Math.max(0.01, Math.min(0.99, res.newYesPrice)),
+            marketData?.totalLiquidity || DEFAULT_LIQUIDITY
+          )
+      set({ pools: { ...get().pools, [marketId]: newPool } })
 
       // Add position to portfolio (also atomic)
       const portfolioState = usePortfolioStore.getState()
@@ -235,7 +290,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await sellOrder({ marketId, side, shares })
 
-      // P0-3 fix: Atomic update to prevent race condition
+      // Update market store with new prices
       const marketData = useMarketStore.getState().getMarketById(marketId)
       useMarketStore.getState().updateMarketPrices(
         marketId,
@@ -243,6 +298,20 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         res.newNoPrice,
         (marketData?.volume || 0) + res.amountOut
       )
+
+      // Rebuild local pool from server's actual reserves (or fallback to price)
+      const newPool = (res.newYesReserve && res.newNoReserve && res.newYesReserve > 0 && res.newNoReserve > 0)
+        ? {
+            yesReserve: res.newYesReserve,
+            noReserve: res.newNoReserve,
+            k: res.newYesReserve * res.newNoReserve,
+            totalLiquidity: res.newYesReserve + res.newNoReserve,
+          }
+        : createPoolFromPrices(
+            Math.max(0.01, Math.min(0.99, res.newYesPrice)),
+            marketData?.totalLiquidity || DEFAULT_LIQUIDITY
+          )
+      set({ pools: { ...get().pools, [marketId]: newPool } })
 
       // Refresh portfolio after sell
       const portfolioState = usePortfolioStore.getState()
@@ -284,7 +353,6 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await createOrder({ marketId, amount, optionId })
 
-      // P0-3 fix: Atomic update
       const marketData = useMarketStore.getState().getMarketById(marketId)
       if (marketData && res.newPrices && marketData.options) {
         useMarketStore.getState().updateMultiOptionPrices(marketId, res.newPrices)
@@ -317,7 +385,6 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       const res = await sellOrder({ marketId, shares, optionId })
 
-      // P0-3 fix: Atomic update
       const marketData = useMarketStore.getState().getMarketById(marketId)
       if (marketData && res.newPrices && marketData.options) {
         useMarketStore.getState().updateMultiOptionPrices(marketId, res.newPrices)
@@ -357,14 +424,11 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     try {
       if (mode === 'buy') {
         const preview = calculateLMSRBuyPreview(reserves, b, optionIndex, amount)
-        // P2-10 Fix: potentialProfit calculation explanation:
-        // If the option wins, each share pays out 1.0. So potential profit = sharesOut * 1.0 - amount = sharesOut - amount.
-        // This is correct for binary/multi markets where winning shares redeem at face value 1.0 each.
         return {
           shares: preview.sharesOut,
           avgPrice: preview.avgPrice,
           priceImpact: preview.priceImpact,
-          potentialProfit: preview.sharesOut - amount, // Profit if outcome wins
+          potentialProfit: preview.sharesOut - amount,
         }
       } else {
         const preview = calculateLMSRSellPreview(reserves, b, optionIndex, amount)
@@ -372,7 +436,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
           shares: amount,
           avgPrice: preview.avgPrice,
           priceImpact: preview.priceImpact,
-          potentialProfit: preview.amountOut, // Immediate payout from selling
+          potentialProfit: preview.amountOut,
         }
       }
     } catch {

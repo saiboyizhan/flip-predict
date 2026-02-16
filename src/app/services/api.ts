@@ -87,6 +87,10 @@ interface RawMarket {
   options?: any[]
   totalLiquidity?: number
   total_liquidity?: number
+  yesReserve?: number
+  yes_reserve?: number
+  noReserve?: number
+  no_reserve?: number
 }
 
 function toIsoTime(value: unknown): string {
@@ -164,6 +168,8 @@ function normalizeMarket(raw: RawMarket): Market {
     marketType,
     options,
     totalLiquidity: Number(raw.totalLiquidity ?? raw.total_liquidity) || undefined,
+    yesReserve: Number(raw.yesReserve ?? raw.yes_reserve) || undefined,
+    noReserve: Number(raw.noReserve ?? raw.no_reserve) || undefined,
   }
 }
 
@@ -199,6 +205,8 @@ export async function createOrder(data: {
   price: number
   newYesPrice: number
   newNoPrice: number
+  newYesReserve?: number
+  newNoReserve?: number
   newPrices?: { optionId: string; price: number }[]
 }> {
   const res = await request<{
@@ -208,6 +216,8 @@ export async function createOrder(data: {
       price: number
       newYesPrice: number
       newNoPrice: number
+      newYesReserve?: number
+      newNoReserve?: number
       newPrices?: { optionId: string; price: number }[]
     }
   }>('/api/orders', {
@@ -231,6 +241,8 @@ export async function sellOrder(data: {
   price: number
   newYesPrice: number
   newNoPrice: number
+  newYesReserve?: number
+  newNoReserve?: number
   newPrices?: { optionId: string; price: number }[]
 }> {
   const res = await request<{
@@ -240,6 +252,8 @@ export async function sellOrder(data: {
       price: number
       newYesPrice: number
       newNoPrice: number
+      newYesReserve?: number
+      newNoReserve?: number
       newPrices?: { optionId: string; price: number }[]
     }
   }>('/api/orders/sell', {

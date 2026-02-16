@@ -41,6 +41,8 @@ export interface Market {
   marketType?: MarketType
   options?: MarketOption[]
   totalLiquidity?: number
+  yesReserve?: number
+  noReserve?: number
 }
 
 export interface Position {
