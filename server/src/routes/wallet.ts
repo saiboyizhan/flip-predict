@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
+import { adminMiddleware } from './middleware/admin';
 import { getDb } from '../db';
 import crypto from 'crypto';
 import { ethers } from 'ethers';
@@ -371,6 +372,77 @@ router.get('/transactions', authMiddleware, async (req: AuthRequest, res: Respon
   } catch (err: any) {
     console.error('Transactions error:', err);
     res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
+// ============================================================
+// Withdrawal Processor: processes pending withdrawals via on-chain adminWithdraw
+// ============================================================
+
+const WITHDRAWAL_RPC_URL = getRpcUrl('WITHDRAWAL_RPC_URL');
+const PM_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || process.env.VITE_PREDICTION_MARKET_ADDRESS || '';
+const DEPLOYER_KEY = process.env.DEPLOYER_KEY || '';
+
+const ADMIN_WITHDRAW_ABI = [
+  'function adminWithdraw(address user, uint256 amount) external',
+];
+
+/**
+ * Process all pending withdrawals by calling adminWithdraw on PredictionMarket.
+ * Called by the keeper interval or manually via admin endpoint.
+ */
+export async function processWithdrawals(): Promise<{ processed: number; failed: number }> {
+  if (!DEPLOYER_KEY || !ethers.isAddress(PM_ADDRESS)) {
+    return { processed: 0, failed: 0 };
+  }
+
+  const db = getDb();
+  const pending = (await db.query(
+    "SELECT * FROM withdrawals WHERE status = 'pending' ORDER BY created_at ASC LIMIT 20"
+  )).rows;
+
+  if (pending.length === 0) return { processed: 0, failed: 0 };
+
+  const provider = new ethers.JsonRpcProvider(WITHDRAWAL_RPC_URL);
+  const wallet = new ethers.Wallet(DEPLOYER_KEY, provider);
+  const pm = new ethers.Contract(PM_ADDRESS, ADMIN_WITHDRAW_ABI, wallet);
+
+  let processed = 0;
+  let failed = 0;
+
+  for (const w of pending) {
+    try {
+      const amountWei = ethers.parseUnits(String(w.amount), 18);
+      const tx = await pm.adminWithdraw(w.to_address, amountWei);
+      const receipt = await tx.wait();
+
+      await db.query(
+        "UPDATE withdrawals SET status = 'completed', tx_hash = $1 WHERE id = $2",
+        [receipt.hash, w.id]
+      );
+      processed++;
+      console.log(`Withdrawal ${w.id} processed: ${receipt.hash}`);
+    } catch (err: any) {
+      failed++;
+      console.error(`Withdrawal ${w.id} failed:`, err.message);
+      await db.query(
+        "UPDATE withdrawals SET status = 'failed' WHERE id = $1",
+        [w.id]
+      );
+    }
+  }
+
+  return { processed, failed };
+}
+
+// POST /api/wallet/process-withdrawals (admin only)
+router.post('/process-withdrawals', authMiddleware, adminMiddleware, async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await processWithdrawals();
+    res.json(result);
+  } catch (err: any) {
+    console.error('Process withdrawals error:', err);
+    res.status(500).json({ error: 'Failed to process withdrawals' });
   }
 });
 

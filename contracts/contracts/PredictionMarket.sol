@@ -134,6 +134,18 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         emit Withdraw(msg.sender, amount);
     }
 
+    /// @notice Relayer withdrawal: owner sends USDT from the contract pool to a user.
+    /// Used by the off-chain backend to process withdrawals for users whose profits
+    /// exist only in the DB (off-chain AMM trading profits are not reflected in on-chain balances).
+    /// @param user Recipient address
+    /// @param amount Amount of USDT to send (18 decimals)
+    function adminWithdraw(address user, uint256 amount) external onlyOwner nonReentrant {
+        require(user != address(0), "Invalid address");
+        require(amount > 0, "Amount must be > 0");
+        require(usdtToken.transfer(user, amount), "USDT transfer failed");
+        emit Withdraw(user, amount);
+    }
+
     // --- Market Management ---
 
     /// @notice Create a new manually-resolved prediction market (owner only)

@@ -682,3 +682,6 @@ CREATE TABLE IF NOT EXISTS agent_llm_config (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 );
+
+-- Migration: add tx_hash to withdrawals for on-chain tracking
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS tx_hash TEXT;
