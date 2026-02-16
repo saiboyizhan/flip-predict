@@ -245,14 +245,7 @@ async function main() {
         `);
         results.volume_reset = 1;
 
-        // 9. Reset market participants to match actual unique traders
-        await client.query(`
-          UPDATE markets SET participants = COALESCE(
-            (SELECT COUNT(DISTINCT user_address) FROM orders WHERE orders.market_id = markets.id),
-            0
-          )
-        `);
-        results.participants_reset = 1;
+        // participants is computed in API layer, not a DB column
 
         await client.query('COMMIT');
         console.log('Seed data cleanup completed:', results);
