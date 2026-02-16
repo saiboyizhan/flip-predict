@@ -161,47 +161,41 @@ export function Leaderboard({ timeRange = "all" }: LeaderboardProps) {
     <div className="space-y-6 sm:space-y-8">
         {/* Top 3 Podium */}
         {top3.length >= 3 && (
-          <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-12 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
+          <div className={`grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
             {/* 2nd Place */}
-            <div
-              className="sm:pt-12 order-2 sm:order-1"
-            >
-              <div className="bg-gradient-to-br from-muted/30 to-secondary border border-zinc-400/50 p-6 sm:p-8 text-center">
-                <Medal className="w-12 h-12 sm:w-16 sm:h-16 text-zinc-400 dark:text-zinc-300 mx-auto mb-3 sm:mb-4" />
-                <div className="text-muted-foreground text-sm tracking-wider uppercase mb-2">{t("leaderboard.runnerUp")}</div>
-                <div className="text-xl sm:text-2xl font-bold text-foreground mb-2">{top3[1].nickname}</div>
-                <div className={`${formatPnL(top3[1].netProfit).color} text-2xl sm:text-3xl font-bold mb-1`}>{formatPnL(top3[1].netProfit).text}</div>
-                <div className="text-muted-foreground text-sm">{t("leaderboard.winRate")} {top3[1].winRate}%</div>
+            <div className="pt-6 sm:pt-8 order-1">
+              <div className="bg-gradient-to-br from-muted/30 to-secondary border border-zinc-400/50 p-3 sm:p-5 text-center">
+                <Medal className="w-8 h-8 sm:w-10 sm:h-10 text-zinc-400 dark:text-zinc-300 mx-auto mb-2" />
+                <div className="text-muted-foreground text-[10px] sm:text-xs tracking-wider uppercase mb-1">{t("leaderboard.runnerUp")}</div>
+                <div className="text-sm sm:text-base font-bold text-foreground mb-1 truncate">{top3[1].nickname}</div>
+                <div className={`${formatPnL(top3[1].netProfit).color} text-base sm:text-lg font-bold`}>{formatPnL(top3[1].netProfit).text}</div>
+                <div className="text-muted-foreground text-[10px] sm:text-xs">{t("leaderboard.winRate")} {top3[1].winRate}%</div>
               </div>
             </div>
 
             {/* 1st Place */}
-            <div
-              className="order-1 sm:order-2"
-            >
-              <div className="bg-gradient-to-br from-blue-900/30 to-secondary border-2 border-blue-500/50 p-6 sm:p-8 text-center">
-                <Crown className="w-16 h-16 sm:w-20 sm:h-20 text-blue-400 mx-auto mb-3 sm:mb-4" />
-                <div className="text-blue-400 text-sm tracking-wider uppercase mb-2">{t("leaderboard.champion")}</div>
-                <div className="text-2xl sm:text-3xl font-bold text-foreground mb-2">{top3[0].nickname}</div>
-                <div className={`${formatPnL(top3[0].netProfit).color} text-3xl sm:text-4xl font-bold mb-1`}>{formatPnL(top3[0].netProfit).text}</div>
-                <div className="text-muted-foreground text-sm mb-4">{t("leaderboard.winRate")} {top3[0].winRate}%</div>
-                <div className="flex items-center justify-center gap-2 text-blue-400 text-sm">
-                  <TrendingUp className="w-4 h-4" />
+            <div className="order-2">
+              <div className="bg-gradient-to-br from-blue-900/30 to-secondary border-2 border-blue-500/50 p-3 sm:p-5 text-center">
+                <Crown className="w-10 h-10 sm:w-12 sm:h-12 text-blue-400 mx-auto mb-2" />
+                <div className="text-blue-400 text-[10px] sm:text-xs tracking-wider uppercase mb-1">{t("leaderboard.champion")}</div>
+                <div className="text-base sm:text-lg font-bold text-foreground mb-1 truncate">{top3[0].nickname}</div>
+                <div className={`${formatPnL(top3[0].netProfit).color} text-lg sm:text-xl font-bold`}>{formatPnL(top3[0].netProfit).text}</div>
+                <div className="text-muted-foreground text-[10px] sm:text-xs mb-2">{t("leaderboard.winRate")} {top3[0].winRate}%</div>
+                <div className="flex items-center justify-center gap-1 text-blue-400 text-[10px] sm:text-xs">
+                  <TrendingUp className="w-3 h-3" />
                   <span>{top3[0].bestStreak} {t("leaderboard.streak")}</span>
                 </div>
               </div>
             </div>
 
             {/* 3rd Place */}
-            <div
-              className="sm:pt-12 order-3"
-            >
-              <div className="bg-gradient-to-br from-orange-900/30 to-secondary border border-orange-600/50 p-6 sm:p-8 text-center">
-                <Award className="w-12 h-12 sm:w-16 sm:h-16 text-orange-600 mx-auto mb-3 sm:mb-4" />
-                <div className="text-orange-400 text-sm tracking-wider uppercase mb-2">{t("leaderboard.thirdPlace")}</div>
-                <div className="text-xl sm:text-2xl font-bold text-foreground mb-2">{top3[2].nickname}</div>
-                <div className={`${formatPnL(top3[2].netProfit).color} text-2xl sm:text-3xl font-bold mb-1`}>{formatPnL(top3[2].netProfit).text}</div>
-                <div className="text-muted-foreground text-sm">{t("leaderboard.winRate")} {top3[2].winRate}%</div>
+            <div className="pt-6 sm:pt-8 order-3">
+              <div className="bg-gradient-to-br from-orange-900/30 to-secondary border border-orange-600/50 p-3 sm:p-5 text-center">
+                <Award className="w-8 h-8 sm:w-10 sm:h-10 text-orange-600 mx-auto mb-2" />
+                <div className="text-orange-400 text-[10px] sm:text-xs tracking-wider uppercase mb-1">{t("leaderboard.thirdPlace")}</div>
+                <div className="text-sm sm:text-base font-bold text-foreground mb-1 truncate">{top3[2].nickname}</div>
+                <div className={`${formatPnL(top3[2].netProfit).color} text-base sm:text-lg font-bold`}>{formatPnL(top3[2].netProfit).text}</div>
+                <div className="text-muted-foreground text-[10px] sm:text-xs">{t("leaderboard.winRate")} {top3[2].winRate}%</div>
               </div>
             </div>
           </div>
