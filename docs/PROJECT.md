@@ -27,13 +27,94 @@ Users create or trade on binary prediction markets (YES/NO) with real-time price
 
 ## AI Build Log
 
-This project was built with AI-assisted development throughout the entire lifecycle:
+This project was built end-to-end with **Claude Code (CLI)** as the primary development tool. AI coverage: ~95% code generation, 100% security audit, 100% E2E test suite.
 
-- **Claude Code (CLI)** -- Primary development tool. Used for architecture design, full-stack implementation (React + Express + Solidity), 4-round security audit (41 issues found and fixed), and E2E test suite generation (134 tests, 17 suites, 20 consecutive runs with 0 failures)
-- **Parallel agent teams** -- Multi-agent workflows for concurrent audit (9 agents scanning different modules simultaneously) and parallel test writing (3 agents writing 17 test files concurrently)
-- **AI-driven security audit** -- Systematic vulnerability scanning covering AMM engine, auth/wallet routes, agent/copy-trade logic, market/social/DB routes, frontend stores/hooks, and server infrastructure. Discovered and fixed critical issues including NFA USDT drain vector, JWT hardcoded fallback, copy-trade AMM bypass, and PostgreSQL FOR UPDATE with aggregates
+### Tool
 
-Total AI-assisted: ~95% of code generation, 100% of security audit, 100% of E2E test suite.
+- **Claude Code** (Anthropic CLI) -- all architecture, implementation, audit, and testing
+- **Model**: Claude Sonnet 4 / Claude Opus 4
+
+### Phase 1: Architecture & Implementation
+
+AI designed the full-stack architecture and generated all source code:
+
+| Layer | What AI Built | Lines |
+|-------|--------------|-------|
+| Smart Contracts | PredictionMarket.sol, NFA.sol (BAP-578), BAP578Base.sol, MockOracle.sol | ~1,200 |
+| Backend | 20 route modules, AMM/LMSR/OrderBook engines, agent strategy system, keeper, WebSocket | ~8,000 |
+| Frontend | 15 pages, 30+ components, Zustand stores, wagmi hooks, i18n (en/zh) | ~12,000 |
+| Infrastructure | Dockerfile, .env templates, Vite config, Hardhat config | ~500 |
+
+Key decisions made by AI:
+- Chose constant product AMM (`x * y = k`) for binary markets with CTF-style burn model for sells
+- Designed NFA as ERC-721 on BAP-578 standard with 5 strategy types (conservative, aggressive, contrarian, momentum, random)
+- Split on-chain (settlement, NFA ownership) vs off-chain (AMM pricing, order matching) based on gas cost analysis
+- LMSR (`b * ln(sum(exp(q_i / b)))`) for multi-option markets with guaranteed liquidity
+
+### Phase 2: Security Audit (4 Rounds, 41 Issues)
+
+AI performed a systematic security audit using **9 parallel agents**, each scanning a different module simultaneously:
+
+| Agent | Module | Issues Found |
+|-------|--------|-------------|
+| Agent 1 | AMM/LMSR trading engine | 4 |
+| Agent 2 | Auth/security/wallet routes | 5 |
+| Agent 3 | Agent/copy-trade/NFA logic | 6 |
+| Agent 4 | Market/social/DB routes | 4 |
+| Agent 5 | Frontend stores/hooks/WS | 3 |
+| Agent 6 | Server index/config/infra | 3 |
+| Agent 7 | DB performance/integrity | 4 |
+| Agent 8 | Frontend performance | 3 |
+| Agent 9 | Business logic edge cases | 9 |
+
+**Round 1 (16 critical issues)**:
+- P0: NFA contract `executeAgentTrade` could drain USDT token balance -- added `require(target != address(usdtToken))`
+- P0: JWT secret had hardcoded fallback -- removed, server refuses to start without explicit secret
+- P0: AI simulated trades bypassed AMM -- routed through real AMM path
+- P0: Copy-trade executed outside AMM -- forced through standard trade flow
+- P1: AMM sell formula used linear approximation -- replaced with quadratic equation root (CTF burn model)
+
+**Rounds 2-4 (25 issues)**:
+- Withdraw failure didn't refund balance (P0)
+- Keeper missing `ct.shares` field causing copy-trade crash (P0)
+- Faucet had no daily limit -- added rate limiting (P0)
+- Frontend/backend sell price mismatch (P0)
+- PostgreSQL CHECK constraint on negative balances (P0)
+- Copy-trade race condition -- wrapped in transaction with `FOR UPDATE` (P1)
+- Orderbook floating-point matching -- switched to `GREATEST()` (P1)
+- Leaderboard time filter returning all-time data (P1)
+- WebSocket connection cleanup on disconnect (P2)
+- Comment nesting depth limit (P2)
+
+### Phase 3: E2E Test Suite
+
+AI generated the complete E2E test infrastructure using **3 parallel agents**:
+
+```
+Agent A: suites 01-06 (health, auth, faucet, markets, trading, portfolio)
+Agent B: suites 07-12 (agents, comments, notifications, social, copy-trading, orderbook)
+Agent C: suites 13-17 (wallet, settlement, leaderboard, admin, full user journeys)
+```
+
+Result:
+- **134 test cases** across **17 suites**
+- Covers: auth, faucet, markets, AMM trading, portfolio, agents, comments, notifications, social, copy-trading, orderbook, wallet, settlement, leaderboard, admin, and 3 full user journey flows
+- Runs against a real Express server + PostgreSQL test database (auto-created and destroyed)
+- **20 consecutive runs, 0 failures** (no flaky tests)
+
+### Phase 4: Production Debugging
+
+AI diagnosed and fixed production issues on Railway deployment:
+- **SSL certificate failure**: Railway PostgreSQL uses self-signed certs -- changed `rejectUnauthorized` default
+- **Memory optimization**: Reduced DB pool from 20 to 8 connections for Railway free tier
+- **AutoTrader performance**: Moved circuit breaker query outside per-decision loop (O(N) -> O(1))
+- **Wallet connection**: Diagnosed AppKit routing MetaMask through WalletConnect relay instead of injected provider -- disabled WalletConnect, enabled EIP-6963
+
+### Workflow Highlights
+
+- **Parallel agent teams**: Multiple AI agents working concurrently on independent modules, with conflict-free file boundaries pre-assigned
+- **Iterative audit loop**: AI finds issue -> AI writes fix -> AI verifies fix -> next issue
+- **Zero manual code**: Human role was product direction, UX decisions, and deployment configuration. All code written by AI.
 
 ## Limitations & Future Work
 

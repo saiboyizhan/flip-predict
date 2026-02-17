@@ -24,9 +24,6 @@
 
 ## AI Build Log
 
-Built with **Claude Code (CLI)** throughout the entire lifecycle:
+See [PROJECT.md](./PROJECT.md#ai-build-log) for the full AI Build Log with detailed breakdown by phase.
 
-- Architecture design and full-stack implementation (React + Express + Solidity)
-- 4-round security audit with 9 parallel agents: 41 issues found and fixed (NFA USDT drain, JWT fallback, copy-trade bypass, AMM edge cases, PostgreSQL race conditions)
-- E2E test suite generation: 134 tests across 17 suites, written by 3 parallel agents
-- Total AI-assisted: ~95% of code generation, 100% of security audit, 100% of E2E tests
+Summary: Built end-to-end with **Claude Code (CLI)** using Claude Sonnet 4 / Opus 4. ~95% AI-generated code. 4-round security audit with 9 parallel agents (41 issues fixed). 134 E2E tests written by 3 parallel agents (20 runs, 0 failures). Production debugging (SSL, memory, wallet connection) all AI-assisted.
