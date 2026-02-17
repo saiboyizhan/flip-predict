@@ -17,8 +17,10 @@ export async function initDatabase(): Promise<Pool> {
     connectionTimeoutMillis: 5000,
   };
 
-  // Enable SSL for production database connections (e.g. cloud-hosted PostgreSQL)
-  const sslConfig = isProduction && process.env.DATABASE_SSL !== 'false'
+  // Enable SSL for cloud-hosted PostgreSQL (Railway, Supabase, etc.)
+  // Activate when: NODE_ENV=production OR DATABASE_URL is set (cloud DB), unless explicitly disabled
+  const needsSsl = (isProduction || !!connectionString) && process.env.DATABASE_SSL !== 'false';
+  const sslConfig = needsSsl
     ? { ssl: { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true' } }
     : {};
 
