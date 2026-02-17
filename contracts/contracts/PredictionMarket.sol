@@ -148,6 +148,17 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         emit Withdraw(user, amount);
     }
 
+    /// @notice NFA contract withdraws its own balance back to itself.
+    /// Required because withdraw() is onlyOwner (relayer model).
+    function nfaWithdraw(uint256 amount) external nonReentrant whenNotPaused {
+        require(msg.sender == nfaContract, "Only NFA contract");
+        require(amount > 0, "Amount must be > 0");
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+        balances[msg.sender] -= amount;
+        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
+        emit Withdraw(msg.sender, amount);
+    }
+
     // --- Market Management ---
 
     /// @notice Create a new manually-resolved prediction market (owner only)

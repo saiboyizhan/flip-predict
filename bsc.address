@@ -1,12 +1,12 @@
 {
   "contracts": {
     "PredictionMarket": {
-      "address": "0xbf7eC4e574f27c93f24BFDE9623380804ebaBca5",
-      "explorer": "https://testnet.bscscan.com/address/0xbf7eC4e574f27c93f24BFDE9623380804ebaBca5"
+      "address": "0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da",
+      "explorer": "https://testnet.bscscan.com/address/0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da"
     },
     "NFA": {
-      "address": "0xf59Ecd163388197865fC53C6F51298352d925f0E",
-      "explorer": "https://testnet.bscscan.com/address/0xf59Ecd163388197865fC53C6F51298352d925f0E"
+      "address": "0x1a303032E49b7A0C395C938d73ff09cecE295081",
+      "explorer": "https://testnet.bscscan.com/address/0x1a303032E49b7A0C395C938d73ff09cecE295081"
     },
     "MockUSDT": {
       "address": "0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F",

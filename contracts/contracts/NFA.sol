@@ -348,7 +348,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         require(amount <= unallocated, "Amount exceeds unallocated PM balance");
 
         (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("withdraw(uint256)", amount)
+            abi.encodeWithSignature("nfaWithdraw(uint256)", amount)
         );
         require(success, "Withdraw from prediction market failed");
     }
@@ -397,7 +397,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         totalAllocatedPredictionMarketBalance -= amount;
 
         (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("withdraw(uint256)", amount)
+            abi.encodeWithSignature("nfaWithdraw(uint256)", amount)
         );
         require(success, "Withdraw failed");
         require(usdtToken.balanceOf(address(this)) >= beforeBalance + amount, "Withdraw amount mismatch");

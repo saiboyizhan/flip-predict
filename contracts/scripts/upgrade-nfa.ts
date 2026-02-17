@@ -1,7 +1,7 @@
 import { ethers } from "hardhat";
 
 const USDT_ADDRESS = "0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F";
-const PM_ADDRESS = "0xf250530B3938329F40FA24996e0975Ccdd7381d7";
+const PM_ADDRESS = "0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da";
 
 async function main() {
   const [deployer] = await ethers.getSigners();

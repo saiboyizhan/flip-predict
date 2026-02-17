@@ -2,37 +2,47 @@ import { ethers } from "hardhat";
 
 async function main() {
   const USDT_ADDRESS = "0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F";
-  const NFA_ADDRESS = "0xf59Ecd163388197865fC53C6F51298352d925f0E";
 
   const [deployer] = await ethers.getSigners();
   console.log("Deployer:", deployer.address);
 
   const balance = await ethers.provider.getBalance(deployer.address);
-  console.log("Balance:", ethers.formatEther(balance), "BNB");
+  console.log("Balance:", ethers.formatEther(balance), "tBNB");
 
-  // Deploy new PredictionMarket
-  console.log("\nDeploying new PredictionMarket...");
+  // 1. Deploy new PredictionMarket
+  console.log("\n1. Deploying new PredictionMarket...");
   const PM = await ethers.getContractFactory("PredictionMarket");
   const pm = await PM.deploy(USDT_ADDRESS);
   await pm.waitForDeployment();
   const pmAddress = await pm.getAddress();
   console.log("PredictionMarket deployed to:", pmAddress);
+  await (await pm.setStrictArbitrationMode(true)).wait();
+  console.log("Strict arbitration mode enabled");
 
-  // Update NFA to point to new PredictionMarket
-  console.log("\nUpdating NFA.setPredictionMarket...");
+  // 2. Deploy new NFA
+  console.log("\n2. Deploying new NFA...");
   const NFA = await ethers.getContractFactory("NFA");
-  const nfa = NFA.attach(NFA_ADDRESS);
-  const tx = await nfa.setPredictionMarket(pmAddress);
-  await tx.wait();
-  console.log("NFA.predictionMarket updated to:", pmAddress);
+  const nfa = await NFA.deploy(USDT_ADDRESS);
+  await nfa.waitForDeployment();
+  const nfaAddress = await nfa.getAddress();
+  console.log("NFA deployed to:", nfaAddress);
 
-  console.log("\n=== Summary ===");
-  console.log("USDT:", USDT_ADDRESS);
+  // 3. Link PM <-> NFA
+  console.log("\n3. Linking PM <-> NFA...");
+  await (await pm.setNFAContract(nfaAddress)).wait();
+  console.log("PM.setNFAContract done");
+  await (await nfa.setPredictionMarket(pmAddress)).wait();
+  console.log("NFA.setPredictionMarket done");
+
+  console.log("\n========================================");
+  console.log("USDT (unchanged):", USDT_ADDRESS);
   console.log("PredictionMarket (NEW):", pmAddress);
-  console.log("NFA:", NFA_ADDRESS);
-  console.log("\nUpdate these in:");
-  console.log("  - src/app/config/contracts.ts (DEFAULT_PM_ADDRESS)");
-  console.log("  - Railway env: PREDICTION_MARKET_ADDRESS");
+  console.log("NFA (NEW):", nfaAddress);
+  console.log("========================================");
+  console.log("\nUpdate these addresses in:");
+  console.log("  - bsc.address");
+  console.log("  - src/app/config/nfaContracts.ts (NFA_CONTRACT_ADDRESS)");
+  console.log("  - server .env (NFA_CONTRACT_ADDRESS, PREDICTION_MARKET_ADDRESS)");
 }
 
 main().catch(console.error);

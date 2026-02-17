@@ -502,7 +502,8 @@ describe("NFA", function () {
     it("withdrawFromPredictionMarket flow works", async function () {
       // Mint and fund agent with USDT
       await mintAgent(user1);
-      await fundAgentUsdt(user1, 0, ethers.parseEther("1"));
+      const fundAmount = ethers.parseEther("5");
+      await fundAgentUsdt(user1, 0, fundAmount);
 
       const usdtAddress = await mockUsdt.getAddress();
 
@@ -511,25 +512,20 @@ describe("NFA", function () {
       const pm = (await PMFactory.deploy(usdtAddress)) as unknown as PredictionMarket;
       await pm.waitForDeployment();
       const pmAddress = await pm.getAddress();
-
       const nfaAddress = await nfa.getAddress();
 
-      // Mint extra USDT to NFA contract for direct deposit via executeAgentTrade
+      // Wire up NFA <-> PM
+      await nfa.connect(owner).setPredictionMarket(pmAddress);
+      await pm.setNFAContract(nfaAddress);
+
+      // Use the proper bridge: depositToPredictionMarket (handles approve + deposit internally)
       const depositAmount = ethers.parseEther("1");
-      await mockUsdt.mint(nfaAddress, depositAmount);
-      // NFA needs to approve PM to spend its USDT -- we do this via executeAgentTrade
-      const approveData = mockUsdt.interface.encodeFunctionData("approve", [pmAddress, depositAmount]);
-      await nfa.connect(user1).executeAgentTrade(0, usdtAddress, approveData, 0);
-
-      // Call pm.deposit(amount) via executeAgentTrade
-      const depositData = pm.interface.encodeFunctionData("deposit", [depositAmount]);
-      await nfa.connect(user1).executeAgentTrade(0, pmAddress, depositData, 0);
-
+      await nfa.connect(user1).depositToPredictionMarket(0, depositAmount);
       expect(await pm.balances(nfaAddress)).to.equal(depositAmount);
 
-      // Set PM address and withdraw from PM back to NFA
-      await nfa.connect(owner).setPredictionMarket(pmAddress);
-      await expect(nfa.connect(owner).withdrawFromPredictionMarket(depositAmount)).to.not.be.reverted;
+      // Withdraw unallocated PM balance back to NFA via nfaWithdraw
+      // First reduce agent's PM allocation so the balance becomes unallocated
+      await nfa.connect(user1).withdrawFromPredictionMarketToAgent(0, depositAmount);
       expect(await pm.balances(nfaAddress)).to.equal(0);
     });
 
