@@ -1323,4 +1323,142 @@ router.post('/:id/llm-config/toggle', authMiddleware, async (req: AuthRequest, r
   }
 });
 
+// ========== Platform Funding (user balance <-> agent wallet_balance) ==========
+
+// POST /api/agents/:id/fund-platform -- transfer from user platform balance to agent
+router.post('/:id/fund-platform', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const client = await getDb().connect();
+  try {
+    const { amount } = req.body;
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 0.01) {
+      res.status(400).json({ error: 'Amount must be at least 0.01' });
+      return;
+    }
+    if (parsedAmount > 100000) {
+      res.status(400).json({ error: 'Amount must not exceed 100,000' });
+      return;
+    }
+
+    const agentId = req.params.id;
+    const userAddress = req.userAddress!;
+
+    await client.query('BEGIN');
+
+    // Verify ownership
+    const agent = (await client.query('SELECT owner_address, wallet_balance FROM agents WHERE id = $1 FOR UPDATE', [agentId])).rows[0] as any;
+    if (!agent) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Agent not found' }); return; }
+    if (agent.owner_address.toLowerCase() !== userAddress.toLowerCase()) {
+      await client.query('ROLLBACK');
+      res.status(403).json({ error: 'Not the owner' });
+      return;
+    }
+
+    // Deduct from user platform balance
+    const balRes = await client.query('SELECT available FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
+    const available = Number(balRes.rows[0]?.available || 0);
+    if (available < parsedAmount) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Insufficient platform balance' });
+      return;
+    }
+
+    await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2', [parsedAmount, userAddress]);
+
+    // Add to agent wallet_balance
+    await client.query('UPDATE agents SET wallet_balance = wallet_balance + $1 WHERE id = $2', [parsedAmount, agentId]);
+
+    // Also sync the agent's virtual balance row for AMM trading
+    const agentAddress = `agent:${agentId}`;
+    await client.query(`
+      INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
+      ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2
+    `, [agentAddress, parsedAmount]);
+
+    await client.query('COMMIT');
+
+    const newAgent = (await getDb().query('SELECT wallet_balance FROM agents WHERE id = $1', [agentId])).rows[0];
+    const newUser = (await getDb().query('SELECT available FROM balances WHERE user_address = $1', [userAddress])).rows[0];
+
+    res.json({
+      success: true,
+      agentBalance: Number(newAgent?.wallet_balance || 0),
+      userBalance: Number(newUser?.available || 0),
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Agent fund-platform error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/agents/:id/withdraw-platform -- transfer from agent back to user platform balance
+router.post('/:id/withdraw-platform', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const client = await getDb().connect();
+  try {
+    const { amount } = req.body;
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 0.01) {
+      res.status(400).json({ error: 'Amount must be at least 0.01' });
+      return;
+    }
+    if (parsedAmount > 100000) {
+      res.status(400).json({ error: 'Amount must not exceed 100,000' });
+      return;
+    }
+
+    const agentId = req.params.id;
+    const userAddress = req.userAddress!;
+
+    await client.query('BEGIN');
+
+    // Verify ownership
+    const agent = (await client.query('SELECT owner_address, wallet_balance FROM agents WHERE id = $1 FOR UPDATE', [agentId])).rows[0] as any;
+    if (!agent) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Agent not found' }); return; }
+    if (agent.owner_address.toLowerCase() !== userAddress.toLowerCase()) {
+      await client.query('ROLLBACK');
+      res.status(403).json({ error: 'Not the owner' });
+      return;
+    }
+
+    if (Number(agent.wallet_balance) < parsedAmount) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Insufficient agent balance' });
+      return;
+    }
+
+    // Deduct from agent
+    await client.query('UPDATE agents SET wallet_balance = wallet_balance - $1 WHERE id = $2', [parsedAmount, agentId]);
+
+    // Also deduct from agent's virtual balance row
+    const agentAddress = `agent:${agentId}`;
+    await client.query('UPDATE balances SET available = GREATEST(0, available - $1) WHERE user_address = $2', [parsedAmount, agentAddress]);
+
+    // Add to user platform balance
+    await client.query(`
+      INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
+      ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2
+    `, [userAddress, parsedAmount]);
+
+    await client.query('COMMIT');
+
+    const newAgent = (await getDb().query('SELECT wallet_balance FROM agents WHERE id = $1', [agentId])).rows[0];
+    const newUser = (await getDb().query('SELECT available FROM balances WHERE user_address = $1', [userAddress])).rows[0];
+
+    res.json({
+      success: true,
+      agentBalance: Number(newAgent?.wallet_balance || 0),
+      userBalance: Number(newUser?.available || 0),
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Agent withdraw-platform error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;

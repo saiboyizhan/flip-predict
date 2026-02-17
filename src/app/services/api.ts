@@ -883,6 +883,24 @@ export async function getAgentVault(id: string): Promise<{ vaultURI: string | nu
 }
 
 // ============================================
+// Agent Platform Funding (user balance <-> agent)
+// ============================================
+
+export async function fundAgentPlatform(agentId: string, amount: number): Promise<{ success: boolean; agentBalance: number; userBalance: number }> {
+  return request(`/api/agents/${agentId}/fund-platform`, {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  })
+}
+
+export async function withdrawAgentPlatform(agentId: string, amount: number): Promise<{ success: boolean; agentBalance: number; userBalance: number }> {
+  return request(`/api/agents/${agentId}/withdraw-platform`, {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  })
+}
+
+// ============================================
 // BAP-578 Agent Prediction & Advisory API
 // ============================================
 

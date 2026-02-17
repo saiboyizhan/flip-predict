@@ -15,6 +15,8 @@ import {
   delistAgent,
   fetchMarkets,
   updateAgentVault,
+  fundAgentPlatform,
+  withdrawAgentPlatform,
 } from "@/app/services/api";
 import type { AgentDetail as AgentDetailType, AgentTrade } from "@/app/services/api";
 import { useAccount } from "wagmi";
@@ -94,6 +96,9 @@ export function AgentDetail() {
   const [showRentConfirm, setShowRentConfirm] = useState(false);
   const [fundAmount, setFundAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [platformFundAmount, setPlatformFundAmount] = useState("");
+  const [platformWithdrawAmount, setPlatformWithdrawAmount] = useState("");
+  const [platformFundLoading, setPlatformFundLoading] = useState(false);
   const [showTerminateConfirm, setShowTerminateConfirm] = useState(false);
 
   // On-chain management state
@@ -499,6 +504,99 @@ export function AgentDetail() {
             </div>
           </div>
         </motion.div>
+
+        {/* Platform Funding (Owner Only) -- transfers between user balance and agent balance */}
+        {isOwner && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+            className="bg-secondary border border-border p-6"
+          >
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-4">
+              <Wallet className="w-5 h-5 text-blue-400" />
+              {t('agentDetail.platformFunding', { defaultValue: 'Agent Funding' })}
+            </h3>
+            <p className="text-muted-foreground text-xs mb-4">
+              {t('agentDetail.platformFundingDesc', { defaultValue: 'Transfer between your platform balance and agent trading balance. Agent uses this balance for auto-trading.' })}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Fund Agent */}
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">{t('agentDetail.fundToAgent', { defaultValue: 'Fund Agent' })}</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={platformFundAmount}
+                    onChange={(e) => setPlatformFundAmount(e.target.value)}
+                    min="0.01"
+                    step="0.01"
+                    placeholder="USDT"
+                    className="flex-1 bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!id || !platformFundAmount) return;
+                      setPlatformFundLoading(true);
+                      try {
+                        const res = await fundAgentPlatform(id, Number(platformFundAmount));
+                        setAgent((prev) => prev ? { ...prev, wallet_balance: res.agentBalance } : prev);
+                        setPlatformFundAmount("");
+                        toast.success(t('agentDetail.fundSuccess'));
+                      } catch (err: any) {
+                        toast.error(err.message || t('agentDetail.fundFailed'));
+                      } finally {
+                        setPlatformFundLoading(false);
+                      }
+                    }}
+                    disabled={platformFundLoading || !platformFundAmount}
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-semibold transition-colors"
+                  >
+                    {platformFundLoading ? '...' : t('agentDetail.fund', { defaultValue: 'Fund' })}
+                  </button>
+                </div>
+              </div>
+              {/* Withdraw from Agent */}
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">{t('agentDetail.withdrawFromAgent', { defaultValue: 'Withdraw from Agent' })}</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={platformWithdrawAmount}
+                    onChange={(e) => setPlatformWithdrawAmount(e.target.value)}
+                    min="0.01"
+                    step="0.01"
+                    placeholder="USDT"
+                    className="flex-1 bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!id || !platformWithdrawAmount) return;
+                      setPlatformFundLoading(true);
+                      try {
+                        const res = await withdrawAgentPlatform(id, Number(platformWithdrawAmount));
+                        setAgent((prev) => prev ? { ...prev, wallet_balance: res.agentBalance } : prev);
+                        setPlatformWithdrawAmount("");
+                        toast.success(t('agentDetail.withdrawSuccess'));
+                      } catch (err: any) {
+                        toast.error(err.message || t('agentDetail.withdrawFailed'));
+                      } finally {
+                        setPlatformFundLoading(false);
+                      }
+                    }}
+                    disabled={platformFundLoading || !platformWithdrawAmount}
+                    className="px-4 py-2 bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed text-foreground text-sm font-semibold transition-colors"
+                  >
+                    {platformFundLoading ? '...' : t('agentDetail.withdraw', { defaultValue: 'Withdraw' })}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-muted-foreground">
+              {t('agentDetail.currentAgentBalance', { defaultValue: 'Agent balance:' })} <span className="text-blue-400 font-mono font-semibold">${agent.wallet_balance.toFixed(2)}</span>
+            </div>
+          </motion.div>
+        )}
 
         {/* Vault Info */}
         {(agent.vault_uri || isOwner) && (
