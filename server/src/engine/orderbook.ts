@@ -102,7 +102,7 @@ export async function placeLimitOrder(
     const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
-    if (market.status !== 'active') throw new Error('Market is not active');
+    if (!['active'].includes(market.status)) throw new Error('Market is not active');
 
     const orderId = randomUUID();
     const now = Date.now();
@@ -114,7 +114,7 @@ export async function placeLimitOrder(
       // Lock funds: check available balance
       const balanceRes = await client.query('SELECT * FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
       const balance = balanceRes.rows[0];
-      const cost = amount * price;
+      const cost = Math.round(amount * price * 10000) / 10000;
       if (!balance || Number(balance.available) < cost) throw new Error('Insufficient balance');
 
       // Lock funds
@@ -167,8 +167,10 @@ export async function placeLimitOrder(
 
       // Unlock excess locked funds for filled portion
       // P0-2 Fix: Protect against negative excessLock when actual cost exceeds locked amount
-      const filledCost = totalCost;
+      // P1 Fix: Cap filledCost to lockedForFilled to prevent negative balance deduction
+      let filledCost = totalCost;
       const lockedForFilled = filled * price; // We locked at our price
+      if (filledCost > lockedForFilled) filledCost = lockedForFilled;
       const excessLock = Math.max(0, lockedForFilled - filledCost); // We got better prices
       if (excessLock > 0.0001) {
         await client.query(
@@ -250,7 +252,7 @@ export async function placeLimitOrder(
 
         // Counterparty is buying: unlock their funds and give them shares
         // P1-6 Fix: Prevent negative locked balance with GREATEST guard
-        const counterCost = matchAmount * counterOrder.price;
+        const counterCost = Math.round(matchAmount * counterOrder.price * 10000) / 10000;
         await client.query(
           'UPDATE balances SET locked = GREATEST(locked - $1, 0) WHERE user_address = $2',
           [counterCost, counterOrder.user_address]
@@ -322,7 +324,7 @@ export async function placeMarketOrder(
     const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
-    if (market.status !== 'active') throw new Error('Market is not active');
+    if (!['active'].includes(market.status)) throw new Error('Market is not active');
 
     const orderId = randomUUID();
     const now = Date.now();
@@ -356,7 +358,7 @@ export async function placeMarketOrder(
 
         if (matchAmount <= 0.0001) continue;
 
-        const matchCost = matchAmount * askOrder.price;
+        const matchCost = Math.round(matchAmount * askOrder.price * 10000) / 10000;
 
         // Update ask order
         const newFilled = askOrder.filled + matchAmount;
@@ -444,7 +446,7 @@ export async function placeMarketOrder(
 
         if (matchAmount <= 0.0001) continue;
 
-        const matchCost = matchAmount * bidOrder.price;
+        const matchCost = Math.round(matchAmount * bidOrder.price * 10000) / 10000;
 
         // Update bid order
         const newFilled = bidOrder.filled + matchAmount;
@@ -452,7 +454,7 @@ export async function placeMarketOrder(
         await client.query('UPDATE open_orders SET filled = $1, status = $2 WHERE id = $3', [newFilled, newStatus, bidOrder.id]);
 
         // Unlock buyer's funds and give them shares
-        await client.query('UPDATE balances SET locked = locked - $1 WHERE user_address = $2', [matchCost, bidOrder.user_address]);
+        await client.query('UPDATE balances SET locked = GREATEST(locked - $1, 0) WHERE user_address = $2', [matchCost, bidOrder.user_address]);
         await updatePosition(client, bidOrder.user_address, marketId, side, matchAmount, bidOrder.price);
 
         // Pay seller
@@ -465,6 +467,8 @@ export async function placeMarketOrder(
       }
 
       // Remaining goes to AMM
+      // P1 Fix: Skip dust amounts to avoid AMM errors on tiny remainders
+      if (remaining < 0.01) remaining = 0;
       if (remaining > 0.0001) {
         // Bug D21 Fix: Coerce reserves to number before passing to AMM.
         const ammResult = calculateSell(Number(market.yes_reserve), Number(market.no_reserve), side as 'yes' | 'no', remaining);
@@ -580,12 +584,11 @@ async function updatePosition(
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (user_address, market_id, side)
     DO UPDATE SET
-      avg_cost = CASE
-        WHEN positions.shares + EXCLUDED.shares > 0
-        THEN ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
-             / (positions.shares + EXCLUDED.shares)
-        ELSE positions.avg_cost
-      END,
+      avg_cost = COALESCE(
+        ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
+        / NULLIF(positions.shares + EXCLUDED.shares, 0),
+        EXCLUDED.avg_cost
+      ),
       shares = positions.shares + EXCLUDED.shares
   `, [posId, userAddress, marketId, side, shares, price, now]);
 }

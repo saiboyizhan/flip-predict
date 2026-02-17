@@ -138,10 +138,14 @@ async function calculateUserProgress(address: string): Promise<Record<string, nu
   const tradeVolume = parseFloat(tradeVolumeRes.rows[0]?.volume) || 0;
 
   // Win count from settlement history (positions are deleted after settlement).
+  // Use DISTINCT ON (market_id) to deduplicate settlement_log entries per market
   const winCountRes = await db.query(`
-    SELECT COUNT(*) as count
-    FROM settlement_log
-    WHERE user_address = $1 AND action = 'settle_winner'
+    SELECT COUNT(*) as count FROM (
+      SELECT DISTINCT ON (market_id) id
+      FROM settlement_log
+      WHERE user_address = $1 AND action = 'settle_winner'
+      ORDER BY market_id, created_at DESC
+    ) deduped
   `, [address]);
   const winCount = parseInt(winCountRes.rows[0]?.count) || 0;
 
@@ -154,8 +158,12 @@ async function calculateUserProgress(address: string): Promise<Record<string, nu
     const streakRes = await db.query(`
       SELECT
         CASE WHEN action = 'settle_winner' THEN 1 ELSE 0 END as is_win
-      FROM settlement_log
-      WHERE user_address = $1 AND action IN ('settle_winner', 'settle_loser')
+      FROM (
+        SELECT DISTINCT ON (market_id) action, created_at
+        FROM settlement_log
+        WHERE user_address = $1 AND action IN ('settle_winner', 'settle_loser')
+        ORDER BY market_id, created_at DESC
+      ) deduped
       ORDER BY created_at DESC
     `, [address]);
 
@@ -260,7 +268,12 @@ router.get('/', async (_req: Request, res: Response) => {
 // GET /api/achievements/:address — Get user achievement progress (auth required)
 router.get('/:address', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const address = (req.params.address as string).toLowerCase();
+    const addressParam = req.params.address;
+    if (typeof addressParam !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(addressParam)) {
+      res.status(400).json({ error: 'Invalid address format' });
+      return;
+    }
+    const address = addressParam.toLowerCase();
     if (req.userAddress?.toLowerCase() !== address) {
       res.status(403).json({ error: 'Forbidden' });
       return;

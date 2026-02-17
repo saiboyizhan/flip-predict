@@ -508,6 +508,52 @@ export const NFA_ABI = [
     type: 'function',
   },
 
+  // --- Prediction Market Integration ---
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'depositToPredictionMarket',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'marketId', type: 'uint256' },
+      { name: 'isYes', type: 'bool' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'agentPredictionTakePosition',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+
+  // --- Auto Trade Authorization ---
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'operator', type: 'address' },
+    ],
+    name: 'authorizeAutoTrade',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'operator', type: 'address' },
+    ],
+    name: 'revokeAutoTrade',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+
   // --- Events ---
   {
     anonymous: false,

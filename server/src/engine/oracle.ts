@@ -100,10 +100,23 @@ async function getFallbackPrice(pair: string): Promise<OraclePrice> {
     throw new Error(`No valid price from Binance for ${pair}`);
   }
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // P2 Fix: Check if fallback data has a server timestamp and if it's stale.
+  // Binance ticker/price returns real-time data, but if the API returned data
+  // with a timestamp, verify it's within 1 hour. If both oracle AND fallback
+  // are stale, reject instead of returning stale price.
+  if (data.time) {
+    const fallbackTimeSec = Math.floor(Number(data.time) / 1000);
+    if (nowSec - fallbackTimeSec > 3600) {
+      throw new Error(`Fallback price for ${pair} is stale (timestamp ${nowSec - fallbackTimeSec}s ago)`);
+    }
+  }
+
   return {
     price,
     decimals: 8,
-    updatedAt: Math.floor(Date.now() / 1000),
+    updatedAt: nowSec,
     raw: BigInt(Math.round(price * 1e8))
   };
 }

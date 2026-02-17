@@ -123,9 +123,11 @@ export async function fetchTokenPrice(tokenAddress: string): Promise<TokenPrice>
 
     const result = pairToTokenPrice(best);
     if (!Number.isFinite(result.price) || result.price <= 0) {
+      // P2 Fix: Don't cache errors or zero prices -- only cache successful responses
       throw new Error(`Invalid price from DexScreener for ${tokenAddress}: ${result.price}`);
     }
 
+    // P2 Fix: Only cache successful responses (price > 0)
     setCache(tokenAddress, result);
     return result;
   } finally {

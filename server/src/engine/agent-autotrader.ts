@@ -80,6 +80,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 
   const maxPerTrade = agent.max_per_trade || 100;
 
+  const initialWalletBalance = agent.wallet_balance;
   let { wallet_balance, total_trades, experience, level } = agent;
   let totalDailyUsed = dailyUsed;
   let executedTrades = 0;
@@ -213,16 +214,19 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
     }
   }
 
-  // Sync balances table back to wallet_balance
+  // P0 Fix: Delta-based wallet_balance sync to avoid overwriting concurrent changes
+  // Compute the delta from in-memory tracking, then read actual DB balance for accuracy.
   const finalBal = (await db.query(
     'SELECT available FROM balances WHERE user_address = $1', [agentAddress]
   )).rows[0];
   if (finalBal) wallet_balance = Number(finalBal.available);
+  const balanceDelta = wallet_balance - initialWalletBalance;
 
   // Update agent stats (no wrapping transaction needed -- single atomic UPDATE)
+  // Use delta-based update for wallet_balance to prevent overwriting concurrent settlement rewards
   await db.query(`
     UPDATE agents SET
-      wallet_balance = $1,
+      wallet_balance = wallet_balance + $1,
       total_trades = $2,
       experience = $3,
       level = $4,
@@ -230,7 +234,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
       last_trade_at = $6
     WHERE id = $7
   `, [
-    Math.round(wallet_balance * 100) / 100,
+    Math.round(balanceDelta * 100) / 100,
     total_trades,
     experience,
     level,
@@ -241,7 +245,7 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
 }
 
 export function startAutoTrader(db: Pool, intervalMs: number = 60000): NodeJS.Timeout {
-  console.log(`Auto Trader started (${intervalMs / 1000}s interval)`);
+  console.info(`Auto Trader started (${intervalMs / 1000}s interval)`);
   let isRunning = false;
 
   const run = async () => {

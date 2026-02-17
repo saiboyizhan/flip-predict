@@ -8,6 +8,22 @@ import { JWT_SECRET, ADMIN_ADDRESSES, JWT_EXPIRATION } from '../config';
 const router = Router();
 const DEFAULT_INITIAL_BALANCE = 0;
 
+// --- Rate limiter: 10 requests per minute per IP ---
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 10;
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_LIMIT_MAX;
+}
+
 function getInitialSignupBalance(): number {
   const raw = process.env.INITIAL_SIGNUP_BALANCE;
   if (raw == null || raw === '') return DEFAULT_INITIAL_BALANCE;
@@ -19,6 +35,12 @@ function getInitialSignupBalance(): number {
 // GET /api/auth/nonce/:address
 router.get('/nonce/:address', async (req: Request, res: Response) => {
   try {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      res.status(429).json({ error: 'Too many requests, please try again later' });
+      return;
+    }
+
     const rawAddress = req.params.address as string;
 
     if (!ethers.isAddress(rawAddress.toLowerCase())) {
@@ -96,8 +118,9 @@ router.post('/verify', async (req: Request, res: Response) => {
       return;
     }
 
-    // Clear nonce
-    await db.query('UPDATE users SET nonce = NULL WHERE address = $1', [normalizedAddress]);
+    // Rotate nonce to a new random value (prevents replay; never set to NULL)
+    const freshNonce = crypto.randomBytes(16).toString('hex');
+    await db.query('UPDATE users SET nonce = $1 WHERE address = $2', [freshNonce, normalizedAddress]);
 
     const isAdmin = ADMIN_ADDRESSES.has(normalizedAddress);
 

@@ -51,14 +51,14 @@ export function NotificationBell() {
     }
   }, [isAuthenticated, loadFromServer]);
 
-  // Periodically refresh unread count
+  // Periodically refresh unread count only when panel is open
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !open) return;
     const interval = setInterval(() => {
       useNotificationStore.getState().refreshUnreadCount();
     }, 30000); // every 30 seconds
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, open]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -76,6 +76,7 @@ export function NotificationBell() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(!open)}
+        aria-label="Notifications"
         className="relative flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground transition-colors"
       >
         <Bell className="w-5 h-5" />

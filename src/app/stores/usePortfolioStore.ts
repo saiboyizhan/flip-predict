@@ -10,6 +10,7 @@ export interface PositionPnL {
 interface PortfolioState {
   positions: Position[]
   orders: Order[]
+  lastFetchTime: number
 
   addPosition: (
     marketId: string,
@@ -32,6 +33,7 @@ interface PortfolioState {
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   positions: [],
   orders: [],
+  lastFetchTime: 0,
 
   addPosition: (marketId, marketTitle, side, shares, avgCost) => {
     // P1-6 fix: Use atomic setState to prevent race conditions when concurrent trades
@@ -123,6 +125,10 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   },
 
   fetchFromAPI: async (address) => {
+    // Throttle: avoid rapid re-fetches within 2 seconds
+    const now = Date.now()
+    if (now - get().lastFetchTime < 2000) return
+
     try {
       const data = await fetchPortfolio(address)
       const positions: Position[] = (data.positions ?? []).map((p: any) => ({
@@ -135,7 +141,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         currentPrice: Number(p.current_price ?? p.currentPrice ?? p.avg_cost ?? p.avgCost) || 0,
         timestamp: Number(p.timestamp ?? p.created_at) || Date.now(),
       }))
-      set({ positions })
+      set({ positions, lastFetchTime: now })
     } catch {
       // API not available — keep existing positions
     }

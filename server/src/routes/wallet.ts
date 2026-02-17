@@ -397,9 +397,27 @@ export async function processWithdrawals(): Promise<{ processed: number; failed:
   }
 
   const db = getDb();
-  const pending = (await db.query(
-    "SELECT * FROM withdrawals WHERE status = 'pending' ORDER BY created_at ASC LIMIT 20"
-  )).rows;
+  // Use advisory lock to prevent concurrent processWithdrawals from double-processing
+  const selectClient = await db.connect();
+  let pending: any[];
+  try {
+    await selectClient.query('BEGIN');
+    // Grab exclusive lock; skip if another processor is already running
+    const lockResult = await selectClient.query("SELECT pg_try_advisory_xact_lock(42)");
+    if (!lockResult.rows[0].pg_try_advisory_xact_lock) {
+      await selectClient.query('COMMIT');
+      return { processed: 0, failed: 0 };
+    }
+    pending = (await selectClient.query(
+      "SELECT * FROM withdrawals WHERE status = 'pending' ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED"
+    )).rows;
+    await selectClient.query('COMMIT');
+  } catch (err) {
+    await selectClient.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    selectClient.release();
+  }
 
   if (pending.length === 0) return { processed: 0, failed: 0 };
 
@@ -421,14 +439,31 @@ export async function processWithdrawals(): Promise<{ processed: number; failed:
         [receipt.hash, w.id]
       );
       processed++;
-      console.log(`Withdrawal ${w.id} processed: ${receipt.hash}`);
+      console.info(`Withdrawal ${w.id} processed: ${receipt.hash}`);
     } catch (err: any) {
       failed++;
       console.error(`Withdrawal ${w.id} failed:`, err.message);
-      await db.query(
-        "UPDATE withdrawals SET status = 'failed' WHERE id = $1",
-        [w.id]
-      );
+      // Return balance to user on failure to prevent fund loss
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          "UPDATE withdrawals SET status = 'failed' WHERE id = $1",
+          [w.id]
+        );
+        await client.query(
+          `INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
+           ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2`,
+          [w.user_address, w.amount]
+        );
+        await client.query('COMMIT');
+        console.info(`Withdrawal ${w.id} failed — returned ${w.amount} to ${w.user_address}`);
+      } catch (returnErr: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error(`CRITICAL: Failed to return balance for withdrawal ${w.id}:`, returnErr.message);
+      } finally {
+        client.release();
+      }
     }
   }
 

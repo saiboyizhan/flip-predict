@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
@@ -63,22 +63,35 @@ export default function MarketDetailPage() {
   const [apiMarket, setApiMarket] = useState<Market | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
+  const fetchedRef = useRef(false);
+
+  const doFetch = useCallback(() => {
+    if (!id) return;
+    setLoading(true);
+    setFetchError(false);
+    fetchMarket(id)
+      .then((m) => {
+        setApiMarket(m);
+        setFetchError(false);
+      })
+      .catch(() => {
+        setFetchError(true);
+      })
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  // Reset ref when id changes
+  useEffect(() => {
+    fetchedRef.current = false;
+  }, [id]);
 
   // If market is not in store, try fetching it from the API (e.g. direct URL navigation)
   useEffect(() => {
-    if (!storeMarket && id && !apiMarket && !fetchError) {
-      setLoading(true);
-      fetchMarket(id)
-        .then((m) => {
-          setApiMarket(m);
-          setFetchError(false);
-        })
-        .catch(() => {
-          setFetchError(true);
-        })
-        .finally(() => setLoading(false));
+    if (!storeMarket && id && !fetchedRef.current) {
+      fetchedRef.current = true;
+      doFetch();
     }
-  }, [id, storeMarket, apiMarket, fetchError]);
+  }, [id, storeMarket, doFetch]);
 
   const market = storeMarket || apiMarket;
 
@@ -105,8 +118,8 @@ export default function MarketDetailPage() {
         <p className="text-muted-foreground">{t('market.notFound')}</p>
         <button
           onClick={() => {
-            setFetchError(false);
             setApiMarket(null);
+            doFetch();
           }}
           className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm mt-3 transition-colors"
         >

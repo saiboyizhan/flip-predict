@@ -153,7 +153,8 @@ function parseLlmResponse(text: string): AgentDecision[] {
         confidence: Math.max(0, Math.min(1, d.confidence)),
         reasoning: String(d.reasoning || 'LLM decision'),
       }));
-  } catch {
+  } catch (err) {
+    console.warn('LLM response JSON parse failed:', err instanceof Error ? err.message : 'unknown error');
     return [];
   }
 }
@@ -225,7 +226,7 @@ export async function generateLlmDecisions(
       );
     }
 
-    const decisions = parseLlmResponse(responseText);
+    let decisions = parseLlmResponse(responseText);
 
     // Update stats
     await db.query(
@@ -234,6 +235,10 @@ export async function generateLlmDecisions(
     );
 
     if (decisions.length > 0) {
+      // P1 Fix: Apply owner influence to LLM decisions too, not just fallback path
+      if (ownerInfluence) {
+        decisions = applyOwnerInfluence(decisions, ownerInfluence);
+      }
       return decisions;
     }
 
@@ -307,17 +312,21 @@ Respond ONLY with JSON:
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;
 
-    const parsed = JSON.parse(jsonMatch[0]);
-    if ((parsed.side === 'yes' || parsed.side === 'no') && typeof parsed.confidence === 'number') {
-      await db.query(
-        'UPDATE agent_llm_config SET last_used_at = $1, total_calls = total_calls + 1 WHERE agent_id = $2',
-        [Date.now(), agentId]
-      );
-      return {
-        side: parsed.side,
-        confidence: Math.max(0, Math.min(1, parsed.confidence)),
-        reasoning: String(parsed.reasoning || 'LLM suggestion'),
-      };
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if ((parsed.side === 'yes' || parsed.side === 'no') && typeof parsed.confidence === 'number') {
+        await db.query(
+          'UPDATE agent_llm_config SET last_used_at = $1, total_calls = total_calls + 1 WHERE agent_id = $2',
+          [Date.now(), agentId]
+        );
+        return {
+          side: parsed.side,
+          confidence: Math.max(0, Math.min(1, parsed.confidence)),
+          reasoning: String(parsed.reasoning || 'LLM suggestion'),
+        };
+      }
+    } catch (err) {
+      console.warn('LLM suggestion JSON parse failed:', err instanceof Error ? err.message : 'unknown error');
     }
     return null;
   } catch (err: any) {

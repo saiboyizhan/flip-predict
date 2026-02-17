@@ -157,42 +157,42 @@ export function AgentDetail() {
     if (fundSuccess) {
       refetchBalance();
       setFundAmount("");
-      toast.success("Agent funded successfully");
+      toast.success(t('agentDetail.fundSuccess'));
     }
-  }, [fundSuccess]);
+  }, [fundSuccess, t]);
 
   // Handle withdraw success
   useEffect(() => {
     if (withdrawSuccess) {
       refetchBalance();
       setWithdrawAmount("");
-      toast.success("Withdrawal successful");
+      toast.success(t('agentDetail.withdrawSuccess'));
     }
-  }, [withdrawSuccess]);
+  }, [withdrawSuccess, t]);
 
   // Handle pause success
   useEffect(() => {
     if (pauseSuccess) {
       refetchState();
-      toast.success("Agent paused");
+      toast.success(t('agentDetail.pauseSuccess'));
     }
-  }, [pauseSuccess]);
+  }, [pauseSuccess, t]);
 
   // Handle unpause success
   useEffect(() => {
     if (unpauseSuccess) {
       refetchState();
-      toast.success("Agent resumed");
+      toast.success(t('agentDetail.resumeSuccess'));
     }
-  }, [unpauseSuccess]);
+  }, [unpauseSuccess, t]);
 
   // Handle terminate success
   useEffect(() => {
     if (terminateSuccess) {
       refetchState();
-      toast.success("Agent terminated");
+      toast.success(t('agentDetail.terminateSuccess'));
     }
-  }, [terminateSuccess]);
+  }, [terminateSuccess, t]);
 
   // Handle transfer success - complete purchase on backend
   useEffect(() => {
@@ -216,24 +216,24 @@ export function AgentDetail() {
 
   // Handle errors
   useEffect(() => {
-    if (fundError) toast.error(fundError.message || "Fund failed");
-  }, [fundError]);
+    if (fundError) toast.error(fundError.message || t('agentDetail.fundFailed'));
+  }, [fundError, t]);
 
   useEffect(() => {
-    if (withdrawError) toast.error(withdrawError.message || "Withdrawal failed");
-  }, [withdrawError]);
+    if (withdrawError) toast.error(withdrawError.message || t('agentDetail.withdrawFailed'));
+  }, [withdrawError, t]);
 
   useEffect(() => {
-    if (pauseError) toast.error(pauseError.message || "Pause failed");
-  }, [pauseError]);
+    if (pauseError) toast.error(pauseError.message || t('agentDetail.pauseFailed'));
+  }, [pauseError, t]);
 
   useEffect(() => {
-    if (unpauseError) toast.error(unpauseError.message || "Unpause failed");
-  }, [unpauseError]);
+    if (unpauseError) toast.error(unpauseError.message || t('agentDetail.unpauseFailed'));
+  }, [unpauseError, t]);
 
   useEffect(() => {
-    if (terminateError) toast.error(terminateError.message || "Termination failed");
-  }, [terminateError]);
+    if (terminateError) toast.error(terminateError.message || t('agentDetail.terminateFailed'));
+  }, [terminateError, t]);
 
   // On-chain success handlers
   useEffect(() => {
@@ -241,36 +241,36 @@ export function AgentDetail() {
       refetchLearning();
       setLearningRoot("");
       setLearningProof("");
-      toast.success("Learning root updated");
+      toast.success(t('agentDetail.learningUpdated'));
     }
-  }, [updateLearningSuccess]);
+  }, [updateLearningSuccess, t]);
 
   useEffect(() => {
     if (registerModuleSuccess) {
       setModuleAddress("");
       setModuleMetadata("");
-      toast.success("Module registered");
+      toast.success(t('agentDetail.moduleRegistered'));
     }
-  }, [registerModuleSuccess]);
+  }, [registerModuleSuccess, t]);
 
   useEffect(() => {
     if (deactivateModuleSuccess) {
-      toast.success("Module deactivated");
+      toast.success(t('agentDetail.moduleDeactivated'));
     }
-  }, [deactivateModuleSuccess]);
+  }, [deactivateModuleSuccess, t]);
 
   useEffect(() => {
     if (delegateSuccess) {
       setDelegateAddress("");
-      toast.success("Access delegated");
+      toast.success(t('agentDetail.accessDelegated'));
     }
-  }, [delegateSuccess]);
+  }, [delegateSuccess, t]);
 
   useEffect(() => {
     if (revokeSuccess) {
-      toast.success("Access revoked");
+      toast.success(t('agentDetail.accessRevoked'));
     }
-  }, [revokeSuccess]);
+  }, [revokeSuccess, t]);
 
   useEffect(() => {
     if (transferError) toast.error(transferError.message || "Transfer failed");

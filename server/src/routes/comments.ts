@@ -15,7 +15,8 @@ function parseAddressArray(value: unknown): string[] {
       if (Array.isArray(parsed)) {
         return parsed.map((v) => String(v).toLowerCase());
       }
-    } catch {
+    } catch (err) {
+      console.warn('parseAddressArray JSON parse failed:', err instanceof Error ? err.message : 'unknown error');
       return [];
     }
   }
@@ -66,9 +67,14 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
         res.status(400).json({ error: 'Invalid parentId' });
         return;
       }
-      const parentExists = await db.query('SELECT id FROM comments WHERE id = $1 AND market_id = $2', [parentId, marketId]);
+      const parentExists = await db.query('SELECT id, parent_id FROM comments WHERE id = $1 AND market_id = $2', [parentId, marketId]);
       if (parentExists.rows.length === 0) {
         res.status(404).json({ error: 'Parent comment not found' });
+        return;
+      }
+      // Limit nesting to 1 level (no reply to a reply)
+      if (parentExists.rows[0].parent_id) {
+        res.status(400).json({ error: 'Cannot reply to a reply (max 1 level of nesting)' });
         return;
       }
     }
@@ -80,27 +86,41 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
     }
 
     // Bug D27 Fix: Rate limit comments to 20 per hour per user to prevent spam.
-    const oneHourAgo = Date.now() - 3600000;
-    const recentCommentsRes = await db.query(
-      'SELECT COUNT(*) as cnt FROM comments WHERE user_address = $1 AND created_at > $2',
-      [req.userAddress, oneHourAgo]
-    );
-    if (parseInt(recentCommentsRes.rows[0].cnt, 10) >= 20) {
-      res.status(429).json({ error: '评论太频繁，请稍后再试 (每小时最多20条)' });
-      return;
+    // Use atomic count + insert in a transaction to prevent concurrent bypass
+    const client = await db.connect();
+    let newComment: any;
+    try {
+      await client.query('BEGIN');
+      const oneHourAgo = Date.now() - 3600000;
+      const recentCommentsRes = await client.query(
+        'SELECT COUNT(*) as cnt FROM comments WHERE user_address = $1 AND market_id = $2 AND created_at > $3 FOR UPDATE',
+        [req.userAddress, marketId, oneHourAgo]
+      );
+      if (parseInt(recentCommentsRes.rows[0].cnt, 10) >= 20) {
+        await client.query('ROLLBACK');
+        res.status(429).json({ error: '评论太频繁，请稍后再试 (每小时最多20条)' });
+        return;
+      }
+
+      const id = crypto.randomUUID();
+      const now = Date.now();
+
+      await client.query(
+        `INSERT INTO comments (id, market_id, user_address, content, likes, liked_by, parent_id, created_at)
+         VALUES ($1, $2, $3, $4, 0, '[]', $5, $6)`,
+        [id, marketId, req.userAddress, content.trim(), parentId ?? null, now]
+      );
+
+      await client.query('COMMIT');
+      newComment = (await db.query('SELECT * FROM comments WHERE id = $1', [id])).rows[0];
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
     }
 
-    const id = crypto.randomUUID();
-    const now = Date.now();
-
-    await db.query(
-      `INSERT INTO comments (id, market_id, user_address, content, likes, liked_by, parent_id, created_at)
-       VALUES ($1, $2, $3, $4, 0, '[]', $5, $6)`,
-      [id, marketId, req.userAddress, content.trim(), parentId ?? null, now]
-    );
-
-    const comment = (await db.query('SELECT * FROM comments WHERE id = $1', [id])).rows[0];
-    res.json({ comment });
+    res.json({ comment: newComment });
   } catch (err: any) {
     console.error('Comments error:', err);
     res.status(500).json({ error: 'Internal server error' });

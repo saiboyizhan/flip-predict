@@ -270,6 +270,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         i18n.t('tradeNotification.buyDesc', { shares: res.shares.toFixed(2), side: side.toUpperCase() }),
       )
 
+      // WS price_update will sync the final state from server; no rollback needed
       return { success: true, shares: res.shares, price: res.price }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Trade failed, please try again'
@@ -278,6 +279,8 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         useAgentStore.getState().setShowMintModal(true)
         return { success: false, shares: 0, price: 0, error: 'AGENT_REQUIRED' }
       }
+      // Refetch market to ensure local state is in sync after failure
+      useMarketStore.getState().fetchFromAPI().catch(() => {})
       return { success: false, shares: 0, price: 0, error: message }
     }
   },
@@ -344,6 +347,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         i18n.t('tradeNotification.sellDesc', { shares: shares.toFixed(2), side: side.toUpperCase(), amount: res.amountOut.toFixed(2) }),
       )
 
+      // WS price_update will sync the final state from server; no rollback needed
       return { success: true, amountOut: res.amountOut, price: res.price }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sell failed, please try again'
@@ -351,6 +355,8 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         useAgentStore.getState().setShowMintModal(true)
         return { success: false, amountOut: 0, price: 0, error: 'AGENT_REQUIRED' }
       }
+      // Refetch market to ensure local state is in sync after failure
+      useMarketStore.getState().fetchFromAPI().catch(() => {})
       return { success: false, amountOut: 0, price: 0, error: message }
     }
   },

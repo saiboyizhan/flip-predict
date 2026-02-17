@@ -11,20 +11,45 @@ import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
 
 const router = Router();
 
+/** Clean up expired rentals and their LLM configs */
+async function cleanExpiredRentals(db: any): Promise<void> {
+  // Delete LLM configs for agents whose rental has expired
+  await db.query(`
+    DELETE FROM agent_llm_config WHERE agent_id IN (
+      SELECT id FROM agents WHERE rented_by IS NOT NULL AND rent_expires < NOW()
+    )
+  `);
+  // Clear rental fields
+  await db.query(`
+    UPDATE agents SET rented_by = NULL, rent_expires = NULL
+    WHERE rented_by IS NOT NULL AND rent_expires < NOW()
+  `);
+}
+
 /** Check if user is the owner OR active renter of an agent */
 function isOwnerOrRenter(agent: any, userAddress: string): boolean {
   if (agent.owner_address === userAddress) return true;
-  if (agent.rented_by === userAddress && agent.rent_expires && agent.rent_expires > Date.now()) return true;
+  // Treat expired rental as not rented
+  if (agent.rented_by === userAddress && agent.rent_expires && Number(agent.rent_expires) > Date.now()) return true;
   return false;
 }
 
 const VALID_STRATEGIES = ['conservative', 'aggressive', 'contrarian', 'momentum', 'random'];
 const NFA_RPC_URL = getRpcUrl('NFA_RPC_URL');
-const RAW_NFA_CONTRACT_ADDRESS =
-  process.env.NFA_CONTRACT_ADDRESS ||
-  process.env.VITE_NFA_CONTRACT_ADDRESS ||
-  process.env.VITE_NFA_ADDRESS ||
-  '';
+const RAW_NFA_CONTRACT_ADDRESS = (() => {
+  if (process.env.NFA_CONTRACT_ADDRESS) {
+    return process.env.NFA_CONTRACT_ADDRESS;
+  }
+  if (process.env.VITE_NFA_CONTRACT_ADDRESS) {
+    console.warn('WARNING: NFA_CONTRACT_ADDRESS not set, falling back to VITE_NFA_CONTRACT_ADDRESS. Set NFA_CONTRACT_ADDRESS for production.');
+    return process.env.VITE_NFA_CONTRACT_ADDRESS;
+  }
+  if (process.env.VITE_NFA_ADDRESS) {
+    console.warn('WARNING: NFA_CONTRACT_ADDRESS not set, falling back to VITE_NFA_ADDRESS. Set NFA_CONTRACT_ADDRESS for production.');
+    return process.env.VITE_NFA_ADDRESS;
+  }
+  return '';
+})();
 const NFA_CONTRACT_ADDRESS = ethers.isAddress(RAW_NFA_CONTRACT_ADDRESS)
   ? RAW_NFA_CONTRACT_ADDRESS.toLowerCase()
   : null;
@@ -247,6 +272,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
 router.get('/marketplace', async (_req: Request, res: Response) => {
   try {
     const db = getDb();
+    await cleanExpiredRentals(db);
     const agents = (await db.query(
       'SELECT * FROM agents WHERE is_for_sale = 1 OR is_for_rent = 1 ORDER BY created_at DESC'
     )).rows;
@@ -292,6 +318,7 @@ router.get('/my', authMiddleware, async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const db = getDb();
+    await cleanExpiredRentals(db);
     const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
     if (!agent) {
       res.status(404).json({ error: 'Agent not found' });
@@ -453,6 +480,16 @@ router.post('/recover', authMiddleware, async (req: AuthRequest, res: Response) 
     }
     const resolvedTokenId = mintTxVerification.tokenId;
 
+    // Check 3-agent limit per address (AFTER mint tx verification)
+    const countRes = await db.query(
+      'SELECT COUNT(*) as count FROM agents WHERE owner_address = $1',
+      [req.userAddress]
+    );
+    if (Number(countRes.rows[0]?.count) >= 3) {
+      res.status(400).json({ error: 'Max 3 agents per address' });
+      return;
+    }
+
     // Check duplicate tokenId
     const existingToken = await db.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [resolvedTokenId]);
     if (existingToken.rows.length > 0) {
@@ -516,6 +553,14 @@ router.post('/auto-sync', authMiddleware, async (req: AuthRequest, res: Response
     const missingTokenIds = tokenIds.filter(id => !existingTokens.includes(id));
     if (missingTokenIds.length === 0) {
       res.json({ synced: 0, agents: [] });
+      return;
+    }
+
+    // Check 3-agent limit per address
+    const currentAgentCount = existingTokens.length;
+    const maxToSync = Math.max(0, 3 - currentAgentCount);
+    if (maxToSync === 0) {
+      res.json({ synced: 0, agents: [], message: 'Max 3 agents per address' });
       return;
     }
 
@@ -652,7 +697,12 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
       }
 
       // Verify the on-chain Transfer event (seller -> buyer for this tokenId)
-      if (NFA_CONTRACT_ADDRESS) {
+      if (!NFA_CONTRACT_ADDRESS) {
+        await client.query('ROLLBACK');
+        res.status(503).json({ error: 'NFA contract verification is not configured' });
+        return;
+      }
+      {
         try {
           const provider = getNfaProvider();
           const receipt = await provider.getTransactionReceipt(txHash);
@@ -721,7 +771,7 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
 
     // Transfer ownership
     await client.query(`
-      UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL WHERE id = $2
+      UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL, rented_by = NULL, rent_expires = NULL WHERE id = $2
     `, [req.userAddress, req.params.id]);
 
     // Clear previous owner's LLM config (API keys) to prevent key leakage
@@ -1189,7 +1239,7 @@ router.put('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Resp
 router.get('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    const agent = (await db.query('SELECT owner_address, rented_by, rent_expires FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
@@ -1232,7 +1282,7 @@ router.get('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Resp
 router.delete('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    const agent = (await db.query('SELECT owner_address, rented_by, rent_expires FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 
@@ -1248,7 +1298,7 @@ router.delete('/:id/llm-config', authMiddleware, async (req: AuthRequest, res: R
 router.post('/:id/llm-config/toggle', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
-    const agent = (await db.query('SELECT owner_address FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
+    const agent = (await db.query('SELECT owner_address, rented_by, rent_expires FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
     if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
     if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
 

@@ -259,21 +259,39 @@ export async function getOwnerInfluence(db: Pool, agentId: string): Promise<Owne
 
   if (!cached || cached.total_trades === 0) return null;
 
+  let categoryWeights = {};
+  if (typeof cached.category_weights === 'string') {
+    try {
+      categoryWeights = JSON.parse(cached.category_weights);
+    } catch {
+      categoryWeights = {};
+    }
+  } else {
+    categoryWeights = cached.category_weights || {};
+  }
+
+  let topMarketIds: string[] = [];
+  if (typeof cached.top_market_ids === 'string') {
+    try {
+      topMarketIds = JSON.parse(cached.top_market_ids);
+    } catch {
+      topMarketIds = [];
+    }
+  } else {
+    topMarketIds = cached.top_market_ids || [];
+  }
+
   const profile: OwnerProfile = {
     agentId: cached.agent_id,
     ownerAddress: cached.owner_address,
     totalTrades: cached.total_trades,
     yesRatio: cached.yes_ratio,
-    categoryWeights: typeof cached.category_weights === 'string'
-      ? JSON.parse(cached.category_weights)
-      : (cached.category_weights || {}),
+    categoryWeights,
     avgAmount: cached.avg_amount,
     riskScore: cached.risk_score,
     contrarianScore: cached.contrarian_score,
     winRate: cached.win_rate,
-    topMarketIds: typeof cached.top_market_ids === 'string'
-      ? JSON.parse(cached.top_market_ids)
-      : (cached.top_market_ids || []),
+    topMarketIds,
     lastSyncedOrderAt: cached.last_synced_order_at,
   };
 

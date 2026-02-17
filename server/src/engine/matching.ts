@@ -40,7 +40,8 @@ export async function executeBuy(
     const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
-    if (market.status !== 'active') throw new Error('Market is not active');
+    if (!['active'].includes(market.status)) throw new Error('Market is not active');
+    if (Number(market.end_time) <= Date.now()) throw new Error('Market has expired');
 
     // Check balance
     // Bug D19 Fix: Coerce DB values to number for safe comparison.
@@ -87,12 +88,11 @@ export async function executeBuy(
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (user_address, market_id, side)
       DO UPDATE SET
-        avg_cost = CASE
-          WHEN positions.shares + EXCLUDED.shares > 0
-          THEN ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
-               / (positions.shares + EXCLUDED.shares)
-          ELSE positions.avg_cost
-        END,
+        avg_cost = COALESCE(
+          ((positions.shares * positions.avg_cost) + (EXCLUDED.shares * EXCLUDED.avg_cost))
+          / NULLIF(positions.shares + EXCLUDED.shares, 0),
+          EXCLUDED.avg_cost
+        ),
         shares = positions.shares + EXCLUDED.shares
     `, [randomUUID(), userAddress, marketId, side, result.sharesOut, result.pricePerShare, now]);
 
@@ -133,7 +133,8 @@ export async function executeSell(
     const marketRes = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
     const market = marketRes.rows[0];
     if (!market) throw new Error('Market not found');
-    if (market.status !== 'active') throw new Error('Market is not active');
+    if (!['active'].includes(market.status)) throw new Error('Market is not active');
+    if (Number(market.end_time) <= Date.now()) throw new Error('Market has expired');
 
     // Check position
     const positionRes = await client.query(

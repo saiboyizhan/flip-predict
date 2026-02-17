@@ -230,6 +230,8 @@
     "maxOptions": "Maximum 10 options",
     "optionLabelRequired": "All options must have a name",
     "footer": "Free to propose · Max {{max}} per day · Reviewed by admin before going live",
+    "syncParamsLost": "On-chain creation succeeded, but local sync parameters lost. Please refresh and retry.",
+    "oraclePairPlaceholder": "BTC/USD or 0x...",
     "categories": {
       "four-meme": "Four.meme",
       "flap": "Flap",
@@ -330,7 +332,10 @@
     "refreshBalance": "Refresh contract balance",
     "faucet": "Get 10K Test USDT",
     "platformFaucet": "Get 10K Test Balance",
-    "platformFaucetSuccess": "10,000 test balance credited!"
+    "platformFaucetSuccess": "10,000 test balance credited!",
+    "approving": "Approving USDT...",
+    "approved": "Approved",
+    "approveSubmitted": "Approve submitted"
   },
   "agents": {
     "title": "AI Agents",
@@ -537,7 +542,8 @@
     "claimSuccess": "Winnings deposited",
     "claimFailed": "Claim failed",
     "claimedOnChain": "Winnings claimed on-chain!",
-    "claimOnChain": "Claim On-Chain"
+    "claimOnChain": "Claim On-Chain",
+    "syncFailed": "On-chain claim succeeded but platform sync failed. Please contact support."
   },
   "resolved": {
     "won": "{{side}} Won",
@@ -671,6 +677,21 @@
     "vaultUpdated": "Vault updated",
     "vaultUpdateFailed": "Failed to update Vault",
     "tabLlm": "AI Model",
+    "fundSuccess": "Agent funded successfully",
+    "withdrawSuccess": "Withdrawal successful",
+    "pauseSuccess": "Agent paused",
+    "resumeSuccess": "Agent resumed",
+    "terminateSuccess": "Agent terminated",
+    "learningUpdated": "Learning root updated",
+    "moduleRegistered": "Module registered",
+    "moduleDeactivated": "Module deactivated",
+    "accessDelegated": "Access delegated",
+    "accessRevoked": "Access revoked",
+    "fundFailed": "Fund failed",
+    "withdrawFailed": "Withdrawal failed",
+    "pauseFailed": "Pause failed",
+    "unpauseFailed": "Resume failed",
+    "terminateFailed": "Termination failed",
     "llmConfig": {
       "title": "AI Model Configuration",
       "subtitle": "Connect an LLM API to enhance Agent decision-making",

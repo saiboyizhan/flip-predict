@@ -37,7 +37,7 @@ export function OpenOrders({ marketId }: OpenOrdersProps) {
 
   useEffect(() => {
     fetchOrders();
-    const timer = setInterval(fetchOrders, 5000);
+    const timer = setInterval(fetchOrders, 15000);
     return () => clearInterval(timer);
   }, [fetchOrders]);
 

@@ -57,11 +57,24 @@ export async function fetchFromIPFS(cid: string): Promise<object> {
 }
 
 /**
- * Verify data integrity against an IPFS CID using SHA-256
+ * Verify data integrity against an IPFS CID using SHA-256.
+ *
+ * NOTE: This is a placeholder implementation. A production version should
+ * decode the CID's multihash and compare using the exact hash algorithm
+ * specified in the CID itself (e.g., via the 'multihashes' or 'cids' npm packages).
+ * Currently this only performs basic CID format validation and a non-empty data check.
  */
 export function verifyIPFSHash(cid: string, data: object): boolean {
+  // Basic CID format validation
+  if (!cid || typeof cid !== 'string') return false;
+
+  const isCIDv0 = /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(cid); // CIDv0: starts with 'Qm', 46 chars total
+  const isCIDv1 = /^bafy[a-z2-7]{55,}$/.test(cid); // CIDv1: starts with 'bafy'
+
+  if (!isCIDv0 && !isCIDv1) return false;
+
   const jsonStr = JSON.stringify(data);
   const hash = createHash('sha256').update(jsonStr).digest('hex');
-  // Simple comparison - in production you'd use the actual CID algorithm
-  return hash.length > 0 && cid.length > 0;
+  // Placeholder: in production, compare hash against the CID's embedded multihash
+  return hash.length > 0;
 }

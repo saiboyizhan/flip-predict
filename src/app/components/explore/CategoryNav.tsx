@@ -36,6 +36,7 @@ export function CategoryNav({ selectedCategory, onCategoryChange }: CategoryNavP
       {/* Left Arrow */}
       <button
         onClick={() => scroll("left")}
+        aria-label="Scroll categories left"
         className="hidden md:flex shrink-0 w-8 h-8 items-center justify-center bg-muted border border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-border transition-colors"
       >
         <ChevronLeft className="w-4 h-4" />
@@ -70,6 +71,7 @@ export function CategoryNav({ selectedCategory, onCategoryChange }: CategoryNavP
       {/* Right Arrow */}
       <button
         onClick={() => scroll("right")}
+        aria-label="Scroll categories right"
         className="hidden md:flex shrink-0 w-8 h-8 items-center justify-center bg-muted border border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-border transition-colors"
       >
         <ChevronRight className="w-4 h-4" />

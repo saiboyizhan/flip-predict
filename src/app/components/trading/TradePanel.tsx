@@ -499,7 +499,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
           {/* Amount Input */}
           <div>
-            <label className="block text-muted-foreground text-[10px] tracking-wider uppercase mb-1.5">
+            <label htmlFor="trade-amount-input" className="block text-muted-foreground text-[10px] tracking-wider uppercase mb-1.5">
               {tradeMode === "buy"
                 ? (useOnChain ? t('trade.amountBnb') : t('trade.tradeAmount'))
                 : t('trade.sellShares')}
@@ -511,13 +511,21 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
                 </span>
               )}
               <input
+                id="trade-amount-input"
                 type="number"
+                min="0.01"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className={`w-full bg-input-background border border-border text-foreground text-lg font-bold py-2.5 ${tradeMode === "buy" && !useOnChain ? "pl-7" : "pl-3"} pr-3 focus:outline-none focus:border-blue-500/50 transition-colors`}
                 placeholder="0.00"
               />
             </div>
+            {numAmount > 0 && numAmount < 0.01 && (
+              <p className="text-red-400 text-xs mt-1">Minimum amount is $0.01</p>
+            )}
+            {useOnChain && tradeMode === "buy" && contractBalance && (
+              <p className="text-muted-foreground text-xs mt-1">Max: {parseFloat(contractBalance).toFixed(4)} USDT</p>
+            )}
           </div>
 
           {/* Quick Amount Buttons */}

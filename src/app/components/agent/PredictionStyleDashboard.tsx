@@ -93,11 +93,12 @@ export function PredictionStyleDashboard({ agentId }: PredictionStyleDashboardPr
     { subject: t('predStyle.radarActivity'), A: Math.min(100, profile.totalPredictions * 2), fullMark: 100 },
   ];
 
-  // Mock trend data (last 30 days)
-  const trendData = Array.from({ length: 30 }, (_, i) => ({
-    day: `D${i + 1}`,
-    accuracy: Math.round((profile.accuracy + (Math.random() - 0.5) * 0.2) * 100),
-  }));
+  // Deterministic trend data (last 30 days) derived from profile accuracy
+  const trendData = Array.from({ length: 30 }, (_, i) => {
+    const variation = Math.sin(i * 0.7) * 0.06 + Math.sin(i * 1.3) * 0.04;
+    const value = Math.round((profile.accuracy + variation) * 100);
+    return { day: `D${i + 1}`, accuracy: Math.max(0, Math.min(100, value)) };
+  });
 
   // AI style summary
   const styleSummary = generateStyleSummary(profile, t);

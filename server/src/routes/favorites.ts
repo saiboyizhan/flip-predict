@@ -24,23 +24,18 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
       return;
     }
 
-    // Check if already favorited
-    const existing = await db.query(
-      'SELECT id FROM user_favorites WHERE user_address = $1 AND market_id = $2',
-      [userAddress, marketId]
-    );
-    if (existing.rows.length > 0) {
-      res.status(409).json({ error: 'Already favorited' });
-      return;
-    }
-
     const id = crypto.randomUUID();
     const now = Date.now();
 
-    await db.query(
-      'INSERT INTO user_favorites (id, user_address, market_id, created_at) VALUES ($1, $2, $3, $4)',
+    const result = await db.query(
+      'INSERT INTO user_favorites (id, user_address, market_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (user_address, market_id) DO NOTHING RETURNING id',
       [id, userAddress, marketId, now]
     );
+
+    if (result.rows.length === 0) {
+      res.status(409).json({ error: 'Already favorited' });
+      return;
+    }
 
     res.json({ success: true, id });
   } catch (err: any) {

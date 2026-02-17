@@ -175,7 +175,7 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
 }
 
 export function startAgentRunner(db: Pool, intervalMs: number = 60000): NodeJS.Timeout {
-  console.log(`Agent Runner started (${intervalMs / 1000}s interval)`);
+  console.info(`Agent Runner started (${intervalMs / 1000}s interval)`);
   let isRunning = false;
 
   const run = async () => {

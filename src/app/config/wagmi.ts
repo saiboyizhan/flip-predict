@@ -1,4 +1,4 @@
-import { http, createConfig } from "wagmi";
+import { http, fallback } from "wagmi";
 import { defineChain, parseGwei } from "viem";
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -8,7 +8,13 @@ const bscTestnet = defineChain({
   name: "BNB Smart Chain Testnet",
   nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://data-seed-prebsc-1-s1.bnbchain.org:8545"] },
+    default: {
+      http: [
+        "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+        "https://data-seed-prebsc-2-s1.bnbchain.org:8545",
+        "https://data-seed-prebsc-1-s2.bnbchain.org:8545",
+      ],
+    },
   },
   blockExplorers: {
     default: { name: "BscScan Testnet", url: "https://testnet.bscscan.com" },
@@ -34,7 +40,11 @@ const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks: chains,
   transports: {
-    [bscTestnet.id]: http("https://data-seed-prebsc-1-s1.bnbchain.org:8545"),
+    [bscTestnet.id]: fallback([
+      http("https://data-seed-prebsc-1-s1.bnbchain.org:8545"),
+      http("https://data-seed-prebsc-2-s1.bnbchain.org:8545"),
+      http("https://data-seed-prebsc-1-s2.bnbchain.org:8545"),
+    ]),
   },
 });
 

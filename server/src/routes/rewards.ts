@@ -5,11 +5,11 @@ import crypto from 'crypto';
 import { createNotification } from './notifications';
 
 const router = Router();
-const REFERRAL_CODE_LENGTH = 12;
+const REFERRAL_CODE_LENGTH = 16;
 
 function buildReferralCode(address: string): string {
   return crypto
-    .createHash('md5')
+    .createHash('sha256')
     .update(address.toLowerCase())
     .digest('hex')
     .slice(0, REFERRAL_CODE_LENGTH);
@@ -150,7 +150,7 @@ router.post('/referral', authMiddleware, async (req: AuthRequest, res: Response)
     const { rows: users } = await client.query(
       `SELECT address
        FROM users
-       WHERE SUBSTRING(md5(LOWER(address)) FROM 1 FOR $2) = $1
+       WHERE SUBSTRING(encode(sha256(LOWER(address)::bytea), 'hex') FROM 1 FOR $2) = $1
        LIMIT 2`,
       [trimmedCode, REFERRAL_CODE_LENGTH]
     );

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
@@ -86,7 +87,7 @@ export default function HomePage() {
   );
 
   const featuredMarkets = filteredMarkets.filter(m => m.featured).slice(0, 3);
-  const cardMarkets = filteredMarkets.map(toCardMarket);
+  const cardMarkets = useMemo(() => filteredMarkets.map(toCardMarket), [filteredMarkets]);
 
   const handleMarketClick = (marketId: string) => {
     navigate(`/market/${marketId}`);
@@ -97,6 +98,38 @@ export default function HomePage() {
       {/* Decorative blur */}
       <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-blue-500/5 rounded-full blur-3xl" />
 
+
+      {/* Featured Market Banner - Loading Skeleton */}
+      {marketLoading && featuredMarkets.length === 0 && (
+        <div className="relative px-4 sm:px-6 mb-6">
+          <div className="relative overflow-hidden bg-card border border-blue-500/10 rounded-xl p-4 sm:p-6 md:p-8 animate-pulse">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-6 w-24 bg-muted rounded-lg" />
+              <div className="h-6 w-16 bg-muted rounded" />
+            </div>
+            <div className="h-6 w-3/4 bg-muted rounded mb-3" />
+            <div className="h-4 w-1/2 bg-muted rounded mb-6" />
+            <div className="flex items-center gap-8">
+              <div className="h-8 w-20 bg-muted rounded" />
+              <div className="h-8 w-20 bg-muted rounded" />
+              <div className="h-8 w-20 bg-muted rounded" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            {[0, 1].map((i) => (
+              <div key={i} className="bg-card border border-white/[0.06] rounded-xl p-4 animate-pulse">
+                <div className="h-5 w-16 bg-muted rounded-md mb-2" />
+                <div className="h-4 w-full bg-muted rounded mb-2" />
+                <div className="flex items-center gap-4">
+                  <div className="h-4 w-16 bg-muted rounded" />
+                  <div className="h-4 w-16 bg-muted rounded" />
+                  <div className="h-4 w-12 bg-muted rounded ml-auto" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Featured Market Banner */}
       {featuredMarkets.length > 0 && (

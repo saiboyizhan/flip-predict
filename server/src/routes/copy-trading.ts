@@ -426,6 +426,12 @@ router.put('/combo-strategy', authMiddleware, async (req: AuthRequest, res: Resp
       total += val;
     }
 
+    // All weights zero check
+    if (total === 0) {
+      res.status(400).json({ error: 'At least one strategy weight must be non-zero' });
+      return;
+    }
+
     // Normalize to sum to 100
     if (total > 0) {
       for (const key of validKeys) {

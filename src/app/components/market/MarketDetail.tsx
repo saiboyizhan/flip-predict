@@ -107,6 +107,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   // Subscribe to WebSocket price updates
   useEffect(() => {
     const handler = (data: any) => {
+      if (data.marketId !== market.id) return;
       if (data.type === 'price_update') {
         setLiveYesPrice(data.yesPrice);
         setLiveNoPrice(data.noPrice);

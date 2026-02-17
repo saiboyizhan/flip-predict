@@ -178,7 +178,9 @@ export function WalletPage() {
               setPlatformBalance(result.balance);
             }
           })
-          .catch(() => {});
+          .catch(() => {
+            toast.error("Deposit confirmed on-chain but platform sync failed. Your funds are safe - please refresh or contact support.");
+          });
       }
       refetchWalletUsdtBalance();
       refetchPredictionMarketBalance();
@@ -201,7 +203,9 @@ export function WalletPage() {
               setPlatformBalance(result.balance);
             }
           })
-          .catch(() => {});
+          .catch(() => {
+            toast.error("Withdraw confirmed on-chain but platform sync failed. Your funds are safe - please refresh or contact support.");
+          });
       }
       refetchWalletUsdtBalance();
       refetchPredictionMarketBalance();
@@ -325,6 +329,8 @@ export function WalletPage() {
     contractWithdraw.withdraw(withdrawAmount);
   };
 
+  const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
+
   // Legacy manual deposit handler
   const handleDeposit = async () => {
     const amt = parseFloat(depositAmount);
@@ -334,6 +340,10 @@ export function WalletPage() {
     }
     if (!depositTxHash.trim()) {
       toast.error(t('wallet.txHash'));
+      return;
+    }
+    if (!TX_HASH_REGEX.test(depositTxHash.trim())) {
+      toast.error('Invalid transaction hash format. Must be 0x followed by 64 hex characters.');
       return;
     }
 
@@ -667,8 +677,15 @@ export function WalletPage() {
                           value={depositTxHash}
                           onChange={(e) => setDepositTxHash(e.target.value)}
                           placeholder={t('wallet.txHashPlaceholder')}
-                          className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-sm p-3 outline-none transition-colors font-mono placeholder:text-muted-foreground"
+                          className={`w-full bg-input-background border focus:outline-none text-foreground text-sm p-3 transition-colors font-mono placeholder:text-muted-foreground ${
+                            depositTxHash.trim() && !TX_HASH_REGEX.test(depositTxHash.trim())
+                              ? "border-red-500 focus:border-red-500"
+                              : "border-border focus:border-blue-500/60"
+                          }`}
                         />
+                        {depositTxHash.trim() && !TX_HASH_REGEX.test(depositTxHash.trim()) && (
+                          <p className="text-red-400 text-xs mt-1">Invalid format. Must be 0x followed by 64 hex characters.</p>
+                        )}
                       </div>
                     )}
 
@@ -691,7 +708,7 @@ export function WalletPage() {
                           {approveTxHash.slice(0, 16)}...{approveTxHash.slice(-8)}
                         </a>
                         <span className="text-muted-foreground text-xs ml-auto">
-                          {approveConfirming ? "Approving USDT..." : approveConfirmed ? "Approved" : "Approve submitted"}
+                          {approveConfirming ? t('wallet.approving') : approveConfirmed ? t('wallet.approved') : t('wallet.approveSubmitted')}
                         </span>
                       </div>
                     )}
@@ -738,7 +755,7 @@ export function WalletPage() {
                         <>
                           <Loader2 className="w-5 h-5 animate-spin" />
                           {approveConfirming
-                            ? "Approving USDT..."
+                            ? t('wallet.approving')
                             : contractDeposit.isConfirming
                               ? t('trade.confirmingOnChain')
                               : t('wallet.processing')}

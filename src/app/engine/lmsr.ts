@@ -73,7 +73,7 @@ export function calculateLMSRBuyPreview(
   let hi = amount * 100;
   let mid = 0;
 
-  for (let iter = 0; iter < 100; iter++) {
+  for (let iter = 0; iter < 1000; iter++) {
     mid = (lo + hi) / 2;
     const newReserves = [...reserves];
     newReserves[optionIndex] += mid;
@@ -122,7 +122,7 @@ export function calculateLMSRSellPreview(
   const newReserves = [...reserves];
   newReserves[optionIndex] -= shares;
 
-  if (newReserves[optionIndex] < 0.001) {
+  if (newReserves[optionIndex] < 1.0) {
     console.warn('LMSR sell preview: trade too large, would deplete reserves', { optionIndex, shares, reserve: reserves[optionIndex] });
     return { amountOut: 0, avgPrice: 0, priceImpact: 0, newPrices: oldPrices, error: 'Trade too large: would deplete reserves' };
   }

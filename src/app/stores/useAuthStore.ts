@@ -4,6 +4,8 @@ import { setToken, getToken, clearToken, fetchBalance } from '@/app/services/api
 import { useTradeStore } from './useTradeStore'
 import { usePortfolioStore } from './usePortfolioStore'
 import { useAgentStore } from './useAgentStore'
+import { useSocialStore } from './useSocialStore'
+import { useUserStore } from './useUserStore'
 import { disconnectWS } from '@/app/services/ws'
 
 /** Decode JWT payload and check if expired (client-side only, no verification) */
@@ -90,6 +92,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     useTradeStore.getState().reset()
     usePortfolioStore.setState({ positions: [], orders: [] })
     useAgentStore.getState().reset()
+
+    // Reset social and user stores on logout
+    useSocialStore.getState().reset()
+    useUserStore.getState().reset()
 
     set({
       address: null,

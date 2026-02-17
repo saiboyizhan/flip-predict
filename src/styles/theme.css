@@ -158,6 +158,11 @@
     @apply border-border outline-ring/50;
   }
 
+  *:focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 2px;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', 'DM Sans', sans-serif;

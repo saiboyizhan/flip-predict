@@ -78,6 +78,11 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
   const pendingPayloadRef = useRef<PendingMarketPayload | null>(null);
   const lastSyncedTxHashRef = useRef<string | null>(null);
   const feeAtSubmitRef = useRef<string>('0'); // P0-2 fix: capture fee at submission
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const {
     createUserMarket: createUserMarketOnChain,
@@ -177,7 +182,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
 
     const pendingPayload = pendingPayloadRef.current;
     if (!pendingPayload) {
-      toast.error('链上创建成功，但本地同步参数丢失，请刷新后重试');
+      toast.error(t('createMarket.syncParamsLost'));
       return;
     }
 
@@ -191,6 +196,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       onChainCreationFee: Number(capturedFee),
     })
       .then(() => {
+        if (!mountedRef.current) return;
         lastSyncedTxHashRef.current = createTxHash;
         toast.success(t('market.submitForReview'));
         setTitle('');
@@ -210,13 +216,16 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
         onSuccess?.();
       })
       .catch((err: unknown) => {
+        if (!mountedRef.current) return;
         const message = err instanceof Error ? err.message : t('createMarket.createFailed');
         toast.error(`链上成功，但后端同步失败: ${message}`);
         const scanUrl = getBscScanUrl(chainId);
         window.open(`${scanUrl}/tx/${createTxHash}`, "_blank");
       })
       .finally(() => {
-        setSyncing(false);
+        if (mountedRef.current) {
+          setSyncing(false);
+        }
       });
   }, [
     createConfirmed,
@@ -248,6 +257,16 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     }
     if (!category) {
       toast.error(t('createMarket.selectCategory'));
+      return;
+    }
+    const oneHourFromNow = Date.now() + 3600000;
+    const oneYearFromNow = Date.now() + 365 * 24 * 3600000;
+    if (endTime < oneHourFromNow) {
+      toast.error('End time must be at least 1 hour in the future.');
+      return;
+    }
+    if (endTime > oneYearFromNow) {
+      toast.error('End time must not be more than 365 days in the future.');
       return;
     }
     if (marketType === 'multi' && !multiOnChainSupported) {
@@ -529,7 +548,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
                 type="text"
                 value={oraclePair}
                 onChange={(e) => setOraclePair(e.target.value)}
-                placeholder="BTC/USD 或 0x..."
+                placeholder={t('createMarket.oraclePairPlaceholder')}
                 className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground"
               />
             </div>

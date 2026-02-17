@@ -20,6 +20,8 @@ function extractAdminAddress(req: Request): string | null {
 
 const router = Router();
 
+const VALID_CATEGORIES = ['four-meme', 'meme', 'defi', 'gaming', 'ai', 'social', 'other'];
+
 function parseTimestampFilter(value: unknown): string | null {
   if (value == null || value === '') return null;
   const asString = String(value).trim();
@@ -61,6 +63,10 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (category && category !== 'all') {
+      if (!VALID_CATEGORIES.includes(category as string)) {
+        res.status(400).json({ error: 'Invalid category' });
+        return;
+      }
       query += ` AND category = $${paramIndex++}`;
       params.push(category);
     }
@@ -151,6 +157,10 @@ router.get('/search', async (req: Request, res: Response) => {
     let paramIndex = 3;
 
     if (category && category !== 'all') {
+      if (!VALID_CATEGORIES.includes(category as string)) {
+        res.status(400).json({ error: 'Invalid category' });
+        return;
+      }
       sql += ` AND category = $${paramIndex++}`;
       params.push(category);
     }
@@ -180,7 +190,7 @@ router.get('/:id/activity', async (req: Request, res: Response) => {
     }
 
     const { rows: orders } = await db.query(`
-      SELECT o.id, o.user_address, o.side, o.type, o.amount, o.shares, o.price, o.status, o.created_at, o.option_id,
+      SELECT o.id, '...' || RIGHT(o.user_address, 4) as user_address, o.side, o.type, o.amount, o.shares, o.price, o.status, o.created_at, o.option_id,
              mo.label as option_label
       FROM orders o
       LEFT JOIN market_options mo ON o.option_id = mo.id

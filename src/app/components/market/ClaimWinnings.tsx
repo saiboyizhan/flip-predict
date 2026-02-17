@@ -96,7 +96,9 @@ export function ClaimWinnings({
           onClick: () => window.open(`${scanUrl}/tx/${claimTxHash}`, "_blank"),
         },
       });
-      claimWinnings(params.marketId).catch(() => {});
+      claimWinnings(params.marketId).catch(() => {
+        toast.error(t('claim.syncFailed'));
+      });
       claimReset();
     }
   }, [claimConfirmed, claimTxHash, chainId, t, claimReset]);

@@ -7,8 +7,13 @@ const router = Router();
 // GET /api/profile/:addr — public profile
 router.get('/:addr', async (req: Request, res: Response) => {
   try {
+    const addrParam = req.params.addr;
+    if (typeof addrParam !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(addrParam)) {
+      res.status(400).json({ error: 'Invalid address format' });
+      return;
+    }
     const db = getDb();
-    const addr = (req.params.addr as string).toLowerCase();
+    const addr = addrParam.toLowerCase();
 
     // Get profile
     const profileResult = await db.query(
@@ -97,6 +102,11 @@ router.put('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     if (avatarUrl && typeof avatarUrl === 'string') {
       if (avatarUrl.length > 2000) {
         res.status(400).json({ error: 'avatarUrl too long' });
+        return;
+      }
+      // Restrict data: URIs to image MIME types only (XSS prevention)
+      if (avatarUrl.startsWith('data:') && !avatarUrl.match(/^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);/)) {
+        res.status(400).json({ error: 'data: URI must be an image type (png, jpeg, gif, webp, svg+xml)' });
         return;
       }
       try {

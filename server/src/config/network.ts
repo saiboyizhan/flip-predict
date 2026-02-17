@@ -30,6 +30,16 @@ export function logNetworkConfigSummary(): void {
   if (!process.env.BSC_RPC_URL?.trim()) {
     console.warn('[network] BSC_RPC_URL is not set. Using network default RPC endpoint.');
   }
+  // Validate BSC_CHAIN_ID matches expected value for BSC_NETWORK
+  if (process.env.BSC_CHAIN_ID) {
+    const expectedChainId = BSC_NETWORK === 'mainnet' ? 56 : 97;
+    const explicitChainId = Number(process.env.BSC_CHAIN_ID);
+    if (explicitChainId !== expectedChainId) {
+      console.warn(
+        `[network] WARNING: BSC_CHAIN_ID=${explicitChainId} does not match expected chain ID ${expectedChainId} for BSC_NETWORK=${BSC_NETWORK}. This may cause issues.`
+      );
+    }
+  }
   console.info(
     `[network] BSC_NETWORK=${BSC_NETWORK} chainId=${BSC_CHAIN_ID} rpcSource=${rpcSource} rpc=${BSC_RPC_URL}`
   );

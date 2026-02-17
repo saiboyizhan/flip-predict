@@ -127,8 +127,25 @@ export function CopyTradePanel({ agentId, isOwner, agentTokenId }: CopyTradePane
     if (!agentTokenId || pendingTrades.length === 0) return;
 
     const trade = pendingTrades[0];
-    const marketId = BigInt(trade.on_chain_market_id || 0);
-    const side = trade.side === "yes" ? 0 : 1;
+
+    // Validate on-chain market ID before executing
+    if (!trade.on_chain_market_id) {
+      toast.error("Trade missing on-chain market ID. Skipping.");
+      setPendingTrades((prev) => prev.slice(1));
+      return;
+    }
+
+    let marketId: bigint;
+    try {
+      marketId = BigInt(trade.on_chain_market_id);
+    } catch {
+      toast.error("Invalid on-chain market ID. Skipping.");
+      setPendingTrades((prev) => prev.slice(1));
+      return;
+    }
+
+    // Side mapping: 1=YES, 0=NO (contract uses side===1 as isYes=true)
+    const side = trade.side === "yes" ? 1 : 0;
     const amount = String(trade.amount);
 
     takePosition(agentTokenId, marketId, side as 0 | 1, amount);

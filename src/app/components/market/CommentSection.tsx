@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Heart, Send, MessageCircle, Reply, ChevronDown, ChevronUp } from "lucide-react";
+import { Heart, Send, MessageCircle, Reply, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { fetchComments, postComment, toggleCommentLike } from "@/app/services/api";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import { useAccount } from "wagmi";
+import { toast } from "sonner";
 
 interface Comment {
   id: string;
@@ -240,6 +241,7 @@ export function CommentSection({ marketId }: CommentSectionProps) {
   const [input, setInput] = useState("");
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
@@ -256,11 +258,12 @@ export function CommentSection({ marketId }: CommentSectionProps) {
   }
 
   const loadComments = useCallback(async () => {
+    setLoadError(false);
     try {
       const list = await fetchComments(marketId);
       setComments(list.map((item) => normalizeComment(item, address)));
     } catch {
-      // silently fail, keep existing comments
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -289,25 +292,13 @@ export function CommentSection({ marketId }: CommentSectionProps) {
 
   const handleReply = async (parentId: string, content: string) => {
     try {
-      const data = await fetch(
-        `${import.meta.env.VITE_API_URL || "https://flip-backend-production.up.railway.app"}/api/comments/${marketId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("jwt_token")}`,
-          },
-          body: JSON.stringify({ content, parentId }),
-        }
-      );
-      if (!data.ok) throw new Error("Request failed");
-      const json = await data.json();
-      if (json.comment) {
-        const newComment = normalizeComment(json.comment, address);
+      const res = await postComment(marketId, content, parentId);
+      if (res) {
+        const newComment = normalizeComment(res, address);
         setComments((prev) => [...prev, newComment]);
       }
     } catch {
-      // silently fail
+      toast.error(t("comment.replyFailed", { defaultValue: "Failed to post reply" }));
     }
   };
 
@@ -392,6 +383,20 @@ export function CommentSection({ marketId }: CommentSectionProps) {
               </div>
             </div>
           ))}
+        </div>
+      ) : loadError && comments.length === 0 ? (
+        /* Error State */
+        <div className="text-center py-8 sm:py-12">
+          <AlertCircle className="w-10 h-10 text-red-400/60 mx-auto mb-3" />
+          <p className="text-muted-foreground text-sm">
+            {t("comment.loadFailed", { defaultValue: "Failed to load comments" })}
+          </p>
+          <button
+            onClick={loadComments}
+            className="mt-3 px-4 py-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-500/50 rounded transition-colors"
+          >
+            {t("common.retry", { defaultValue: "Retry" })}
+          </button>
         </div>
       ) : comments.length === 0 ? (
         /* Comments List - Empty */

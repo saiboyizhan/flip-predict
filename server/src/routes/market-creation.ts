@@ -47,7 +47,8 @@ function parseAddressArray(value: unknown): string[] {
       if (Array.isArray(parsed)) {
         return parsed.map((addr) => String(addr).toLowerCase());
       }
-    } catch {
+    } catch (err) {
+      console.warn('parseAddressArray JSON parse failed:', err instanceof Error ? err.message : 'unknown error');
       return [];
     }
   }
@@ -355,6 +356,12 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       // Validate multi-option specific fields
       const isMulti = marketType === 'multi';
       if (isMulti) {
+        // Validate options array length
+        if (optionLabels && (!Array.isArray(optionLabels) || optionLabels.length > 20 || optionLabels.length < 2)) {
+          await client.query('ROLLBACK');
+          res.status(400).json({ error: 'Options must be an array of 2-20 items' });
+          return;
+        }
         await client.query('ROLLBACK');
         res.status(400).json({ error: '当前链上主流程仅支持二元市场（YES/NO）' });
         return;

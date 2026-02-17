@@ -2,6 +2,9 @@ import { create } from 'zustand'
 import type { Market, MarketCategory } from '@/app/types/market.types'
 import { fetchMarkets } from '@/app/services/api'
 
+// In-flight request tracking to prevent duplicate API calls
+let fetchPromise: Promise<void> | null = null;
+
 type SortBy = 'volume' | 'newest' | 'ending-soon' | 'popular'
 export type TimeWindow = 'all' | 'today' | 'week' | 'month' | 'quarter'
 
@@ -184,27 +187,32 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   fetchFromAPI: async () => {
-    set({ loading: true })
-    try {
-      const apiMarkets = await fetchMarkets()
-      const { selectedCategory, searchQuery, sortBy, timeWindow } = get()
-      set({
-        markets: apiMarkets,
-        filteredMarkets: applyFilters(apiMarkets, selectedCategory, searchQuery, sortBy, timeWindow),
-        apiMode: true,
-        error: false,
-        loading: false,
-      })
-    } catch {
-      // API failed — keep current data and expose error state
-      const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
-      set({
-        markets,
-        filteredMarkets: applyFilters(markets, selectedCategory, searchQuery, sortBy, timeWindow),
-        apiMode: false,
-        error: true,
-        loading: false,
-      })
-    }
+    if (fetchPromise) return fetchPromise;
+    fetchPromise = (async () => {
+      set({ loading: true })
+      try {
+        const apiMarkets = await fetchMarkets()
+        const { selectedCategory, searchQuery, sortBy, timeWindow } = get()
+        set({
+          markets: apiMarkets,
+          filteredMarkets: applyFilters(apiMarkets, selectedCategory, searchQuery, sortBy, timeWindow),
+          apiMode: true,
+          error: false,
+          loading: false,
+        })
+      } catch (err) {
+        console.error('Failed to fetch markets:', err)
+        // API failed — keep current data and expose error state
+        const { markets, selectedCategory, searchQuery, sortBy, timeWindow } = get()
+        set({
+          markets,
+          filteredMarkets: applyFilters(markets, selectedCategory, searchQuery, sortBy, timeWindow),
+          apiMode: false,
+          error: true,
+          loading: false,
+        })
+      }
+    })().finally(() => { fetchPromise = null; });
+    return fetchPromise;
   },
 }))

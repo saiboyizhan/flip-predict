@@ -1,18 +1,21 @@
 import React, { Suspense, useEffect } from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
+import { toast } from "sonner";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./components/layout/AppHeader";
 import PageSkeleton from "./components/PageSkeleton";
 import { MintAgentModal } from "./components/agent/MintAgentModal";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useMarketStore } from "./stores/useMarketStore";
 import { useAuthStore } from "./stores/useAuthStore";
 import { useAgentStore } from "./stores/useAgentStore";
 import { connectWS, disconnectWS, authenticateWS, subscribeNotifications } from "./services/ws";
 import { useNotificationStore } from "./stores/useNotificationStore";
+import { autoSyncAgents } from "./services/api";
 
-const SUPPORTED_CHAIN_IDS = [56, 97]; // BSC Mainnet and Testnet
+const SUPPORTED_CHAIN_ID = 97; // BSC Testnet only
 
 function ChainWarningBanner() {
   const { t } = useTranslation();
@@ -20,7 +23,7 @@ function ChainWarningBanner() {
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
 
-  if (!isConnected || SUPPORTED_CHAIN_IDS.includes(chainId)) {
+  if (!isConnected || chainId === SUPPORTED_CHAIN_ID) {
     return null;
   }
 
@@ -30,7 +33,7 @@ function ChainWarningBanner() {
         {t("chain.wrongNetwork")}
       </span>
       <button
-        onClick={() => switchChain({ chainId: 56 })}
+        onClick={() => switchChain({ chainId: SUPPORTED_CHAIN_ID })}
         disabled={isPending}
         className="px-4 py-1.5 bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 text-black font-bold text-xs tracking-wide uppercase transition-colors"
       >
@@ -77,6 +80,7 @@ function NotFoundPage() {
 
 function AnimatedRoutes() {
   return (
+    <ErrorBoundary>
     <Suspense fallback={<PageSkeleton />}>
       <Routes>
         <Route path="/" element={<PageTransition><HomePage /></PageTransition>} />
@@ -102,10 +106,12 @@ function AnimatedRoutes() {
         } />
       </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const token = useAuthStore((s) => s.token);
   const addNotification = useNotificationStore((s) => s.addNotification);
@@ -142,6 +148,10 @@ export default function App() {
           synced: typeof notification.id === 'string',
         }
       );
+      // Show a toast for real-time feedback
+      const ntTitle = notification.title || 'Notification';
+      const ntMessage = notification.message || '';
+      toast.info(ntMessage ? `${ntTitle}: ${ntMessage}` : ntTitle);
     });
 
     return unsubscribe;
@@ -151,12 +161,34 @@ export default function App() {
     void useMarketStore.getState().fetchFromAPI();
   }, []);
 
-  // On mount or when auth changes: fetch agent status (no forced popup)
+  // On mount or when auth changes: fetch agent status + auto-sync from on-chain
   useEffect(() => {
     if (isAuthenticated) {
       useAgentStore.getState().fetchMyAgents();
+      // Auto-sync agents from on-chain once per auth session
+      autoSyncAgents().catch(() => {
+        // Non-critical: don't block the app if auto-sync fails
+      });
     }
   }, [isAuthenticated]);
+
+  // JWT expiry monitoring
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const checkExpiry = () => {
+      const token = localStorage.getItem('jwt_token') || localStorage.getItem('token');
+      if (!token) return;
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          useAuthStore.getState().disconnect();
+          toast.error(t('auth.sessionExpired', { defaultValue: 'Session expired. Please reconnect your wallet.' }));
+        }
+      } catch { /* invalid token format */ }
+    };
+    const interval = setInterval(checkExpiry, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, [isAuthenticated, t]);
 
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">

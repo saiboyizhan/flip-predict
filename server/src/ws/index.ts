@@ -10,12 +10,20 @@ interface Client {
   subscribedOrderBooks: Set<string>;
   userAddress?: string;
   lastPing?: number; // Track last ping timestamp for heartbeat timeout
+  remoteAddress?: string; // Track client IP for rate limiting
 }
 
 const clients: Client[] = [];
 
-// Rate limiting: max 100 messages per 60 seconds per client
-const messageRates = new Map<WebSocket, { count: number; resetTime: number }>();
+// Rate limiting: max 100 messages per 60 seconds per client (keyed by IP or address)
+const messageRates = new Map<string, { count: number; resetTime: number }>();
+
+function getRateLimitKey(client: Client): string {
+  // Prefer wallet address, then remote IP, then fallback to a unique id
+  if (client.userAddress) return client.userAddress;
+  if (client.remoteAddress) return client.remoteAddress;
+  return 'ws-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+}
 
 // Heartbeat timeout: disconnect clients that haven't pinged in 90 seconds
 const HEARTBEAT_TIMEOUT = 90000;
@@ -28,10 +36,17 @@ export function setupWebSocket(server: Server): WebSocketServer {
     const now = Date.now();
     for (let i = clients.length - 1; i >= 0; i--) {
       const client = clients[i];
+      const rateLimitKey = getRateLimitKey(client);
+      // Remove connections in CLOSING or CLOSED state (not just non-OPEN)
+      if (client.ws.readyState === WebSocket.CLOSING || client.ws.readyState === WebSocket.CLOSED) {
+        clients.splice(i, 1);
+        messageRates.delete(rateLimitKey);
+        continue;
+      }
       // Remove connections that are not OPEN
       if (client.ws.readyState !== WebSocket.OPEN) {
         clients.splice(i, 1);
-        messageRates.delete(client.ws);
+        messageRates.delete(rateLimitKey);
         continue;
       }
       // Kick clients that haven't sent a ping in HEARTBEAT_TIMEOUT
@@ -39,23 +54,37 @@ export function setupWebSocket(server: Server): WebSocketServer {
         console.log('[WS] Kicking idle client (no heartbeat)');
         client.ws.close(1000, 'Heartbeat timeout');
         clients.splice(i, 1);
-        messageRates.delete(client.ws);
+        messageRates.delete(rateLimitKey);
+      }
+    }
+    // Cleanup stale rate limit entries (resetTime in the past)
+    for (const [key, rate] of messageRates) {
+      if (now > rate.resetTime) {
+        messageRates.delete(key);
       }
     }
   }, 30000); // Run every 30 seconds
 
-  wss.on('connection', (ws: WebSocket) => {
-    const client: Client = { ws, subscribedMarkets: new Set(), subscribedOrderBooks: new Set(), lastPing: Date.now() };
+  wss.on('close', () => {
+    clearInterval(cleanupInterval);
+  });
+
+  wss.on('connection', (ws: WebSocket, req) => {
+    const remoteAddress = req.headers['x-forwarded-for']
+      ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
+      : req.socket?.remoteAddress || undefined;
+    const client: Client = { ws, subscribedMarkets: new Set(), subscribedOrderBooks: new Set(), lastPing: Date.now(), remoteAddress };
     clients.push(client);
 
     ws.on('message', (data: Buffer) => {
       try {
-        // Rate limiting check
+        // Rate limiting check (keyed by IP/address, not ws instance)
         const now = Date.now();
-        let rate = messageRates.get(ws);
+        const rateLimitKey = getRateLimitKey(client);
+        let rate = messageRates.get(rateLimitKey);
         if (!rate || now > rate.resetTime) {
           rate = { count: 0, resetTime: now + 60000 };
-          messageRates.set(ws, rate);
+          messageRates.set(rateLimitKey, rate);
         }
         rate.count++;
         if (rate.count > 100) {
@@ -63,7 +92,14 @@ export function setupWebSocket(server: Server): WebSocketServer {
           return;
         }
 
-        const msg = JSON.parse(data.toString());
+        let msg: any;
+        try {
+          msg = JSON.parse(data.toString());
+        } catch (parseErr) {
+          console.warn('[WS] Invalid JSON received:', parseErr instanceof Error ? parseErr.message : 'unknown error');
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
+          return;
+        }
 
         // Handle heartbeat ping from frontend
         if (msg.type === 'ping') {
@@ -128,7 +164,7 @@ export function setupWebSocket(server: Server): WebSocketServer {
     ws.on('close', () => {
       const idx = clients.indexOf(client);
       if (idx !== -1) clients.splice(idx, 1);
-      messageRates.delete(ws);
+      messageRates.delete(getRateLimitKey(client));
     });
 
     // Send welcome message
@@ -224,6 +260,18 @@ export function broadcastOrderBookUpdate(marketId: string, side: string, orderbo
       try { client.ws.send(msg); } catch { /* ignore individual send failure */ }
     }
   }
+}
+
+// Get WebSocket connection status for health checks
+export function getWebSocketStatus(): { connectedClients: number; authenticatedClients: number } {
+  let authenticated = 0;
+  for (const client of clients) {
+    if (client.userAddress) authenticated++;
+  }
+  return {
+    connectedClients: clients.length,
+    authenticatedClients: authenticated,
+  };
 }
 
 // Push notification to a specific user via WebSocket

@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { CheckCircle2, Bot, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ShareButton } from "./ShareButton";
@@ -101,7 +102,7 @@ function getEffectiveStatus(market: Market): {
   };
 }
 
-export function MarketCard({ market, size = "medium", onClick }: MarketCardProps) {
+const MarketCardComponent = ({ market, size = "medium", onClick }: MarketCardProps) => {
   const { t } = useTranslation();
 
   const effectiveStatus = getEffectiveStatus(market);
@@ -254,6 +255,8 @@ export function MarketCard({ market, size = "medium", onClick }: MarketCardProps
       </div>
     </div>
   );
-}
+};
+
+export const MarketCard = React.memo(MarketCardComponent);
 
 export type { Market };

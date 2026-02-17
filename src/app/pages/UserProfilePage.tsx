@@ -50,6 +50,7 @@ export default function UserProfilePage() {
 
   useEffect(() => {
     if (!address) return;
+    let cancelled = false;
     setLoading(true);
 
     Promise.all([
@@ -62,6 +63,7 @@ export default function UserProfilePage() {
       ),
     ])
       .then(([p, fl, fr]) => {
+        if (cancelled) return;
         setProfile(p);
         setFollowingList(fl);
         setFollowersList(fr);
@@ -69,15 +71,21 @@ export default function UserProfilePage() {
         setEditBio(p?.bio || "");
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error("Failed to load user profile:", err);
+        toast.error(t("social.profileLoadFailed", { defaultValue: "Failed to load user profile" }));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     // Load following for FollowButton state
     if (myAddress) {
-      loadFollowing(myAddress);
+      useSocialStore.getState().loadFollowing(myAddress);
     }
-  }, [address, myAddress, loadFollowing]);
+
+    return () => { cancelled = true; };
+  }, [address, myAddress, t]);
 
   const handleCopy = async () => {
     if (!address) return;

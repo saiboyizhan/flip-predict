@@ -6,6 +6,32 @@ import { getDb } from '../db';
 
 const router = Router();
 
+// --- Feed rate limiter: 30 requests per minute per user ---
+const FEED_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const FEED_RATE_LIMIT_MAX = 30;
+const feedRateLimitMap = new Map<string, { count: number; resetTime: number; windowStart: number }>();
+
+function isFeedRateLimited(userAddress: string): boolean {
+  const now = Date.now();
+  const entry = feedRateLimitMap.get(userAddress);
+  if (!entry || now > entry.resetTime) {
+    feedRateLimitMap.set(userAddress, { count: 1, resetTime: now + FEED_RATE_LIMIT_WINDOW_MS, windowStart: now });
+    return false;
+  }
+  entry.count++;
+  return entry.count > FEED_RATE_LIMIT_MAX;
+}
+
+// Cleanup stale feed rate limit entries every 5 minutes to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of feedRateLimitMap.entries()) {
+    if (now - value.windowStart > 120000) { // 2 minutes stale
+      feedRateLimitMap.delete(key);
+    }
+  }
+}, 300000); // Every 5 minutes
+
 // POST /api/social/follow — follow a user (auth required)
 router.post('/follow', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
@@ -142,6 +168,11 @@ router.get('/feed', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
     const userAddress = req.userAddress!;
+
+    if (isFeedRateLimited(userAddress)) {
+      res.status(429).json({ error: 'Too many requests, please try again later' });
+      return;
+    }
     const before = req.query.before ? Number(req.query.before) : null;
 
     let query = `
@@ -152,11 +183,12 @@ router.get('/feed', authMiddleware, async (req: AuthRequest, res: Response) => {
       INNER JOIN user_follows uf ON uf.followed_address = o.user_address AND uf.follower_address = $1
       LEFT JOIN markets m ON m.id = o.market_id
       LEFT JOIN user_profiles up ON up.address = o.user_address
+      WHERE o.status = 'filled'
     `;
     const params: any[] = [userAddress];
 
     if (before) {
-      query += ' WHERE o.created_at < $2';
+      query += ' AND o.created_at < $2';
       params.push(before);
     }
 
@@ -184,11 +216,12 @@ router.get('/feed/public', async (req, res) => {
       FROM orders o
       LEFT JOIN markets m ON m.id = o.market_id
       LEFT JOIN user_profiles up ON up.address = o.user_address
+      WHERE o.status = 'filled'
     `;
     const params: any[] = [];
 
     if (before) {
-      query += ' WHERE o.created_at < $1';
+      query += ' AND o.created_at < $1';
       params.push(before);
     }
 

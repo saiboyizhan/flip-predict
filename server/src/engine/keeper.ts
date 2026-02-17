@@ -189,6 +189,12 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   const now = Date.now();
 
   // ============================================================
+  // P0 Fix: Set market status to 'settling' BEFORE cancelling orders
+  // to prevent new trades from being placed during settlement.
+  // ============================================================
+  await client.query("UPDATE markets SET status = 'settling' WHERE id = $1", [marketId]);
+
+  // ============================================================
   // Bug C3 Fix: Cancel all open orders BEFORE settling positions.
   // Open buy orders have locked funds; open sell orders have
   // shares deducted from the user's position. Return them all.
@@ -309,7 +315,7 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   // Maps follower_address -> { agent_id, revenue_share_pct, copy_trade_id, cost }
   const copyTradeMap = new Map<string, { agent_id: string; revenue_share_pct: number; copy_trade_id: string; cost: number }>();
   const ctRes = await client.query(
-    `SELECT ct.id, ct.follower_address, ct.agent_id, ct.amount as cost,
+    `SELECT ct.id, ct.follower_address, ct.agent_id, ct.amount as cost, ct.shares,
             COALESCE(af.revenue_share_pct, 10) as revenue_share_pct
      FROM copy_trades ct
      JOIN agent_followers af ON af.agent_id = ct.agent_id AND af.follower_address = ct.follower_address
@@ -367,11 +373,15 @@ export async function settleMarketPositions(client: any, marketId: string, winni
     if (!copyInfo) continue;
 
     if (copyProfit > 0) {
-      const commission = Math.round(copyProfit * (revSharePct / 100) * 100) / 100;
+      let commission = Math.round(copyProfit * (revSharePct / 100) * 100) / 100;
+      // P1 Fix: Minimum commission threshold -- don't insert 0-value records
+      if (commission > 0 && commission < 0.01) commission = 0.01;
+      if (commission <= 0) continue;
 
       // Deduct commission from follower's balance (already credited in Step 1)
+      // Use GREATEST to prevent CHECK constraint violation if available < commission
       await client.query(
-        `UPDATE balances SET available = available - $1 WHERE user_address = $2`,
+        `UPDATE balances SET available = GREATEST(available - $1, 0) WHERE user_address = $2`,
         [commission, followerAddr]
       );
 
@@ -444,7 +454,7 @@ export async function settleMarketPositions(client: any, marketId: string, winni
 }
 
 export function startKeeper(db: Pool, intervalMs: number = 30000): NodeJS.Timeout {
-  console.log(`Keeper started (${intervalMs / 1000}s interval)`);
+  console.info(`Keeper started (${intervalMs / 1000}s interval)`);
   let isRunning = false;
 
   // Lazy import to avoid circular dependency

@@ -10,6 +10,28 @@ let connectionDead = false
 let reconnectCallbacks: Set<() => void> = new Set()
 const notificationCallbacks: Set<(notification: unknown) => void> = new Set()
 
+// --- Connection status tracking ---
+export type WSConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'dead'
+let currentStatus: WSConnectionStatus = 'disconnected'
+const statusCallbacks: Set<(status: WSConnectionStatus) => void> = new Set()
+
+function setConnectionStatus(status: WSConnectionStatus): void {
+  if (status === currentStatus) return
+  currentStatus = status
+  statusCallbacks.forEach(cb => cb(status))
+}
+
+export function getConnectionStatus(): WSConnectionStatus {
+  return currentStatus
+}
+
+export function onConnectionStatusChange(cb: (status: WSConnectionStatus) => void): () => void {
+  statusCallbacks.add(cb)
+  // Immediately notify with current status
+  cb(currentStatus)
+  return () => { statusCallbacks.delete(cb) }
+}
+
 export function onReconnect(cb: () => void): () => void {
   reconnectCallbacks.add(cb)
   return () => { reconnectCallbacks.delete(cb) }
@@ -64,6 +86,14 @@ function handleMessage(event: MessageEvent) {
   try {
     const data = JSON.parse(event.data)
 
+    // Basic type validation: data.type must be a string
+    if (!data || typeof data.type !== 'string') return
+
+    // For price_update, validate that price fields are numbers
+    if (data.type === 'price_update') {
+      if (typeof data.yesPrice !== 'number' || typeof data.noPrice !== 'number') return
+    }
+
     // Handle pong responses (heartbeat acknowledgment)
     if (data.type === 'pong') {
       return
@@ -72,6 +102,10 @@ function handleMessage(event: MessageEvent) {
     // Handle auth errors (expired/invalid token)
     if (data.type === 'auth_error') {
       console.warn('[WS] Auth error:', data.error)
+      // Notify user before clearing session
+      import('sonner').then(({ toast }) => {
+        toast.error('Session expired. Please reconnect your wallet.')
+      }).catch(() => {})
       localStorage.removeItem('jwt_token')
       // Trigger logout in auth store to sync state
       import('@/app/stores/useAuthStore').then(({ useAuthStore }) => {
@@ -85,6 +119,22 @@ function handleMessage(event: MessageEvent) {
       if (fns) {
         fns.forEach((fn) => fn(data))
       }
+    }
+
+    // Sync price updates to MarketStore so list page reflects live prices
+    if (data.type === 'price_update' && data.marketId) {
+      import('@/app/stores/useMarketStore').then(({ useMarketStore }) => {
+        const store = useMarketStore.getState()
+        const market = store.getMarketById(data.marketId)
+        if (market) {
+          store.updateMarketPrices(data.marketId, data.yesPrice, data.noPrice, market.volume)
+        }
+      }).catch(() => {})
+    }
+    if (data.type === 'multi_price_update' && data.marketId) {
+      import('@/app/stores/useMarketStore').then(({ useMarketStore }) => {
+        useMarketStore.getState().updateMultiOptionPrices(data.marketId, data.prices)
+      }).catch(() => {})
     }
 
     // Handle user-targeted notification messages
@@ -109,10 +159,12 @@ export function connectWS(): void {
 
   intentionalClose = false
   connectionDead = false
+  setConnectionStatus(reconnectAttempts > 0 ? 'reconnecting' : 'disconnected')
   ws = new WebSocket(WS_URL)
 
   ws.addEventListener('open', () => {
     reconnectAttempts = 0
+    setConnectionStatus('connected')
 
     // Start heartbeat
     startHeartbeat()
@@ -153,14 +205,20 @@ export function connectWS(): void {
 
     // Don't reconnect if intentionally closed
     if (intentionalClose) {
+      setConnectionStatus('disconnected')
       return
     }
 
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       connectionDead = true
+      setConnectionStatus('dead')
+      import('sonner').then(({ toast }) => {
+        toast.error('Real-time connection lost. Prices may be stale. Please refresh.')
+      }).catch(() => {})
       return
     }
 
+    setConnectionStatus('reconnecting')
     const delay = getReconnectDelay()
     reconnectAttempts++
     if (reconnectTimer) clearTimeout(reconnectTimer)
@@ -185,11 +243,15 @@ export function disconnectWS(): void {
   reconnectAttempts = 0
   reconnectCallbacks.clear()
   notificationCallbacks.clear()
+  callbacks.clear()
+  globalCallbacks.clear()
+  orderbookCallbacks.clear()
   orderbookListenerAttached = false
   if (ws) {
     ws.close()
     ws = null
   }
+  setConnectionStatus('disconnected')
 }
 
 export function subscribeMarket(

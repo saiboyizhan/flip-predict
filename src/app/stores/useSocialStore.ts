@@ -11,12 +11,14 @@ interface SocialState {
   followersCount: Record<string, number>
   feedItems: any[]
   feedLoading: boolean
+  feedError: boolean
 
   loadFollowing: (addr: string) => Promise<void>
   follow: (addr: string) => Promise<void>
   unfollow: (addr: string) => Promise<void>
   loadFeed: (before?: number) => Promise<void>
   addFeedItem: (item: any) => void
+  reset: () => void
 }
 
 export const useSocialStore = create<SocialState>((set, get) => ({
@@ -24,6 +26,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   followersCount: {},
   feedItems: [],
   feedLoading: false,
+  feedError: false,
 
   loadFollowing: async (addr: string) => {
     try {
@@ -64,21 +67,37 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   },
 
   loadFeed: async (before?: number) => {
-    set({ feedLoading: true })
+    set({ feedLoading: true, feedError: false })
     try {
       const data = await getTradingFeed(before)
       const items = data.feed ?? []
       if (before) {
-        set((state) => ({ feedItems: [...state.feedItems, ...items], feedLoading: false }))
+        set((state) => {
+          const existing = state.feedItems
+          const newItems = items.filter((item: any) => !existing.some((e: any) => e.id === item.id))
+          const allItems = [...existing, ...newItems];
+          // Keep max 50 items
+          const limited = allItems.slice(0, 50);
+          return { feedItems: limited, feedLoading: false, feedError: false }
+        })
       } else {
-        set({ feedItems: items, feedLoading: false })
+        // Keep max 50 items
+        const limited = items.slice(0, 50);
+        set({ feedItems: limited, feedLoading: false, feedError: false })
       }
     } catch {
-      set({ feedLoading: false })
+      set({ feedLoading: false, feedError: true })
     }
   },
 
   addFeedItem: (item: any) => {
-    set((state) => ({ feedItems: [item, ...state.feedItems] }))
+    set((state) => {
+      const newItems = [item, ...state.feedItems];
+      // Keep max 50 items
+      const limited = newItems.slice(0, 50);
+      return { feedItems: limited };
+    })
   },
+
+  reset: () => set({ following: new Set(), feedItems: [], feedLoading: false, feedError: false }),
 }))

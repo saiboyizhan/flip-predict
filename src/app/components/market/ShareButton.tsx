@@ -68,6 +68,7 @@ export function ShareButton({ marketTitle, marketId, yesPrice, compact }: ShareB
           e.stopPropagation();
           setOpen(!open);
         }}
+        aria-label={compact ? t('share.share') : undefined}
         className={`flex items-center justify-center transition-colors ${
           compact
             ? "w-7 h-7 text-muted-foreground hover:text-blue-400"

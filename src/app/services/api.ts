@@ -22,6 +22,15 @@ export function clearToken(): void {
   localStorage.removeItem('jwt_token')
 }
 
+// Sync JWT token across browser tabs via storage event
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'jwt_token') {
+      token = e.newValue;
+    }
+  });
+}
+
 // --- Generic request helper ---
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
@@ -33,13 +42,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${currentToken}`
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options?.headers as Record<string, string>),
-    },
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        ...headers,
+        ...(options?.headers as Record<string, string>),
+      },
+    })
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new Error('Network error. Please check your internet connection.')
+    }
+    throw err
+  }
 
   if (!res.ok) {
     const body = await res.text()
@@ -126,7 +143,7 @@ function normalizeMarket(raw: RawMarket): Market {
   const mappedOutcome = resolvedOutcome === 'yes' ? 'YES' : resolvedOutcome === 'no' ? 'NO' : undefined
   const tags = Array.isArray(raw.tags) ? raw.tags : []
 
-  const rawMarketType = raw.marketType ?? raw.market_type ?? 'binary'
+  const rawMarketType = raw.market_type ?? raw.marketType ?? 'binary'
   const marketType = (rawMarketType === 'multi' ? 'multi' : 'binary') as Market['marketType']
 
   const options: MarketOption[] | undefined = Array.isArray(raw.options)
@@ -164,7 +181,7 @@ function normalizeMarket(raw: RawMarket): Market {
     imageUrl: raw.imageUrl ?? raw.image_url,
     tags,
     featured: Boolean(raw.featured),
-    resolutionSource: String(raw.resolutionSource ?? raw.resolution_source ?? raw.resolution_type ?? 'auto'),
+    resolutionSource: String(raw.resolution_type ?? raw.resolution_source ?? raw.resolutionSource ?? 'auto'),
     marketType,
     options,
     totalLiquidity: Number(raw.totalLiquidity ?? raw.total_liquidity) || undefined,
@@ -940,6 +957,7 @@ export async function getAutoTradeAuth(agentId: string): Promise<any> {
 
 // --- Learning ---
 
+// Available but not yet wired to UI - see AgentDetail for integration point
 export async function getAgentLearningMetrics(agentId: string): Promise<any> {
   const data = await request<{ metrics: any }>(`/api/agents/${agentId}/learning-metrics`)
   return data.metrics
@@ -947,6 +965,7 @@ export async function getAgentLearningMetrics(agentId: string): Promise<any> {
 
 // --- Owner Learning ---
 
+// Available but not yet wired to UI - see AgentDetail for integration point
 export async function toggleLearnFromOwner(agentId: string, enabled: boolean): Promise<{ success: boolean; learnFromOwner: number }> {
   return request<{ success: boolean; learnFromOwner: number }>(`/api/agents/${agentId}/learn-from-owner`, {
     method: 'POST',
@@ -954,6 +973,7 @@ export async function toggleLearnFromOwner(agentId: string, enabled: boolean): P
   })
 }
 
+// Available but not yet wired to UI - see AgentDetail for integration point
 export async function getOwnerProfile(agentId: string): Promise<{ profile: any; influence: any; enabled: boolean }> {
   return request<{ profile: any; influence: any; enabled: boolean }>(`/api/agents/${agentId}/owner-profile`)
 }
@@ -1055,10 +1075,10 @@ export async function fetchComments(marketId: string) {
   return data.comments ?? []
 }
 
-export async function postComment(marketId: string, content: string) {
+export async function postComment(marketId: string, content: string, parentId?: string) {
   const data = await request<{ comment?: unknown }>(`/api/comments/${marketId}`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(parentId ? { content, parentId } : { content }),
   })
   return data.comment
 }

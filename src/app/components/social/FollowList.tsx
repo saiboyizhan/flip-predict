@@ -1,5 +1,6 @@
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
+import { Users, UserPlus } from "lucide-react";
 import { FollowButton } from "./FollowButton";
 
 function colorFromAddress(seed: string): string {
@@ -23,11 +24,24 @@ export function FollowList({ addresses, type }: FollowListProps) {
   if (addresses.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground text-sm">
-          {type === "following"
-            ? t("social.feedEmpty")
-            : t("common.noData")}
-        </p>
+        {type === "followers" ? (
+          <>
+            <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm font-medium">
+              {t("social.noFollowers", { defaultValue: "No followers yet" })}
+            </p>
+          </>
+        ) : (
+          <>
+            <UserPlus className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm font-medium">
+              {t("social.notFollowingAnyone", { defaultValue: "Not following anyone yet" })}
+            </p>
+            <p className="text-muted-foreground/60 text-xs mt-1">
+              {t("social.notFollowingHint", { defaultValue: "Explore the leaderboard to find traders." })}
+            </p>
+          </>
+        )}
       </div>
     );
   }

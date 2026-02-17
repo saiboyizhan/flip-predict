@@ -73,6 +73,7 @@ router.get('/', async (req: Request, res: Response) => {
         JOIN markets m ON m.id = ord.market_id
         WHERE ord.status = 'filled' AND ord.type = 'buy'
           AND m.status IN ('resolved', 'closed')
+          ${timeFilter ? 'AND ord.created_at >= $1' : ''}
         GROUP BY ord.user_address
       ) resolved_spend ON o.user_address = resolved_spend.user_address
       WHERE o.status = 'filled'
@@ -82,11 +83,59 @@ router.get('/', async (req: Request, res: Response) => {
       LIMIT 50
     `, params);
 
+    // Fetch active positions for all users in the leaderboard
+    const userAddresses = result.rows.map((r: any) => r.user_address);
+    let activePositionsMap: Record<string, { count: number; value: number }> = {};
+    let bestStreakMap: Record<string, number> = {};
+    if (userAddresses.length > 0) {
+      const posRes = await db.query(`
+        SELECT user_address,
+               COUNT(*) as active_positions_count,
+               COALESCE(SUM(shares * avg_cost), 0) as active_positions_value
+        FROM positions
+        WHERE user_address = ANY($1)
+        GROUP BY user_address
+      `, [userAddresses]);
+      for (const row of posRes.rows as any[]) {
+        activePositionsMap[row.user_address] = {
+          count: Number(row.active_positions_count) || 0,
+          value: Number(row.active_positions_value) || 0,
+        };
+      }
+
+      // Calculate best win streak per user from settlement_log.
+      // Groups consecutive same-action rows per user using the
+      // classic gaps-and-islands technique, then picks the longest
+      // run of 'settle_winner' for each user.
+      const streakRes = await db.query(`
+        WITH numbered AS (
+          SELECT user_address, action,
+                 ROW_NUMBER() OVER (PARTITION BY user_address ORDER BY created_at)
+                   - ROW_NUMBER() OVER (PARTITION BY user_address, action ORDER BY created_at) AS grp
+          FROM settlement_log
+          WHERE user_address = ANY($1)
+            AND action IN ('settle_winner', 'settle_loser')
+        )
+        SELECT user_address, MAX(streak) AS best_streak
+        FROM (
+          SELECT user_address, COUNT(*) AS streak
+          FROM numbered
+          WHERE action = 'settle_winner'
+          GROUP BY user_address, grp
+        ) streaks
+        GROUP BY user_address
+      `, [userAddresses]);
+      for (const row of streakRes.rows as any[]) {
+        bestStreakMap[row.user_address] = Number(row.best_streak) || 0;
+      }
+    }
+
     const leaderboard = result.rows.map((row: any, index: number) => {
       const addr = row.user_address || '';
       const nickname = addr.length > 10
         ? addr.slice(0, 6) + '...' + addr.slice(-4)
         : addr;
+      const activePos = activePositionsMap[addr] || { count: 0, value: 0 };
 
       return {
         rank: index + 1,
@@ -96,7 +145,9 @@ router.get('/', async (req: Request, res: Response) => {
         totalWon: parseFloat(row.total_won) || 0,
         winRate: parseFloat(row.win_rate) || 0,
         netProfit: parseFloat(row.net_profit) || 0,
-        bestStreak: 0,
+        bestStreak: bestStreakMap[addr] || 0,
+        activePositionsCount: activePos.count,
+        activePositionsValue: activePos.value,
       };
     });
 

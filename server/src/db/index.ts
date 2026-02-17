@@ -19,7 +19,7 @@ export async function initDatabase(): Promise<Pool> {
 
   // Enable SSL for production database connections (e.g. cloud-hosted PostgreSQL)
   const sslConfig = isProduction && process.env.DATABASE_SSL !== 'false'
-    ? { ssl: { rejectUnauthorized: false } }
+    ? { ssl: { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false' } }
     : {};
 
   if (connectionString) {

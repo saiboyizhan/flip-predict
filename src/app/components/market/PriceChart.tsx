@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ComposedChart,
@@ -238,7 +238,7 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
         /* Multi-option line chart */
         <ResponsiveContainer width="100%" height={256}>
           <LineChart
-            data={(() => {
+            data={useMemo(() => {
               const timeMap = new Map<string, Record<string, number>>();
               if (!data || !Array.isArray(data)) return [];
               for (const point of data as any[]) {
@@ -250,7 +250,7 @@ export function PriceChart({ marketId, marketType, options }: PriceChartProps) {
                 (row as any)[label] = Number(point.price) || 0;
               }
               return Array.from(timeMap.values());
-            })()}
+            }, [data])}
             margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />

@@ -168,9 +168,16 @@ export function LimitOrderForm({
                 max="0.99"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                className="w-full bg-input-background border border-border text-foreground font-mono text-lg py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors"
+                className={`w-full bg-input-background border text-foreground font-mono text-lg py-3 px-4 focus:outline-none transition-colors ${
+                  price !== "" && (numPrice < 0.01 || numPrice > 0.99)
+                    ? "border-red-500 focus:border-red-500"
+                    : "border-border focus:border-blue-500/50"
+                }`}
                 placeholder="0.50"
               />
+              {price !== "" && (numPrice < 0.01 || numPrice > 0.99) && (
+                <p className="text-red-400 text-xs mt-1">{t('limitOrder.priceRange')}</p>
+              )}
               {currentPrice !== undefined && (
                 <p className="text-muted-foreground text-xs mt-1">
                   {t('limitOrder.currentPrice', { price: currentPrice.toFixed(2) })}
@@ -190,12 +197,20 @@ export function LimitOrderForm({
               </span>
               <input
                 type="number"
+                min="0.01"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-input-background border border-border text-foreground font-mono text-lg py-3 pl-8 pr-4 focus:outline-none focus:border-blue-500/50 transition-colors"
+                className={`w-full bg-input-background border text-foreground font-mono text-lg py-3 pl-8 pr-4 focus:outline-none transition-colors ${
+                  amount !== "" && numAmount <= 0
+                    ? "border-red-500 focus:border-red-500"
+                    : "border-border focus:border-blue-500/50"
+                }`}
                 placeholder="0.00"
               />
             </div>
+            {amount !== "" && numAmount <= 0 && (
+              <p className="text-red-400 text-xs mt-1">{t('limitOrder.enterAmount')}</p>
+            )}
           </div>
 
           {/* Quick amounts */}

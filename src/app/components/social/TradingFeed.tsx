@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { motion } from "motion/react";
-import { TrendingUp, TrendingDown, Rss } from "lucide-react";
+import { TrendingUp, TrendingDown, Rss, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useSocialStore } from "@/app/stores/useSocialStore";
@@ -33,26 +33,26 @@ export function TradingFeed() {
   const { navigate } = useTransitionNavigate();
   const feedItems = useSocialStore((s) => s.feedItems);
   const feedLoading = useSocialStore((s) => s.feedLoading);
-  const loadFeed = useSocialStore((s) => s.loadFeed);
-  const addFeedItem = useSocialStore((s) => s.addFeedItem);
-  const following = useSocialStore((s) => s.following);
+  const feedError = useSocialStore((s) => s.feedError);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
-      loadFeed();
+      useSocialStore.getState().loadFeed();
     }
-  }, [isAuthenticated, loadFeed]);
+  }, [isAuthenticated]);
 
   // WebSocket listener for real-time feed trades
   const handleWsMessage = useCallback(
     (data: any) => {
-      if (data.type === "feed_trade" && following.has(data.userAddress?.toLowerCase())) {
+      if (data.type !== 'feed_trade') return;
+      const { following, addFeedItem } = useSocialStore.getState();
+      if (following.has(data.userAddress?.toLowerCase())) {
         addFeedItem(data);
       }
     },
-    [following, addFeedItem]
+    []
   );
 
   useEffect(() => {
@@ -64,13 +64,14 @@ export function TradingFeed() {
 
   // Infinite scroll
   const loadMore = useCallback(() => {
+    const { feedItems, feedLoading, loadFeed } = useSocialStore.getState();
     if (feedLoading || feedItems.length === 0) return;
     const lastItem = feedItems[feedItems.length - 1];
     const before = lastItem?.created_at || lastItem?.timestamp;
     if (before) {
       loadFeed(Number(before));
     }
-  }, [feedLoading, feedItems, loadFeed]);
+  }, []);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -101,7 +102,7 @@ export function TradingFeed() {
     return (
       <div className="text-center py-20">
         <Rss className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-        <p className="text-muted-foreground">{t("social.feedEmpty")}</p>
+        <p className="text-muted-foreground">No activity yet. Follow traders to see their trades here, or explore markets to find traders.</p>
       </div>
     );
   }
@@ -119,7 +120,7 @@ export function TradingFeed() {
             key={item.id || idx}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.02 }}
+            transition={{ delay: idx < 10 ? idx * 0.02 : 0 }}
             className="flex items-start gap-3 p-3 bg-card/30 border border-border hover:bg-accent/30 transition-colors rounded-lg cursor-pointer"
             onClick={() => navigate(`/market/${item.market_id}`)}
           >
@@ -172,10 +173,19 @@ export function TradingFeed() {
         );
       })}
 
-      {/* Loading / Sentinel */}
+      {/* Loading / Error / Sentinel */}
       <div ref={sentinelRef} className="py-4 text-center">
         {feedLoading && (
           <div className="text-muted-foreground text-sm">{t("common.loading")}</div>
+        )}
+        {feedError && !feedLoading && (
+          <button
+            onClick={() => loadMore()}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/50 rounded-lg transition-colors"
+          >
+            <AlertCircle className="w-4 h-4" />
+            {t("social.feedLoadFailed", { defaultValue: "Failed to load more. Tap to retry." })}
+          </button>
         )}
       </div>
     </div>

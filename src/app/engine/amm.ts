@@ -125,15 +125,15 @@ export function calculateBuy(
   let shares: number;
 
   if (side === 'yes') {
-    // Buying YES: add amount to noReserve (the other side), yesReserve decreases
+    // Buying YES: mint amount YES+NO, add NO to pool, swap out YES
     newNoReserve = pool.noReserve + amount;
     newYesReserve = pool.k / newNoReserve;
-    shares = pool.yesReserve - newYesReserve;
+    shares = amount + (pool.yesReserve - newYesReserve);
   } else {
-    // Buying NO: add amount to yesReserve (the other side), noReserve decreases
+    // Buying NO: mint amount YES+NO, add YES to pool, swap out NO
     newYesReserve = pool.yesReserve + amount;
     newNoReserve = pool.k / newYesReserve;
-    shares = pool.noReserve - newNoReserve;
+    shares = amount + (pool.noReserve - newNoReserve);
   }
 
   // Guard against reserve depletion causing extreme values
@@ -184,15 +184,20 @@ export function calculateSell(
   let payout: number;
 
   if (side === 'yes') {
-    // Selling YES: add shares back to yesReserve, noReserve decreases
-    newYesReserve = pool.yesReserve + shares;
-    newNoReserve = pool.k / newYesReserve;
-    payout = pool.noReserve - newNoReserve;
+    // Selling YES (CTF pair-burn model): add shares to YES pool, pair-burn YES+NO to redeem USDT
+    // Quadratic: payout = (b - sqrt(b^2 - 4c)) / 2
+    const b = pool.yesReserve + pool.noReserve + shares;
+    const c = shares * pool.noReserve;
+    payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    newYesReserve = pool.yesReserve + shares - payout;
+    newNoReserve = pool.noReserve - payout;
   } else {
-    // Selling NO: add shares back to noReserve, yesReserve decreases
-    newNoReserve = pool.noReserve + shares;
-    newYesReserve = pool.k / newNoReserve;
-    payout = pool.yesReserve - newYesReserve;
+    // Selling NO (CTF pair-burn model): add shares to NO pool, pair-burn YES+NO to redeem USDT
+    const b = pool.yesReserve + pool.noReserve + shares;
+    const c = shares * pool.yesReserve;
+    payout = (b - Math.sqrt(b * b - 4 * c)) / 2;
+    newNoReserve = pool.noReserve + shares - payout;
+    newYesReserve = pool.yesReserve - payout;
   }
 
   // Guard against reserve depletion
@@ -204,7 +209,9 @@ export function calculateSell(
   if (!Number.isFinite(payout) || payout <= 0 || !Number.isFinite(avgPrice)) {
     throw new Error('AMM sell calculation failed');
   }
-  const priceImpact = ((currentPrice - avgPrice) / currentPrice) * 100;
+  const priceImpact = currentPrice > 0
+    ? Math.abs(currentPrice - avgPrice) / currentPrice * 100
+    : 0;
 
   const newPool: Pool = {
     yesReserve: newYesReserve,

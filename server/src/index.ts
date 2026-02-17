@@ -8,7 +8,7 @@ import http from 'http';
 import rateLimit from 'express-rate-limit';
 import { initDatabase } from './db';
 // Seed functions removed — testnet uses real data only
-import { setupWebSocket } from './ws';
+import { setupWebSocket, getWebSocketStatus } from './ws';
 import authRoutes from './routes/auth';
 import marketsRoutes from './routes/markets';
 import tradingRoutes from './routes/trading';
@@ -71,6 +71,30 @@ const publicReadLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
+const walletLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+const copyTradingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+const commentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
 async function main() {
   logNetworkConfigSummary();
 
@@ -90,7 +114,11 @@ async function main() {
   }
   app.use(cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (health checks, curl, server-to-server)
+      // In production, require an Origin header (block server-to-server / curl without origin)
+      if (!origin && process.env.NODE_ENV === 'production') {
+        return callback(new Error('Origin required'));
+      }
+      // Allow requests with no origin in development (health checks, curl, server-to-server)
       if (!origin) return callback(null, true);
 
       // Check against allowed origins (comma-separated)
@@ -110,6 +138,15 @@ async function main() {
     credentials: true,
   }));
   app.use(helmet());
+  // Reject oversized request bodies early (before parsing)
+  app.use((req, res, next) => {
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > 1048576) { // 1MB = 1048576 bytes
+      res.status(413).json({ error: 'Request body too large' });
+      return;
+    }
+    next();
+  });
   app.use(express.json({ limit: '1mb' }));
   app.use(generalLimiter);
 
@@ -123,17 +160,17 @@ async function main() {
   app.use('/api/settlement', publicReadLimiter, settlementRoutes);
   app.use('/api/agents', publicReadLimiter, agentRoutes);
   app.use('/api/leaderboard', publicReadLimiter, leaderboardRoutes);
-  app.use('/api/comments', commentsRoutes);
-  app.use('/api/notifications', notificationRoutes);
-  app.use('/api/rewards', rewardRoutes);
+  app.use('/api/comments', commentLimiter, commentsRoutes);
+  app.use('/api/notifications', publicReadLimiter, notificationRoutes);
+  app.use('/api/rewards', publicReadLimiter, rewardRoutes);
   app.use('/api/fees', feeRoutes);
-  app.use('/api/wallet', walletRoutes);
-  app.use('/api/achievements', achievementRoutes);
+  app.use('/api/wallet', walletLimiter, walletRoutes);
+  app.use('/api/achievements', publicReadLimiter, achievementRoutes);
   app.use('/api/social', publicReadLimiter, socialRoutes);
   app.use('/api/profile', publicReadLimiter, profileRoutes);
-  app.use('/api/copy-trading', copyTradingRoutes);
+  app.use('/api/copy-trading', copyTradingLimiter, copyTradingRoutes);
 
-  app.use('/api/favorites', favoritesRoutes);
+  app.use('/api/favorites', publicReadLimiter, favoritesRoutes);
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -144,26 +181,43 @@ async function main() {
         bscNetwork: BSC_NETWORK,
         bscChainId: BSC_CHAIN_ID,
       },
+      websocket: getWebSocketStatus(),
     });
   });
 
   // Testnet faucet: credit platform balance (testnet only)
-  app.post('/api/faucet', async (req, res) => {
+  const faucetRateLimit = new Map<string, number>();
+  // Cleanup stale faucet rate limit entries every hour to prevent memory leak
+  const faucetCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, timestamp] of faucetRateLimit) {
+      if (now - timestamp > 3600000) { // 1 hour
+        faucetRateLimit.delete(key);
+      }
+    }
+  }, 3600000); // Run every hour
+  app.post('/api/faucet', authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { address, amount } = req.body;
-      if (!address || typeof address !== 'string') {
-        res.status(400).json({ error: 'address required' });
+      const address = req.userAddress!.toLowerCase();
+      const { amount } = req.body;
+
+      // Rate limit: one faucet request per address per 60 seconds
+      const lastRequest = faucetRateLimit.get(address);
+      if (lastRequest && Date.now() - lastRequest < 60000) {
+        res.status(429).json({ error: 'Faucet rate limited. Try again in 1 minute.' });
         return;
       }
+
       const MAX_FAUCET = 10000;
       const credit = Math.min(Math.max(Number(amount) || 1000, 1), MAX_FAUCET);
       await pool.query(
         `INSERT INTO balances (user_address, available, locked)
          VALUES ($1, $2, 0)
          ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2`,
-        [address.toLowerCase(), credit]
+        [address, credit]
       );
-      const bal = await pool.query('SELECT available, locked FROM balances WHERE user_address = $1', [address.toLowerCase()]);
+      faucetRateLimit.set(address, Date.now());
+      const bal = await pool.query('SELECT available, locked FROM balances WHERE user_address = $1', [address]);
       res.json({ success: true, balance: bal.rows[0] });
     } catch (err: any) {
       res.status(500).json({ error: 'Internal server error' });
@@ -334,6 +388,7 @@ async function main() {
       console.log('Shutting down gracefully...');
       clearInterval(keeperInterval);
       clearInterval(autoTraderInterval);
+      clearInterval(faucetCleanupInterval);
 
 
       server.close(() => {
@@ -361,7 +416,17 @@ process.on('unhandledRejection', (reason) => {
 });
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
-  process.exit(1);
+  // Attempt graceful shutdown before exiting
+  try {
+    // The shutdown function is scoped inside main's server.listen callback,
+    // so we emit SIGTERM to trigger it if it's been registered
+    process.emit('SIGTERM', 'SIGTERM');
+  } catch { /* ignore */ }
+  // Force exit after 5 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    console.error('Forced exit after uncaught exception');
+    process.exit(1);
+  }, 5000).unref();
 });
 
 main().catch(err => {

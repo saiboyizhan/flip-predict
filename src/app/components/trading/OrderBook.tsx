@@ -103,7 +103,10 @@ export function OrderBook({ marketId, side, onPriceClick }: OrderBookProps) {
 
     return () => {
       unsubscribeOrderBook(marketId, side, handleWsUpdate);
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       wsConnected.current = false;
     };
   }, [marketId, side, fetchData, handleWsUpdate]);

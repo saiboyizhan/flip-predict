@@ -55,14 +55,23 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
   markAsRead: (id) => {
     const target = get().notifications.find((n) => n.id === id)
+    if (!target) return
+    const wasRead = target.read
     set((state) => ({
       notifications: state.notifications.map((n) =>
         n.id === id ? { ...n, read: true } : n
       ),
     }))
     // Sync to backend only for server-sourced notifications
-    if (target?.synced) {
-      apiMarkRead(id).catch(() => {})
+    if (target.synced) {
+      apiMarkRead(id).catch(() => {
+        // Revert to previous read state on API failure
+        set((state) => ({
+          notifications: state.notifications.map((n) =>
+            n.id === id ? { ...n, read: wasRead } : n
+          ),
+        }))
+      })
     }
   },
 

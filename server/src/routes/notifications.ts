@@ -156,6 +156,7 @@ router.get('/activity', authMiddleware, async (req: AuthRequest, res: Response) 
 });
 
 // Helper: create notification and push via WebSocket
+// Includes debouncing: skip if same type+user notification was created in last 5 seconds
 export async function createNotification(params: {
   userAddress: string;
   type: string;
@@ -164,6 +165,17 @@ export async function createNotification(params: {
   metadata?: Record<string, any>;
 }): Promise<any> {
   const db = getDb();
+
+  // Debounce: check if same type+user notification was created in last 5 seconds
+  const fiveSecondsAgo = Date.now() - 5000;
+  const recentDup = await db.query(
+    'SELECT id FROM notifications WHERE user_address = $1 AND type = $2 AND created_at > $3 LIMIT 1',
+    [params.userAddress, params.type, fiveSecondsAgo]
+  );
+  if (recentDup.rows.length > 0) {
+    return recentDup.rows[0]; // Skip duplicate, return existing
+  }
+
   const id = crypto.randomUUID();
   const now = Date.now();
 

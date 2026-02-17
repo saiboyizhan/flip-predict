@@ -66,10 +66,11 @@ export default function NotificationsPage() {
       setNotifications(data.notifications);
     } catch (err) {
       console.error("Failed to load notifications:", err);
+      toast.error(t("notification.loadFailed", { defaultValue: "Failed to load notifications" }));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -217,6 +218,16 @@ export default function NotificationsPage() {
                     handleMarkRead(notification.id);
                   }
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (!notification.read) {
+                      handleMarkRead(notification.id);
+                    }
+                  }
+                }}
+                role="button"
+                tabIndex={0}
                 className={`relative border-l-4 ${getNotificationBorderColor(
                   notification.type
                 )} bg-card/80 border border-white/[0.06] p-4 cursor-pointer hover:bg-card transition-colors ${

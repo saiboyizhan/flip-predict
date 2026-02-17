@@ -39,6 +39,7 @@ import { useMarketStore } from "@/app/stores/useMarketStore";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { searchMarkets } from "@/app/services/api";
+import { onConnectionStatusChange, type WSConnectionStatus } from "@/app/services/ws";
 import { NotificationBell } from "./NotificationBell";
 
 // All nav items visible in the top bar
@@ -136,6 +137,7 @@ export function AppHeader() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchHistory, setSearchHistoryState] = useState<string[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [wsStatus, setWsStatus] = useState<WSConnectionStatus>("connected");
   const { navigate } = useTransitionNavigate();
   const location = useLocation();
   const setStoreSearch = useMarketStore((s) => s.setSearch);
@@ -169,6 +171,21 @@ export function AppHeader() {
       authDisconnect();
     }
   }, [isConnected, address, isAuthenticated, login, signMessageAsync, authDisconnect, t]);
+
+  // Clear search filter when navigating away from the home/markets page
+  useEffect(() => {
+    if (location.pathname !== "/") {
+      setSearchQuery("");
+      setStoreSearch("");
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  }, [location.pathname, setStoreSearch]);
+
+  // Track WebSocket connection status
+  useEffect(() => {
+    return onConnectionStatusChange(setWsStatus);
+  }, []);
 
   // Clean up debounce timer on unmount
   useEffect(() => {
@@ -289,6 +306,20 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-50 bg-background/60 backdrop-blur-xl border-b border-white/[0.06]">
+      {/* WS Reconnection Banner */}
+      {(wsStatus === "reconnecting" || wsStatus === "dead") && (
+        <div
+          className={`px-4 py-1.5 text-center text-xs font-medium ${
+            wsStatus === "dead"
+              ? "bg-red-500/10 text-red-400 border-b border-red-500/20"
+              : "bg-yellow-500/10 text-yellow-400 border-b border-yellow-500/20"
+          }`}
+        >
+          {wsStatus === "dead"
+            ? t("ws.connectionLost", "Real-time connection lost. Prices may be stale.")
+            : t("ws.reconnecting", "Reconnecting...")}
+        </div>
+      )}
       {/* Main Bar */}
       <div className="px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
         {/* Left: Logo */}

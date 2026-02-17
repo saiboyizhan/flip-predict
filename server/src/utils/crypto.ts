@@ -2,7 +2,13 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypt
 
 const ALGORITHM = 'aes-256-gcm';
 
+let llmKeyWarningLogged = false;
+
 function getKey(): Buffer {
+  if (!process.env.LLM_ENCRYPTION_KEY && !llmKeyWarningLogged) {
+    console.warn('WARNING: LLM_ENCRYPTION_KEY not set, falling back to JWT_SECRET. Set LLM_ENCRYPTION_KEY for production.');
+    llmKeyWarningLogged = true;
+  }
   const raw = process.env.LLM_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-insecure-key';
   return createHash('sha256').update(raw).digest();
 }

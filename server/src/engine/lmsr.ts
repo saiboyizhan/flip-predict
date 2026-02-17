@@ -100,7 +100,7 @@ export function calculateLMSRBuy(
   let hi = amount * 100; // Upper bound: can't get more shares than amount * 100
   let mid = 0;
 
-  for (let iter = 0; iter < 100; iter++) {
+  for (let iter = 0; iter < 1000; iter++) {
     mid = (lo + hi) / 2;
     const newReserves = [...reserves];
     newReserves[optionIndex] += mid;
@@ -122,7 +122,7 @@ export function calculateLMSRBuy(
   const finalReservesCheck = [...reserves];
   finalReservesCheck[optionIndex] += mid;
   const finalCostDiff = lmsrCost(finalReservesCheck, b) - currentCost;
-  if (Math.abs(finalCostDiff - amount) > 1e-4) {
+  if (Math.abs(finalCostDiff - amount) > 1e-8) {
     throw new Error('LMSR buy calculation failed: binary search did not converge');
   }
 
@@ -161,7 +161,8 @@ export function calculateLMSRSell(
   newReserves[optionIndex] -= shares;
 
   // Ensure reserves don't go below a minimum
-  if (newReserves[optionIndex] < 0.001) {
+  // MIN_RESERVE consistency: match AMM's MIN_RESERVE of 1.0
+  if (newReserves[optionIndex] < 1.0) {
     throw new Error('Trade too large: would deplete reserves');
   }
 

@@ -189,13 +189,23 @@ export function useFundAgent() {
     error: fundConfirmError,
   } = useWaitForTransactionReceipt({ hash: fundTxHash });
 
-  // When approve is confirmed, proceed to fund
+  // Track pending tokenId for auto-fund after approve
+  const [pendingTokenId, setPendingTokenId] = useState<bigint | null>(null);
+
+  // When approve is confirmed, automatically proceed to fund
   useEffect(() => {
-    if (isApproveConfirmed && needsApproval && pendingAmount !== null) {
+    if (isApproveConfirmed && needsApproval && pendingAmount !== null && pendingTokenId !== null) {
       setNeedsApproval(false);
       refetchAllowance();
+      // Auto-execute fund after approval
+      writeFund({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: 'fundAgent',
+        args: [pendingTokenId, pendingAmount],
+      });
     }
-  }, [isApproveConfirmed, needsApproval, pendingAmount, refetchAllowance]);
+  }, [isApproveConfirmed, needsApproval, pendingAmount, pendingTokenId, refetchAllowance, writeFund]);
 
   const fundAgent = useCallback(
     (tokenId: bigint, amountUSDT: string) => {
@@ -204,6 +214,7 @@ export function useFundAgent() {
 
       const amountWei = parseUnits(amountUSDT, 18);
       setPendingAmount(amountWei);
+      setPendingTokenId(tokenId);
 
       // Check if we need to approve
       if (allowanceRaw < amountWei) {
@@ -243,6 +254,7 @@ export function useFundAgent() {
       resetFund();
       setNeedsApproval(false);
       setPendingAmount(null);
+      setPendingTokenId(null);
     },
   };
 }
@@ -811,7 +823,7 @@ export function useAgentTakePosition() {
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
         abi: NFA_ABI,
         functionName: 'agentPredictionTakePosition',
-        args: [tokenId, marketId, side, parseUnits(amountUSDT, 18)],
+        args: [tokenId, marketId, side === 1, parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
