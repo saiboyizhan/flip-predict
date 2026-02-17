@@ -790,9 +790,10 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
       UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL, is_for_rent = 0, rent_price = NULL, rented_by = NULL, rent_expires = NULL WHERE id = $2
     `, [req.userAddress, req.params.id]);
 
-    // Fix #2: Reset learn_from_owner and clear old owner's profile
+    // Fix #2: Disable learn_from_owner to protect the trained profile from being
+    // overwritten by the new owner's trades. The learned style IS the asset being sold.
+    // New owner can re-enable if they want to retrain with their own style.
     await client.query('UPDATE agents SET learn_from_owner = 0 WHERE id = $1', [req.params.id]);
-    await client.query('DELETE FROM agent_owner_profile WHERE agent_id = $1', [req.params.id]);
 
     // Fix #3: Clear copy-trade followers (new owner didn't agree to old relationships)
     await client.query('DELETE FROM agent_followers WHERE agent_id = $1', [req.params.id]);
