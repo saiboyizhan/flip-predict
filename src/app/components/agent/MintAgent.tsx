@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
-import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2, ShieldCheck, ArrowRight, AlertTriangle, RefreshCw } from "lucide-react";
+import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { mintAgent, autoSyncAgents } from "@/app/services/api";
+import { mintAgent } from "@/app/services/api";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
 import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
@@ -293,10 +293,6 @@ export function MintAgent() {
     }
   };
 
-  // Detect desync: on-chain minted more than DB registered
-  const hasDesync = effectiveMintCount > agentCount;
-  const unsyncedCount = effectiveMintCount - agentCount;
-  const [syncLoading, setSyncLoading] = useState(false);
 
   // Full-page state when mint limit reached
   if (remaining <= 0) {
@@ -337,60 +333,6 @@ export function MintAgent() {
               </div>
             </div>
 
-            {/* Desync Auto-Sync Section */}
-            {hasDesync && (
-              <div className="max-w-md mx-auto mb-8 text-left">
-                <div className="border border-yellow-500/30 bg-yellow-500/5 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0" />
-                    <span className="text-sm font-semibold text-yellow-500">
-                      {t("agent.desyncDetected", {
-                        count: unsyncedCount,
-                        defaultValue: `${unsyncedCount} on-chain mint(s) not synced`,
-                      })}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-4">
-                    {t("agent.desyncDesc", {
-                      defaultValue: "Your wallet minted agents on-chain but they weren't registered in the backend. Click below to auto-sync from the blockchain.",
-                    })}
-                  </p>
-                  <button
-                    onClick={async () => {
-                      setSyncLoading(true);
-                      try {
-                        const result = await autoSyncAgents();
-                        if (result.synced > 0) {
-                          for (const agent of result.agents) {
-                            addAgent(agent);
-                          }
-                          toast.success(t("agent.syncSuccess", {
-                            count: result.synced,
-                            defaultValue: `${result.synced} agent(s) synced successfully!`,
-                          }));
-                          navigate("/agents");
-                        } else {
-                          toast.error(t("agent.syncNone", { defaultValue: "No unsynced agents found on-chain." }));
-                        }
-                      } catch (err: any) {
-                        toast.error(err?.message || t("agent.syncFailed", { defaultValue: "Auto-sync failed. Please try again." }));
-                      } finally {
-                        setSyncLoading(false);
-                      }
-                    }}
-                    disabled={syncLoading}
-                    className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {syncLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-4 h-4" />
-                    )}
-                    {t("agent.autoSync", { defaultValue: "Auto Sync from Blockchain" })}
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

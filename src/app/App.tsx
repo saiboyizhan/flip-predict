@@ -13,7 +13,7 @@ import { useAuthStore } from "./stores/useAuthStore";
 import { useAgentStore } from "./stores/useAgentStore";
 import { connectWS, disconnectWS, authenticateWS, subscribeNotifications } from "./services/ws";
 import { useNotificationStore } from "./stores/useNotificationStore";
-import { autoSyncAgents } from "./services/api";
+
 
 const SUPPORTED_CHAIN_ID = 97; // BSC Testnet only
 
@@ -161,14 +161,10 @@ export default function App() {
     void useMarketStore.getState().fetchFromAPI();
   }, []);
 
-  // On mount or when auth changes: fetch agent status + auto-sync from on-chain
+  // On mount or when auth changes: fetch agent status
   useEffect(() => {
     if (isAuthenticated) {
       useAgentStore.getState().fetchMyAgents();
-      // Auto-sync agents from on-chain once per auth session
-      autoSyncAgents().catch(() => {
-        // Non-critical: don't block the app if auto-sync fails
-      });
     }
   }, [isAuthenticated]);
 

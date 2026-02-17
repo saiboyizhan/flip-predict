@@ -51,7 +51,7 @@ interface AuthState {
   disconnect: () => void
   setBalance: (balance: number) => void
   setDisplayName: (name: string) => void
-  login: (address: string, signMessageAsync: (args: { message: string }) => Promise<string>) => Promise<boolean>
+  login: (address: string, signMessageAsync: (args: { message: string }) => Promise<string>) => Promise<{ success: boolean; error?: string }>
   logout: () => void
   restoreToken: () => void
 }
@@ -139,11 +139,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           })
         // Fetch user's agents (no forced popup)
         useAgentStore.getState().fetchMyAgents()
-        return true
+        return { success: true }
       }
-      return false
+      return { success: false, error: loginResult.error }
     } catch {
-      return false
+      return { success: false, error: 'unknown' }
     }
   },
 

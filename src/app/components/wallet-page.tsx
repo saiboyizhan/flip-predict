@@ -178,8 +178,9 @@ export function WalletPage() {
               setPlatformBalance(result.balance);
             }
           })
-          .catch(() => {
-            toast.error("Deposit confirmed on-chain but platform sync failed. Your funds are safe - please refresh or contact support.");
+          .catch((err) => {
+            console.error('[wallet] Deposit sync failed:', err?.message);
+            toast.error(t("wallet.depositSyncFailed", { defaultValue: "Platform sync pending - please refresh the page." }));
           });
       }
       refetchWalletUsdtBalance();
@@ -203,8 +204,9 @@ export function WalletPage() {
               setPlatformBalance(result.balance);
             }
           })
-          .catch(() => {
-            toast.error("Withdraw confirmed on-chain but platform sync failed. Your funds are safe - please refresh or contact support.");
+          .catch((err) => {
+            console.error('[wallet] Withdraw sync failed:', err?.message);
+            toast.error(t("wallet.withdrawSyncFailed", { defaultValue: "Platform sync pending - please refresh the page." }));
           });
       }
       refetchWalletUsdtBalance();

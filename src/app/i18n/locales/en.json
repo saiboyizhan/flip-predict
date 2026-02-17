@@ -343,6 +343,7 @@
   },
   "auth": {
     "loginSuccess": "Login successful",
+    "signIn": "Sign In",
     "signFailed": "Signature verification failed, please retry",
     "connectRequired": "Connect Wallet",
     "connectDescription": "Please connect your wallet to access this page",

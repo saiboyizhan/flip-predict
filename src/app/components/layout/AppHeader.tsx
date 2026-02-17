@@ -151,26 +151,54 @@ export function AppHeader() {
   const { open: openWeb3Modal } = useAppKit();
   const { login, disconnect: authDisconnect, isAuthenticated, isAdmin } = useAuthStore();
   const prevAddressRef = useRef<string | undefined>(undefined);
+  const userInitiatedRef = useRef(false);
 
   const hasAgent = useAgentStore((s) => s.hasAgent);
 
-  // Auto-login when wallet connects
+  // Handle user-initiated wallet connect
+  const handleConnect = useCallback(() => {
+    userInitiatedRef.current = true;
+    openWeb3Modal();
+  }, [openWeb3Modal]);
+
+  // Login when wallet connects (only if user-initiated)
   useEffect(() => {
     if (isConnected && address && address !== prevAddressRef.current && !isAuthenticated) {
       prevAddressRef.current = address;
-      login(address, signMessageAsync).then((success) => {
-        if (success) {
-          toast.success(t("auth.loginSuccess"));
-        } else {
-          toast.error(t("auth.signFailed"));
-        }
-      });
+      // Only auto-sign if user explicitly clicked "Connect Wallet"
+      if (userInitiatedRef.current) {
+        userInitiatedRef.current = false;
+        login(address, signMessageAsync).then((result) => {
+          if (result.success) {
+            toast.success(t("auth.loginSuccess"));
+          } else if (result.error === 'sign_rejected') {
+            // User cancelled signing - don't show error
+          } else {
+            toast.error(t("auth.signFailed"));
+          }
+        });
+      }
     }
     if (!isConnected && prevAddressRef.current) {
       prevAddressRef.current = undefined;
       authDisconnect();
     }
   }, [isConnected, address, isAuthenticated, login, signMessageAsync, authDisconnect, t]);
+
+  // Manual sign-in for auto-reconnected wallets
+  const handleSignIn = useCallback(() => {
+    if (isConnected && address && !isAuthenticated) {
+      login(address, signMessageAsync).then((result) => {
+        if (result.success) {
+          toast.success(t("auth.loginSuccess"));
+        } else if (result.error === 'sign_rejected') {
+          // User cancelled signing - don't show error
+        } else {
+          toast.error(t("auth.signFailed"));
+        }
+      });
+    }
+  }, [isConnected, address, isAuthenticated, login, signMessageAsync, t]);
 
   // Clear search filter when navigating away from the home/markets page
   useEffect(() => {
@@ -457,6 +485,16 @@ export function AppHeader() {
           <NotificationBell />
           {isConnected && address ? (
             <div className="flex items-center gap-2">
+              {/* Show Sign In button when wallet connected but not authenticated */}
+              {!isAuthenticated && (
+                <button
+                  onClick={handleSignIn}
+                  className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-blue-500/30 rounded-lg hover:border-blue-500/50 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+                >
+                  <Zap className="w-4 h-4 text-blue-400" />
+                  <span className="text-blue-400 text-sm font-medium">{t("auth.signIn", "Sign In")}</span>
+                </button>
+              )}
               <button
                 onClick={() => openWeb3Modal()}
                 className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-card border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 transition-colors"
@@ -547,7 +585,7 @@ export function AppHeader() {
             </div>
           ) : (
             <button
-              onClick={() => openWeb3Modal()}
+              onClick={handleConnect}
               className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-white/[0.08] rounded-lg hover:border-blue-500/50 text-foreground hover:text-blue-400 bg-white/[0.04] font-semibold text-sm transition-colors"
             >
               <Wallet className="w-4 h-4" />

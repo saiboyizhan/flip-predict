@@ -153,17 +153,23 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
     return;
   }
 
-  let verificationResult;
-  try {
-    verificationResult = await verifyDepositTransaction(normalizedTxHash, userAddress, amount);
-  } catch (err: any) {
-    console.error('Deposit verification RPC error:', err.message);
-    res.status(503).json({ error: 'Transaction verification service unavailable, please try again' });
-    return;
-  }
-  if (!verificationResult.ok) {
-    res.status(verificationResult.statusCode).json({ error: verificationResult.error });
-    return;
+  // On-chain verification: skip if DEPOSIT_RECEIVER_ADDRESS or USDT_ADDRESS not configured (testnet demo mode)
+  const receiver = getDepositReceiverAddress();
+  if (receiver && USDT_ADDRESS) {
+    let verificationResult;
+    try {
+      verificationResult = await verifyDepositTransaction(normalizedTxHash, userAddress, amount);
+    } catch (err: any) {
+      console.error('Deposit verification RPC error:', err.message);
+      res.status(503).json({ error: 'Transaction verification service unavailable, please try again' });
+      return;
+    }
+    if (!verificationResult.ok) {
+      res.status(verificationResult.statusCode).json({ error: verificationResult.error });
+      return;
+    }
+  } else {
+    console.warn('[wallet] DEPOSIT_RECEIVER_ADDRESS or USDT_ADDRESS not configured — skipping on-chain verification (demo mode)');
   }
 
   const pool = getDb();
