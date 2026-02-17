@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit",
     "seed": "tsx src/db/seed.ts",
-    "reseed": "tsx src/db/seed.ts --reseed"
+    "reseed": "tsx src/db/seed.ts --reseed",
+    "test:e2e": "vitest run --config tests/e2e/vitest.config.ts"
   },
   "keywords": [],
   "author": "",
@@ -24,8 +25,8 @@
     "jsonwebtoken": "^9.0.3",
     "openai": "^6.22.0",
     "pg": "^8.13.1",
-    "ws": "^8.19.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -34,6 +35,7 @@
     "@types/node": "^25.2.2",
     "@types/pg": "^8.11.10",
     "@types/ws": "^8.18.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

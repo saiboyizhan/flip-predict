@@ -687,11 +687,26 @@ CREATE TABLE IF NOT EXISTS agent_llm_config (
 ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS tx_hash TEXT;
 
 -- Round 3: Data integrity constraints
-ALTER TABLE markets ADD CONSTRAINT IF NOT EXISTS chk_markets_yes_reserve_pos CHECK (yes_reserve > 0);
-ALTER TABLE markets ADD CONSTRAINT IF NOT EXISTS chk_markets_no_reserve_pos CHECK (no_reserve > 0);
-ALTER TABLE positions ADD CONSTRAINT IF NOT EXISTS chk_positions_shares_nonneg CHECK (shares >= 0);
-ALTER TABLE open_orders ADD CONSTRAINT IF NOT EXISTS chk_open_orders_amount_pos CHECK (amount > 0);
-ALTER TABLE open_orders ADD CONSTRAINT IF NOT EXISTS chk_open_orders_price_range CHECK (price >= 0.01 AND price <= 0.99);
+DO $$ BEGIN
+  ALTER TABLE markets ADD CONSTRAINT chk_markets_yes_reserve_pos CHECK (yes_reserve > 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE markets ADD CONSTRAINT chk_markets_no_reserve_pos CHECK (no_reserve > 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE positions ADD CONSTRAINT chk_positions_shares_nonneg CHECK (shares >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE open_orders ADD CONSTRAINT chk_open_orders_amount_pos CHECK (amount > 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE open_orders ADD CONSTRAINT chk_open_orders_price_range CHECK (price >= 0.01 AND price <= 0.99);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Round 3: Performance indexes
 CREATE INDEX IF NOT EXISTS idx_copy_trades_follower_time ON copy_trades(follower_address, created_at DESC);

@@ -14,6 +14,7 @@ const RATE_LIMIT_MAX = 10;
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
 function isRateLimited(ip: string): boolean {
+  if (process.env.NODE_ENV === 'test') return false;
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
   if (!entry || now > entry.resetTime) {

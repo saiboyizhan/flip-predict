@@ -13,17 +13,18 @@ const router = Router();
 
 /** Clean up expired rentals and their LLM configs */
 async function cleanExpiredRentals(db: any): Promise<void> {
+  const nowMs = Date.now();
   // Delete LLM configs for agents whose rental has expired
   await db.query(`
     DELETE FROM agent_llm_config WHERE agent_id IN (
-      SELECT id FROM agents WHERE rented_by IS NOT NULL AND rent_expires < NOW()
+      SELECT id FROM agents WHERE rented_by IS NOT NULL AND rent_expires < $1
     )
-  `);
+  `, [nowMs]);
   // Clear rental fields
   await db.query(`
     UPDATE agents SET rented_by = NULL, rent_expires = NULL
-    WHERE rented_by IS NOT NULL AND rent_expires < NOW()
-  `);
+    WHERE rented_by IS NOT NULL AND rent_expires < $1
+  `, [nowMs]);
 }
 
 /** Check if user is the owner OR active renter of an agent */

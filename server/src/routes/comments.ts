@@ -93,7 +93,7 @@ router.post('/:marketId', authMiddleware, async (req: AuthRequest, res: Response
       await client.query('BEGIN');
       const oneHourAgo = Date.now() - 3600000;
       const recentCommentsRes = await client.query(
-        'SELECT COUNT(*) as cnt FROM comments WHERE user_address = $1 AND market_id = $2 AND created_at > $3 FOR UPDATE',
+        'SELECT COUNT(*) as cnt FROM comments WHERE user_address = $1 AND market_id = $2 AND created_at > $3',
         [req.userAddress, marketId, oneHourAgo]
       );
       if (parseInt(recentCommentsRes.rows[0].cnt, 10) >= 20) {

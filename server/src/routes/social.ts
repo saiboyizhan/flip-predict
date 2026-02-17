@@ -12,6 +12,7 @@ const FEED_RATE_LIMIT_MAX = 30;
 const feedRateLimitMap = new Map<string, { count: number; resetTime: number; windowStart: number }>();
 
 function isFeedRateLimited(userAddress: string): boolean {
+  if (process.env.NODE_ENV === 'test') return false;
   const now = Date.now();
   const entry = feedRateLimitMap.get(userAddress);
   if (!entry || now > entry.resetTime) {

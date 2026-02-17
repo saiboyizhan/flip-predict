@@ -38,8 +38,11 @@ import { BSC_CHAIN_ID, BSC_NETWORK, logNetworkConfigSummary } from './config/net
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-// Rate limiters
-const generalLimiter = rateLimit({
+// Rate limiters — disabled in test environment to avoid E2E flakes
+const isTestEnv = process.env.NODE_ENV === 'test';
+const noopLimiter = (_req: any, _res: any, next: any) => next();
+
+const generalLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 100,
   standardHeaders: true,
@@ -47,7 +50,7 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
-const authLimiter = rateLimit({
+const authLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   standardHeaders: true,
@@ -55,7 +58,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth requests, please try again later.' },
 });
 
-const tradingLimiter = rateLimit({
+const tradingLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
@@ -63,7 +66,7 @@ const tradingLimiter = rateLimit({
   message: { error: 'Too many trading requests, please try again later.' },
 });
 
-const publicReadLimiter = rateLimit({
+const publicReadLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 200,
   standardHeaders: true,
@@ -71,7 +74,7 @@ const publicReadLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
-const walletLimiter = rateLimit({
+const walletLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   standardHeaders: true,
@@ -79,7 +82,7 @@ const walletLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
-const copyTradingLimiter = rateLimit({
+const copyTradingLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
@@ -87,7 +90,7 @@ const copyTradingLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
-const commentLimiter = rateLimit({
+const commentLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
