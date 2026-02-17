@@ -90,6 +90,12 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
   // executeBuy gets connection B which waits for the same lock).
   const agentAddress = `agent:${agentId}`;
 
+  // Ensure agent has a users row (fk_orders_user requires user_address in users table)
+  await db.query(`
+    INSERT INTO users (address, created_at) VALUES ($1, $2)
+    ON CONFLICT (address) DO NOTHING
+  `, [agentAddress, Date.now()]);
+
   // Ensure agent has a balances row for AMM trading (DO NOTHING to avoid overwriting
   // keeper settlement rewards with stale wallet_balance)
   await db.query(`
