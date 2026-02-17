@@ -116,6 +116,20 @@ AI diagnosed and fixed production issues on Railway deployment:
 - **Iterative audit loop**: AI finds issue -> AI writes fix -> AI verifies fix -> next issue
 - **Zero manual code**: Human role was product direction, UX decisions, and deployment configuration. All code written by AI.
 
+### Screenshots
+
+3 parallel agents optimizing UI components concurrently:
+
+![Parallel UI Agents](./ai-build-log/03-parallel-ui-optimization.png)
+
+Systematic bug tracking with severity levels and fix status:
+
+![Audit Bug Table](./ai-build-log/04-audit-bug-table.png)
+
+5 parallel deep-scan agents covering AMM, OrderBook, Wallet, Balance, and Fees:
+
+![Deep Scan 5 Agents](./ai-build-log/05-deep-scan-5-agents.png)
+
 ## Limitations & Future Work
 
 - **Testnet stage** -- Currently deployed on BSC Testnet with MockUSDT; mainnet migration pending audit
