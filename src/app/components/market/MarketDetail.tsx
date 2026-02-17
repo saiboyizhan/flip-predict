@@ -18,7 +18,7 @@ import { LimitOrderForm } from "../trading/LimitOrderForm";
 import { OpenOrders } from "../trading/OpenOrders";
 import { CommentSection } from "./CommentSection";
 import { PriceChart } from "./PriceChart";
-import { challengeSettlement, finalizeSettlement, getSettlement, proposeSettlement, fetchMarketActivity, fetchRelatedMarkets, fetchMarket } from "@/app/services/api";
+import { finalizeSettlement, getSettlement, proposeSettlement, fetchMarketActivity, fetchRelatedMarkets, fetchMarket } from "@/app/services/api";
 import { subscribeMarket, unsubscribeMarket } from "@/app/services/ws";
 import type { MarketActivity } from "@/app/services/api";
 import type { Market as MarketType } from "@/app/types/market.types";
@@ -477,19 +477,11 @@ function SettlementActionPanel({
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const isMulti = market.marketType === "multi" && Array.isArray(market.options) && market.options.length > 0;
-  const [proposeOutcome, setProposeOutcome] = useState<"yes" | "no">("yes");
-  const [proposeWinningOptionId, setProposeWinningOptionId] = useState<string>(
+  const [outcome, setOutcome] = useState<"yes" | "no">("yes");
+  const [winningOptionId, setWinningOptionId] = useState<string>(
     (market.options && market.options.length > 0) ? market.options[0].id : ""
   );
-  const [proposeTxHash, setProposeTxHash] = useState("");
-  const [proposeEvidenceUrl, setProposeEvidenceUrl] = useState("");
-  const [challengeReason, setChallengeReason] = useState("");
-  const [finalizeOutcome, setFinalizeOutcome] = useState<"yes" | "no">("yes");
-  const [finalizeWinningOptionId, setFinalizeWinningOptionId] = useState<string>(
-    (market.options && market.options.length > 0) ? market.options[0].id : ""
-  );
-  const [finalizeTxHash, setFinalizeTxHash] = useState("");
-  const [busy, setBusy] = useState<"" | "propose" | "challenge" | "finalize">("");
+  const [busy, setBusy] = useState(false);
 
   if (isMulti) {
     return (
@@ -498,118 +490,18 @@ function SettlementActionPanel({
         animate={{ opacity: 1, y: 0 }}
         className="bg-amber-500/10 border border-amber-500/30 p-4 text-sm text-amber-300"
       >
-        {t("settlement.multiMarketNotSupported", { defaultValue: "On-chain arbitration currently only supports binary markets (YES/NO). Do not use the on-chain arbitration entry for multi-option markets." })}
+        {t("settlement.multiMarketNotSupported", { defaultValue: "Multi-option market settlement is not yet supported in the UI." })}
       </motion.div>
     );
   }
 
-  const proposals = Array.isArray(settlementData?.proposals) ? settlementData!.proposals! : [];
-  const activeProposal = (proposals.find((p) => {
-    const status = String(p.status || "").toLowerCase();
-    return status === "proposed" || status === "challenged";
-  }) || null) as Record<string, unknown> | null;
-
-  const challengeWindowEndsAt = Number(activeProposal?.challenge_window_ends_at ?? 0);
-  const challengeOpen = challengeWindowEndsAt > Date.now();
-  const proposalId = String(activeProposal?.id ?? "");
-  const proposalOwner = String(activeProposal?.proposed_by ?? "").toLowerCase();
-  const proposalResolveTxHash = String(activeProposal?.resolve_tx_hash ?? "").trim();
-  const canChallenge = Boolean(
-    isAuthenticated &&
-    activeProposal &&
-    challengeOpen &&
-    authAddress &&
-    authAddress.toLowerCase() !== proposalOwner,
-  );
-
-  useEffect(() => {
-    if (proposalResolveTxHash) {
-      setFinalizeTxHash(proposalResolveTxHash);
-    }
-  }, [proposalResolveTxHash]);
-
-  async function syncFinalizeWithTxHash(resolveTxHash: string) {
-    await finalizeSettlement(market.id, {
-      proposalId,
-      outcome: isMulti ? undefined : finalizeOutcome,
-      winningOptionId: isMulti ? finalizeWinningOptionId : undefined,
-      resolveTxHash,
-    });
-  }
-
-  async function handlePropose() {
-    if (!isAuthenticated) {
-      toast.error(t("settlement.connectWalletFirst", { defaultValue: "Please connect wallet first" }));
-      return;
-    }
-    if (!/^0x[a-fA-F0-9]{64}$/.test(proposeTxHash.trim())) {
-      toast.error(t("settlement.invalidTxHash", { defaultValue: "Invalid tx hash (must be 0x + 64 hex chars)" }));
-      return;
-    }
-    if (isMulti && !proposeWinningOptionId) {
-      toast.error(t("settlement.selectWinningOption", { defaultValue: "Please select a winning option" }));
-      return;
-    }
-
-    setBusy("propose");
-    try {
-      await proposeSettlement(market.id, {
-        outcome: isMulti ? undefined : proposeOutcome,
-        winningOptionId: isMulti ? proposeWinningOptionId : undefined,
-        evidenceUrl: proposeEvidenceUrl.trim() || undefined,
-        resolveTxHash: proposeTxHash.trim(),
-      });
-      toast.success(t("settlement.proposalSubmitted", { defaultValue: "Proposal submitted" }));
-      setProposeTxHash("");
-      setProposeEvidenceUrl("");
-      onUpdated();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t("settlement.failedToSubmitProposal", { defaultValue: "Failed to submit proposal" }));
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleChallenge() {
-    if (!canChallenge || !proposalId) return;
-    if (challengeReason.trim().length < 10) {
-      toast.error(t("settlement.challengeReasonMinLength", { defaultValue: "Challenge reason must be at least 10 characters" }));
-      return;
-    }
-
-    setBusy("challenge");
-    try {
-      await challengeSettlement(market.id, {
-        proposalId,
-        reason: challengeReason.trim(),
-      });
-      toast.success(t("settlement.challengeSubmitted", { defaultValue: "Challenge submitted" }));
-      setChallengeReason("");
-      onUpdated();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t("settlement.failedToSubmitChallenge", { defaultValue: "Failed to submit challenge" }));
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleFinalize() {
-    if (!isAuthenticated) {
-      toast.error(t("settlement.connectWalletFirst", { defaultValue: "Please connect wallet first" }));
-      return;
-    }
-    if (!isAdmin) {
-      toast.error(t("settlement.finalizeAdminOnly", { defaultValue: "Finalize is admin-only" }));
-      return;
-    }
+  async function handleSettle() {
+    if (!isAuthenticated || !isAdmin) return;
     if (!publicClient) {
       toast.error(t("settlement.walletClientUnavailable", { defaultValue: "Wallet client unavailable" }));
       return;
     }
-    if (!proposalId) {
-      toast.error(t("settlement.noActiveProposal", { defaultValue: "No active proposal to finalize" }));
-      return;
-    }
+
     let onChainMarketId: bigint;
     try {
       onChainMarketId = BigInt(market.onChainMarketId);
@@ -617,77 +509,52 @@ function SettlementActionPanel({
       toast.error(t("settlement.invalidOnChainMarketId", { defaultValue: "Invalid on-chain market ID" }));
       return;
     }
-    if (isMulti && !finalizeWinningOptionId) {
-      toast.error(t("settlement.selectWinningOption", { defaultValue: "Please select a winning option" }));
-      return;
-    }
 
-    setBusy("finalize");
+    setBusy(true);
     try {
+      // Step 1: Send on-chain finalizeResolution tx
       const txHash = await writeContractAsync({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
         functionName: "finalizeResolution",
-        args: [onChainMarketId, finalizeOutcome === "yes"],
+        args: [onChainMarketId, outcome === "yes"],
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
       if (receipt.status !== "success") {
-        throw new Error(t("settlement.txReverted", { defaultValue: "On-chain finalize transaction reverted" }));
+        throw new Error("On-chain transaction reverted");
       }
 
-      setFinalizeTxHash(txHash);
-      await syncFinalizeWithTxHash(txHash);
+      // Step 2: Propose + finalize on backend in one flow
+      const proposeRes = await proposeSettlement(market.id, {
+        outcome: isMulti ? undefined : outcome,
+        winningOptionId: isMulti ? winningOptionId : undefined,
+        resolveTxHash: txHash,
+        challengeWindowHours: 0,
+      });
+
+      const proposalId = proposeRes?.proposal?.id;
+      if (proposalId) {
+        await finalizeSettlement(market.id, {
+          proposalId,
+          outcome: isMulti ? undefined : outcome,
+          winningOptionId: isMulti ? winningOptionId : undefined,
+          resolveTxHash: txHash,
+        });
+      }
+
       const scanUrl = getBscScanUrl(chainId);
-      toast.success(t("settlement.marketFinalized", { defaultValue: "Market finalized" }), {
+      toast.success(t("settlement.marketFinalized", { defaultValue: "Market settled successfully" }), {
         action: {
-          label: t("settlement.viewOnBscScan", { defaultValue: "View on BscScan" }),
+          label: "BscScan",
           onClick: () => window.open(`${scanUrl}/tx/${txHash}`, "_blank"),
         },
       });
       onUpdated();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t("settlement.failedToFinalize", { defaultValue: "Failed to finalize" });
-      toast.error(t("settlement.finalizeErrorHint", { defaultValue: "{{message}}. If on-chain tx already succeeded, use \"Sync Existing TxHash\".", message }));
+      toast.error(err instanceof Error ? err.message : "Settlement failed");
     } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleFinalizeSync() {
-    if (!isAuthenticated) {
-      toast.error(t("settlement.connectWalletFirst", { defaultValue: "Please connect wallet first" }));
-      return;
-    }
-    if (!isAdmin) {
-      toast.error(t("settlement.finalizeAdminOnly", { defaultValue: "Finalize is admin-only" }));
-      return;
-    }
-    if (!proposalId) {
-      toast.error(t("settlement.noActiveProposal", { defaultValue: "No active proposal to finalize" }));
-      return;
-    }
-    const txHash = finalizeTxHash.trim();
-    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
-      toast.error(t("settlement.invalidTxHash", { defaultValue: "Invalid tx hash (must be 0x + 64 hex chars)" }));
-      return;
-    }
-
-    setBusy("finalize");
-    try {
-      await syncFinalizeWithTxHash(txHash);
-      const scanUrl = getBscScanUrl(chainId);
-      toast.success(t("settlement.settlementSynced", { defaultValue: "Settlement synced" }), {
-        action: {
-          label: t("settlement.viewOnBscScan", { defaultValue: "View on BscScan" }),
-          onClick: () => window.open(`${scanUrl}/tx/${txHash}`, "_blank"),
-        },
-      });
-      onUpdated();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t("settlement.failedToSyncSettlement", { defaultValue: "Failed to sync settlement" }));
-    } finally {
-      setBusy("");
+      setBusy(false);
     }
   }
 
@@ -698,131 +565,29 @@ function SettlementActionPanel({
       className="bg-card border border-border p-4 sm:p-6 space-y-4"
     >
       <div>
-        <h3 className="text-sm sm:text-base font-bold text-foreground">{t("settlement.arbitrationActions", { defaultValue: "Settlement Actions" })}</h3>
+        <h3 className="text-sm sm:text-base font-bold text-foreground">{t("settlement.settleMarket", { defaultValue: "Settle Market" })}</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          {t("settlement.arbitrationDesc", { defaultValue: "Propose outcome, finalize on-chain, and sync results." })}
+          {t("settlement.settleDesc", { defaultValue: "Select the winning outcome and settle on-chain." })}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {!isMulti ? (
-          <select
-            value={proposeOutcome}
-            onChange={(e) => setProposeOutcome(e.target.value as "yes" | "no")}
-            className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
-          >
-            <option value="yes">YES</option>
-            <option value="no">NO</option>
-          </select>
-        ) : (
-          <select
-            value={proposeWinningOptionId}
-            onChange={(e) => setProposeWinningOptionId(e.target.value)}
-            className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
-          >
-            {(market.options || []).map((opt) => (
-              <option key={opt.id} value={opt.id}>{opt.label}</option>
-            ))}
-          </select>
-        )}
-        <input
-          value={proposeTxHash}
-          onChange={(e) => setProposeTxHash(e.target.value)}
-          placeholder={t("settlement.txHashPlaceholder", { defaultValue: "resolve/finalize tx hash (0x...)" })}
-          className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
-        />
-        <input
-          value={proposeEvidenceUrl}
-          onChange={(e) => setProposeEvidenceUrl(e.target.value)}
-          placeholder={t("settlement.evidenceUrlPlaceholder", { defaultValue: "Evidence URL (optional)" })}
-          className="bg-input-background border border-border text-foreground text-xs sm:text-sm py-2 px-3 sm:col-span-2"
-        />
+      <div className="flex items-center gap-3">
+        <select
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value as "yes" | "no")}
+          className="bg-input-background border border-border text-foreground text-sm py-2 px-3 flex-1"
+        >
+          <option value="yes">YES</option>
+          <option value="no">NO</option>
+        </select>
+        <button
+          onClick={handleSettle}
+          disabled={busy || !isAuthenticated}
+          className="px-6 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold disabled:opacity-50 whitespace-nowrap"
+        >
+          {busy ? t("settlement.settling", { defaultValue: "Settling..." }) : t("settlement.settle", { defaultValue: "Settle" })}
+        </button>
       </div>
-      <button
-        onClick={handlePropose}
-        disabled={busy !== "" || !isAuthenticated}
-        className="w-full sm:w-auto px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold disabled:opacity-50"
-      >
-        {busy === "propose" ? t("settlement.submitting", { defaultValue: "Submitting..." }) : t("settlement.submitProposal", { defaultValue: "Submit Proposal" })}
-      </button>
-
-      {activeProposal && (
-        <div className="border-t border-border pt-4 space-y-3">
-          <div className="text-xs text-muted-foreground">
-            {t("settlement.activeProposal", { defaultValue: "Active proposal" })}: <span className="text-foreground font-mono">{proposalId}</span>
-            {challengeWindowEndsAt > 0 && (
-              <> | {t("settlement.challengeWindowEnds", { defaultValue: "Challenge window ends" })}: {new Date(challengeWindowEndsAt).toLocaleString()}</>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <input
-              value={challengeReason}
-              onChange={(e) => setChallengeReason(e.target.value)}
-              placeholder={t("settlement.challengeReasonPlaceholder", { defaultValue: "Challenge reason (>=10 chars)" })}
-              className="bg-input-background border border-border text-foreground text-sm py-2 px-3 md:col-span-2"
-            />
-          </div>
-          <button
-            onClick={handleChallenge}
-            disabled={busy !== "" || !canChallenge}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-sm font-semibold disabled:opacity-50"
-          >
-            {busy === "challenge" ? t("settlement.submitting", { defaultValue: "Submitting..." }) : t("settlement.submitChallenge", { defaultValue: "Submit Challenge" })}
-          </button>
-
-          {isAdmin ? (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                {!isMulti ? (
-                  <select
-                    value={finalizeOutcome}
-                    onChange={(e) => setFinalizeOutcome(e.target.value as "yes" | "no")}
-                    className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
-                  >
-                    <option value="yes">YES</option>
-                    <option value="no">NO</option>
-                  </select>
-                ) : (
-                  <select
-                    value={finalizeWinningOptionId}
-                    onChange={(e) => setFinalizeWinningOptionId(e.target.value)}
-                    className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
-                  >
-                    {(market.options || []).map((opt) => (
-                      <option key={opt.id} value={opt.id}>{opt.label}</option>
-                    ))}
-                  </select>
-                )}
-                <input
-                  value={finalizeTxHash}
-                  onChange={(e) => setFinalizeTxHash(e.target.value)}
-                  placeholder={t("settlement.finalizeTxHashPlaceholder", { defaultValue: "finalizeResolution tx hash (0x...)" })}
-                  className="bg-input-background border border-border text-foreground text-sm py-2 px-3"
-                />
-              </div>
-              <button
-                onClick={handleFinalize}
-                disabled={busy !== "" || !isAuthenticated || challengeOpen}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold disabled:opacity-50"
-              >
-                {busy === "finalize" ? t("settlement.finalizing", { defaultValue: "Finalizing..." }) : t("settlement.finalizeOnChain", { defaultValue: "Finalize On-Chain (Admin)" })}
-              </button>
-              <button
-                onClick={handleFinalizeSync}
-                disabled={busy !== "" || !isAuthenticated}
-                className="px-4 py-2 bg-zinc-600 hover:bg-zinc-500 text-white text-sm font-semibold disabled:opacity-50"
-              >
-                {busy === "finalize" ? t("settlement.syncing", { defaultValue: "Syncing..." }) : t("settlement.syncExistingTxHash", { defaultValue: "Sync Existing TxHash (Backend only)" })}
-              </button>
-            </>
-          ) : (
-            <div className="text-xs text-muted-foreground pt-1">
-              {t("settlement.finalizeAdminRestricted", { defaultValue: "Finalize is restricted to admin accounts." })}
-            </div>
-          )}
-        </div>
-      )}
     </motion.div>
   );
 }

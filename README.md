@@ -313,7 +313,7 @@ Auth
 
 **Phase 1: CTF Tokenization** -- Convert contract-level positions into ERC-1155 outcome tokens. This enables free transfer, secondary market trading, and composability with other DeFi protocols. Positions become liquid assets rather than locked contract state.
 
-**Phase 2: Disputable Arbitration** -- Implement UMA-style optimistic oracle resolution. Anyone can propose an outcome, challengers can dispute with a bond, and unresolved disputes escalate to a decentralized voting mechanism. Replaces manual resolution for trustless settlement.
+**Phase 2: Disputable Arbitration** -- The backend already implements a full propose/challenge/finalize arbitration pipeline: proposers submit outcomes with evidence, any user can challenge during a configurable time window (auto-extended on each challenge), and admin finalizes after the window closes. The next step is exposing the challenge UI to regular users and adding bond-based incentives for honest participation, moving toward fully trustless UMA-style optimistic resolution.
 
 **Phase 3: Real Settlement APIs** -- Integrate DexScreener price feeds for automatic resolution of price-target markets. Add BSCScan API monitoring for on-chain event tracking: Four.meme token launches, Flap bonding curve graduations, and contract deployment events. Eliminates manual settlement for data-verifiable markets.
 
