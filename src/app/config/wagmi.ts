@@ -1,4 +1,4 @@
-import { http, fallback } from "wagmi";
+import { http, fallback, injected } from "wagmi";
 import { defineChain, parseGwei } from "viem";
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
@@ -39,6 +39,7 @@ const chains = [bscTestnet] as const;
 const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks: chains,
+  connectors: [injected({ shimDisconnect: true })],
   transports: {
     [bscTestnet.id]: fallback([
       http("https://data-seed-prebsc-1-s1.bnbchain.org:8545"),
@@ -59,6 +60,9 @@ createAppKit({
     description: "AI-Powered Prediction Market on BSC",
     url: typeof window !== "undefined" ? window.location.origin : "https://flippredict.net",
     icons: [],
+  },
+  features: {
+    analytics: false,
   },
   themeMode: "dark",
   themeVariables: {
