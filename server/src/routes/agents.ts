@@ -770,22 +770,7 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
       DO UPDATE SET available = balances.available + $2
     `, [agent.owner_address, price]);
 
-    // Fix #1: Return agent's wallet_balance to seller before transferring ownership
-    const agentWalletBalance = Number(agent.wallet_balance || 0);
-    if (agentWalletBalance > 0) {
-      // Credit seller with agent's remaining balance
-      await client.query(`
-        INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
-        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2
-      `, [agent.owner_address, agentWalletBalance]);
-
-      // Reset agent wallet_balance and virtual balance row
-      await client.query('UPDATE agents SET wallet_balance = 1000 WHERE id = $1', [req.params.id]);
-      const agentAddress = `agent:${req.params.id}`;
-      await client.query('UPDATE balances SET available = 1000 WHERE user_address = $1', [agentAddress]);
-    }
-
-    // Transfer ownership
+    // Transfer ownership (wallet_balance stays as-is -- seller should withdraw before selling)
     await client.query(`
       UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL, is_for_rent = 0, rent_price = NULL, rented_by = NULL, rent_expires = NULL WHERE id = $2
     `, [req.userAddress, req.params.id]);
