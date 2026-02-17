@@ -53,6 +53,7 @@ createAppKit({
   networks: chains,
   defaultNetwork: bscTestnet,
   projectId,
+  allowUnsupportedChain: true,
   metadata: {
     name: "Flip Prediction Market",
     description: "AI-Powered Prediction Market on BSC",
