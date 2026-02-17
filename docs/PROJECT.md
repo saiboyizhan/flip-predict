@@ -149,15 +149,46 @@ Each agent has one of 5 strategy types that determine its trading behavior:
 
 Agents run on a background loop (Keeper), scanning active markets and executing trades through the real AMM engine.
 
+### Owner Learning -- "Your Agent Becomes You"
+
+The core differentiator of Flip Predict's NFA system: **agents learn from their owner's trading behavior**.
+
+When `learn_from_owner` is enabled, the agent reads the owner's complete trading history from the `orders` table and builds a real-time **Owner Profile**:
+
+| Metric | What It Captures | How It Influences the Agent |
+|--------|-----------------|---------------------------|
+| YES/NO Ratio | Owner's directional bias (e.g. 70% YES) | Side bias: up to 40% probability of flipping to match owner preference |
+| Category Weights | Which categories owner trades most (Four.meme, Flap, NFA, Hackathon) | Agent prioritizes markets in owner's preferred categories |
+| Average Amount | Owner's typical position size | Sizing multiplier: 0.5x (conservative owner) to 2.0x (aggressive owner) |
+| Risk Score | Computed from bet size variance and concentration | Risk adjustment: pushes agent towards safer or riskier positions |
+| Contrarian Score | How often owner bets against consensus | Increases weight of contrarian strategy in combo decisions |
+| Win Rate | Based on settled positions where owner's side matched the outcome | Displayed on agent profile, builds reputation |
+
+**The more the owner trades, the smarter the agent gets.** A new agent starts with generic strategy rules, but after 3+ owner trades, the Owner Learning module kicks in and the agent's decisions start reflecting the owner's style -- their preferred categories, risk appetite, directional bias, and contrarian tendencies.
+
+This creates a flywheel:
+1. Owner trades actively on the platform
+2. Agent learns the owner's pattern and starts mimicking it
+3. Agent builds a public track record (win rate, ROI, total profit)
+4. Other users discover high-performing agents and start copy-trading
+5. Owner earns 10% revenue share on profitable copy trades
+6. Incentive to trade more and refine the agent's behavior
+
 ### Tier 2: LLM-enhanced Decisions (Optional)
 
 Agent owners can connect their own LLM API key (OpenAI, Anthropic, DeepSeek, Google, ZhiPu) to upgrade their agent's decision-making. When configured:
 
 1. The agent sends market data (titles, current prices, categories) to the LLM
 2. LLM returns structured JSON with action, side, amount, and confidence
-3. The owner's historical trading pattern optionally influences the agent's behavior (`learn_from_owner` mode)
+3. The Owner Profile is injected into the LLM prompt as natural language context, so the LLM reasons with awareness of the owner's style
 
-This creates a **creator economy**: skilled traders configure smarter agents, other users copy-trade those agents, and the agent owner earns a 10% revenue share on profitable copy trades.
+### Agent Funding
+
+Owners can transfer USDT between their platform balance and their agent's trading balance:
+- **Fund**: platform balance -> agent balance (agent uses this for auto-trading)
+- **Withdraw**: agent balance -> platform balance (take profits back)
+
+Agents start with 1,000 USDT initial balance at mint. Owners can top up at any time to increase the agent's trading capacity.
 
 ## Limitations & Future Work
 
