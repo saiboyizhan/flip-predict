@@ -770,10 +770,32 @@ router.post('/:id/buy', authMiddleware, async (req: AuthRequest, res: Response) 
       DO UPDATE SET available = balances.available + $2
     `, [agent.owner_address, price]);
 
+    // Fix #1: Return agent's wallet_balance to seller before transferring ownership
+    const agentWalletBalance = Number(agent.wallet_balance || 0);
+    if (agentWalletBalance > 0) {
+      // Credit seller with agent's remaining balance
+      await client.query(`
+        INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
+        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2
+      `, [agent.owner_address, agentWalletBalance]);
+
+      // Reset agent wallet_balance and virtual balance row
+      await client.query('UPDATE agents SET wallet_balance = 1000 WHERE id = $1', [req.params.id]);
+      const agentAddress = `agent:${req.params.id}`;
+      await client.query('UPDATE balances SET available = 1000 WHERE user_address = $1', [agentAddress]);
+    }
+
     // Transfer ownership
     await client.query(`
-      UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL, rented_by = NULL, rent_expires = NULL WHERE id = $2
+      UPDATE agents SET owner_address = $1, is_for_sale = 0, sale_price = NULL, is_for_rent = 0, rent_price = NULL, rented_by = NULL, rent_expires = NULL WHERE id = $2
     `, [req.userAddress, req.params.id]);
+
+    // Fix #2: Reset learn_from_owner and clear old owner's profile
+    await client.query('UPDATE agents SET learn_from_owner = 0 WHERE id = $1', [req.params.id]);
+    await client.query('DELETE FROM agent_owner_profile WHERE agent_id = $1', [req.params.id]);
+
+    // Fix #3: Clear copy-trade followers (new owner didn't agree to old relationships)
+    await client.query('DELETE FROM agent_followers WHERE agent_id = $1', [req.params.id]);
 
     // Clear previous owner's LLM config (API keys) to prevent key leakage
     await client.query('DELETE FROM agent_llm_config WHERE agent_id = $1', [req.params.id]);
@@ -805,11 +827,27 @@ router.post('/:id/rent', authMiddleware, async (req: AuthRequest, res: Response)
     const agent = (await client.query('SELECT * FROM agents WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0] as any;
     if (!agent) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Agent not found' }); return; }
     if (!agent.is_for_rent) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is not for rent' }); return; }
-    if (agent.rented_by) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Agent is already rented' }); return; }
+
+    // Fix #5: Check if existing rental is expired, clear it inline
+    if (agent.rented_by) {
+      if (agent.rent_expires && agent.rent_expires < Date.now()) {
+        // Expired -- clear stale rental
+        await client.query('UPDATE agents SET rented_by = NULL, rent_expires = NULL WHERE id = $1', [req.params.id]);
+        await client.query('DELETE FROM agent_llm_config WHERE agent_id = $1', [req.params.id]);
+      } else {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: 'Agent is already rented' });
+        return;
+      }
+    }
+
     if (agent.owner_address === req.userAddress) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Cannot rent your own agent' }); return; }
 
     const parsedDays = parsePositiveInteger(req.body?.days);
     if (parsedDays === null) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Valid days required' }); return; }
+
+    // Fix #4: Cap rental duration at 90 days
+    if (parsedDays > 90) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Maximum rental duration is 90 days' }); return; }
 
     const totalRentCost = agent.rent_price * parsedDays;
 
