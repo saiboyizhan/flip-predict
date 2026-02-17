@@ -917,7 +917,8 @@
     "saveSettings": "Save Settings",
     "settingsSaved": "Settings saved",
     "started": "Copy trading started",
-    "startFailed": "Failed to start copy trading"
+    "startFailed": "Failed to start copy trading",
+    "buyHoldDisclaimer": "Copy trading follows a Buy & Hold model. When the agent sells mid-market, your copied positions are held until settlement."
   },
   "comboStrategy": {
     "title": "Combo Strategy",

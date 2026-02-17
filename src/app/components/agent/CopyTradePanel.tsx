@@ -286,6 +286,10 @@ export function CopyTradePanel({ agentId, isOwner, agentTokenId }: CopyTradePane
           </button>
         )}
       </div>
+
+      <p className="text-xs text-muted-foreground border-t border-border pt-3">
+        {t("copyTrade.buyHoldDisclaimer")}
+      </p>
     </div>
   );
 }

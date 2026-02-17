@@ -920,7 +920,8 @@
     "saveSettings": "保存设置",
     "settingsSaved": "设置已保存",
     "started": "已开始跟单",
-    "startFailed": "开始跟单失败"
+    "startFailed": "开始跟单失败",
+    "buyHoldDisclaimer": "跟单采用买入并持有模式。当 Agent 盘中卖出时，您的跟单仓位将持有至市场结算。"
   },
   "comboStrategy": {
     "title": "组合策略",

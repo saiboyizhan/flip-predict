@@ -53,6 +53,7 @@ Active markets:
 ${marketList}
 
 Based on your strategy, select 1-3 markets to trade. For each trade, specify:
+- action: "buy" to open a position, or "sell" to close an existing position (take profit / stop loss)
 - marketId: the market ID in brackets
 - side: "yes" or "no"
 - amount: dollar amount (reasonable % of balance based on strategy)
@@ -138,14 +139,14 @@ function parseLlmResponse(text: string): AgentDecision[] {
 
     return parsed
       .filter((d: any) =>
-        d.action === 'buy' &&
+        (d.action === 'buy' || d.action === 'sell') &&
         typeof d.marketId === 'string' &&
         (d.side === 'yes' || d.side === 'no') &&
         typeof d.amount === 'number' && d.amount > 0 &&
         typeof d.confidence === 'number'
       )
       .map((d: any) => ({
-        action: d.action as 'buy',
+        action: d.action as 'buy' | 'sell',
         marketId: d.marketId,
         side: d.side as 'yes' | 'no',
         amount: Math.round(d.amount * 100) / 100,

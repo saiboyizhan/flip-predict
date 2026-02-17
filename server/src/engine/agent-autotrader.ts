@@ -205,6 +205,11 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
         Math.round(realProfit * 100) / 100,
         Date.now()
       ]);
+
+      // Note: Copy-trade followers use Buy & Hold model -- agent sells do not
+      // trigger follower sells. Followers hold until market settlement.
+      // This is by design for the hackathon version to avoid complex partial
+      // liquidation logic. The UI displays a disclaimer about this behavior.
     }
   }
 

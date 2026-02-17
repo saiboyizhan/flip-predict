@@ -327,6 +327,8 @@ export async function settleMarketPositions(client: any, marketId: string, winni
 
   // CTF settlement: 1 winning share = 1 USDT (not pari-mutuel proportional split).
   // In CPMM + CTF model, winning shares redeem 1:1 against the collateral pool.
+
+  // Step 1: Credit ALL winners their full shares (no commission deducted here).
   for (const winner of winners) {
     const reward = Number(winner.shares);
 
@@ -336,64 +338,70 @@ export async function settleMarketPositions(client: any, marketId: string, winni
       continue;
     }
 
-    let followerPayout = reward;
-    const copyInfo = copyTradeMap.get(winner.user_address);
-
-    // Revenue sharing: if this winner is a copy-trade follower, deduct commission
-    if (copyInfo) {
-      const profit = reward - copyInfo.cost;
-      if (profit > 0) {
-        const commission = Math.round(profit * (copyInfo.revenue_share_pct / 100) * 100) / 100;
-        followerPayout = reward - commission;
-
-        // Commission is NOT credited to agent balance here to avoid double-spend.
-        // It stays in the contract pool until the creator claims via /claim endpoint,
-        // which reads agent_earnings and credits the creator's personal balance.
-
-        // Record in agent_earnings (creator claims later via /claim)
-        await client.query(`
-          INSERT INTO agent_earnings (id, agent_id, source, amount, follower_address, claimed, created_at)
-          VALUES ($1, $2, 'copy_trade_commission', $3, $4, 0, $5)
-        `, [randomUUID(), copyInfo.agent_id, commission, winner.user_address, now]);
-
-        // Update copy_trades record
-        await client.query(
-          `UPDATE copy_trades SET status = 'settled', outcome = 'won', profit = $1, revenue_share = $2 WHERE id = $3`,
-          [profit, commission, copyInfo.copy_trade_id]
-        );
-
-        await client.query(`
-          INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
-          VALUES ($1, $2, 'revenue_share', $3, $4, $5, $6)
-        `, [
-          randomUUID(), marketId, winner.user_address, commission,
-          JSON.stringify({ agent_id: copyInfo.agent_id, profit, pct: copyInfo.revenue_share_pct, commission }),
-          now
-        ]);
-      } else {
-        // No profit (or loss) -- no commission, but still settle the copy trade record
-        await client.query(
-          `UPDATE copy_trades SET status = 'settled', outcome = 'won', profit = $1, revenue_share = 0 WHERE id = $2`,
-          [profit, copyInfo.copy_trade_id]
-        );
-      }
-    }
-
-    // Credit winner's balance (after commission deduction if applicable)
+    // Full payout first -- commission is deducted separately from copy_trades only.
     await client.query(
       `INSERT INTO balances (user_address, available, locked) VALUES ($2, $1, 0)
        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $1`,
-      [followerPayout, winner.user_address]
+      [reward, winner.user_address]
     );
 
     await client.query(`
       INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
       VALUES ($1, $2, 'settle_winner', $3, $4, $5, $6)
     `, [
-      randomUUID(), marketId, winner.user_address, followerPayout,
-      JSON.stringify({ shares: Number(winner.shares), reward, payout: followerPayout, side: winningSide }),
+      randomUUID(), marketId, winner.user_address, reward,
+      JSON.stringify({ shares: Number(winner.shares), reward, payout: reward, side: winningSide }),
       now
     ]);
+  }
+
+  // Step 2: Separately calculate commission from copy_trades only.
+  // Use copy_trades.shares (not positions.shares) so manual trades are never taxed.
+  for (const ct of ctRes.rows) {
+    const copyShares = Number(ct.shares || 0);
+    const copyCost = Number(ct.cost || 0);
+    const copyProfit = copyShares - copyCost;
+    const revSharePct = Number(ct.revenue_share_pct || 10);
+    const followerAddr = ct.follower_address;
+    const copyInfo = copyTradeMap.get(followerAddr);
+    if (!copyInfo) continue;
+
+    if (copyProfit > 0) {
+      const commission = Math.round(copyProfit * (revSharePct / 100) * 100) / 100;
+
+      // Deduct commission from follower's balance (already credited in Step 1)
+      await client.query(
+        `UPDATE balances SET available = available - $1 WHERE user_address = $2`,
+        [commission, followerAddr]
+      );
+
+      // Record in agent_earnings (creator claims later via /claim)
+      await client.query(`
+        INSERT INTO agent_earnings (id, agent_id, source, amount, follower_address, claimed, created_at)
+        VALUES ($1, $2, 'copy_trade_commission', $3, $4, 0, $5)
+      `, [randomUUID(), copyInfo.agent_id, commission, followerAddr, now]);
+
+      // Update copy_trades record
+      await client.query(
+        `UPDATE copy_trades SET status = 'settled', outcome = 'won', profit = $1, revenue_share = $2 WHERE id = $3`,
+        [copyProfit, commission, copyInfo.copy_trade_id]
+      );
+
+      await client.query(`
+        INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
+        VALUES ($1, $2, 'revenue_share', $3, $4, $5, $6)
+      `, [
+        randomUUID(), marketId, followerAddr, commission,
+        JSON.stringify({ agent_id: copyInfo.agent_id, profit: copyProfit, pct: revSharePct, commission }),
+        now
+    ]);
+    } else {
+      // No profit (or loss) -- no commission, but still settle the copy trade record
+      await client.query(
+        `UPDATE copy_trades SET status = 'settled', outcome = 'won', profit = $1, revenue_share = 0 WHERE id = $2`,
+        [copyProfit, copyInfo.copy_trade_id]
+      );
+    }
   }
 
   // Settle losing copy trades

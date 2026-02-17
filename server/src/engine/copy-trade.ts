@@ -18,6 +18,19 @@ export async function executeCopyTrades(
   const onChainFollowers = followers.filter(f => f.on_chain === 1);
   const dbFollowers = followers.filter(f => f.on_chain !== 1);
 
+  // Helper: compute today's used amount from copy_trades (not stale daily_used column)
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayStartMs = todayStart.getTime();
+
+  async function getDailyUsed(followerAddress: string): Promise<number> {
+    const res = await db.query(
+      `SELECT COALESCE(SUM(amount), 0) as total FROM copy_trades WHERE follower_address = $1 AND created_at >= $2`,
+      [followerAddress, todayStartMs]
+    );
+    return Number(res.rows[0].total);
+  }
+
   // Process on-chain followers (create pending records)
   for (const follower of onChainFollowers) {
     try {
@@ -31,11 +44,11 @@ export async function executeCopyTrades(
       copyAmount = Math.round(copyAmount * 100) / 100;
       if (copyAmount < 0.01) continue;
 
-      // Check daily limit
-      const dailyUsed = Number(follower.daily_used) || 0;
+      // Check daily limit using actual copy_trades flow (resets naturally each day)
       const dailyLimit = Number(follower.daily_limit) || 0;
-      if (dailyLimit > 0 && dailyUsed + copyAmount > dailyLimit) {
-        continue;
+      if (dailyLimit > 0) {
+        const dailyUsed = await getDailyUsed(follower.follower_address);
+        if (dailyUsed + copyAmount > dailyLimit) continue;
       }
 
       const shares = copyAmount / trade.price;
@@ -60,11 +73,6 @@ export async function executeCopyTrades(
         Date.now()
       ]);
 
-      // Update daily_used
-      await db.query(
-        'UPDATE agent_followers SET daily_used = daily_used + $1 WHERE id = $2',
-        [copyAmount, follower.id]
-      );
     } catch (err) {
       console.error(`On-chain copy trade creation failed for follower ${follower.follower_address}:`, (err as Error).message);
     }
@@ -83,10 +91,12 @@ export async function executeCopyTrades(
       copyAmount = Math.round(copyAmount * 100) / 100;
       if (copyAmount < 0.01) continue;
 
-      // Check daily limit
-      const dailyUsed = Number(follower.daily_used) || 0;
+      // Check daily limit using actual copy_trades flow (resets naturally each day)
       const dailyLimit = Number(follower.daily_limit) || 0;
-      if (dailyLimit > 0 && dailyUsed + copyAmount > dailyLimit) continue;
+      if (dailyLimit > 0) {
+        const dailyUsed = await getDailyUsed(follower.follower_address);
+        if (dailyUsed + copyAmount > dailyLimit) continue;
+      }
 
       // Slippage circuit breaker: skip if current price > 10% above agent's entry price
       const mktRes = await db.query('SELECT yes_price, no_price FROM markets WHERE id = $1', [trade.marketId]);
@@ -125,11 +135,7 @@ export async function executeCopyTrades(
         Date.now()
       ]);
 
-      // Update daily_used
-      await db.query(
-        'UPDATE agent_followers SET daily_used = daily_used + $1 WHERE id = $2',
-        [copyAmount, follower.id]
-      );
+      // daily_used is now computed from copy_trades table, no need to update agent_followers
     } catch (err) {
       console.error(`Copy trade failed for follower ${follower.follower_address}:`, (err as Error).message);
     }

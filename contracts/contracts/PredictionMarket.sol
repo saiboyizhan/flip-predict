@@ -124,9 +124,11 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         emit Deposit(msg.sender, amount);
     }
 
-    /// @notice Withdraw USDT from the prediction market balance
-    /// @param amount Amount of USDT to withdraw (18 decimals)
-    function withdraw(uint256 amount) external nonReentrant whenNotPaused {
+    /// @notice Withdraw USDT -- restricted to owner (relayer).
+    /// All user withdrawals go through the backend /api/wallet/withdraw -> adminWithdraw.
+    /// Public withdraw was removed because off-chain AMM balances diverge from on-chain
+    /// balances, allowing users to double-withdraw via BscScan.
+    function withdraw(uint256 amount) external onlyOwner nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         require(balances[msg.sender] >= amount, "Insufficient balance");
         balances[msg.sender] -= amount;
