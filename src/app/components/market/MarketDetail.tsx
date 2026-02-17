@@ -277,7 +277,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
           </motion.div>
         )}
 
-        {(isPending || (market.status === "active" && new Date(market.endTime).getTime() <= Date.now())) && (
+        {isAdmin && (isPending || (market.status === "active" && new Date(market.endTime).getTime() <= Date.now())) && (
           <SettlementActionPanel
             market={market}
             settlementData={settlementData}
@@ -698,9 +698,9 @@ function SettlementActionPanel({
       className="bg-card border border-border p-4 sm:p-6 space-y-4"
     >
       <div>
-        <h3 className="text-sm sm:text-base font-bold text-foreground">{t("settlement.arbitrationActions", { defaultValue: "Arbitration Actions" })}</h3>
+        <h3 className="text-sm sm:text-base font-bold text-foreground">{t("settlement.arbitrationActions", { defaultValue: "Settlement Actions" })}</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          {t("settlement.arbitrationDesc", { defaultValue: "Propose, challenge, finalize. Admin finalize will automatically send an on-chain finalizeResolution transaction and sync the backend." })}
+          {t("settlement.arbitrationDesc", { defaultValue: "Propose outcome, finalize on-chain, and sync results." })}
         </p>
       </div>
 
