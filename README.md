@@ -1,4 +1,4 @@
-# Synapse -- Prediction Market for BSC Ecosystem
+# Flip Predict -- Prediction Market for BSC Ecosystem
 
 > **Hackathon Starter Kit Navigation**
 >
@@ -11,7 +11,7 @@
 >
 > **Live**: https://flippredict.net | **API**: https://flip-backend-production.up.railway.app | **Chain**: BSC Testnet
 
-An application-level prediction market on BSC with NFA (Non-Fungible Agent) integration, hybrid order execution (AMM + CLOB + LMSR), and on-chain settlement.
+An application-level prediction market on BSC with NFA (Non-Fungible Agent) integration, hybrid order execution (AMM + CLOB + LMSR), and on-chain settlement. Built for the meme token economy.
 
 Built for the BSC ecosystem: Four.meme token launches, Flap.sh bonding curve graduations, NFA agent performance, and BNB Chain hackathon outcomes.
 
@@ -88,7 +88,7 @@ Built for the BSC ecosystem: Four.meme token launches, Flap.sh bonding curve gra
 
 ## How It Differs from Polymarket
 
-| Dimension | Polymarket | Synapse |
+| Dimension | Polymarket | Flip Predict |
 |-----------|-----------|---------|
 | **Trading** | Hybrid decentralized CLOB: off-chain matching engine, on-chain settlement, EIP-712 signed orders | On-chain `takePosition`/`claimWinnings` + backend AMM (constant product) + CLOB (limit orders) + LMSR (multi-option) |
 | **Position Assets** | YES/NO are CTF ERC-1155 outcome tokens -- freely transferable, composable, split/merge/redeem | Positions stored in contract mappings (`mapping(uint256 => mapping(address => Position))`), not freely transferable tokens |
@@ -113,6 +113,7 @@ Built for the BSC ecosystem: Four.meme token launches, Flap.sh bonding curve gra
 | Oracle | Binance Oracle feeds (Chainlink-compatible) + DexScreener API |
 | Market Engine | AMM (constant product) + LMSR + Order Book matching |
 | Smart Contracts | Solidity 0.8.20 + OpenZeppelin v5 + Hardhat |
+| E2E Testing | Vitest + ethers.js deterministic wallets + PostgreSQL test DB |
 | Chain | BNB Smart Chain (BSC mainnet + testnet) |
 
 ## Quick Start
@@ -151,7 +152,12 @@ npm run seed
 
 # Start development server (http://localhost:3001)
 npm run dev
+
+# Run E2E tests (requires local PostgreSQL)
+npm run test:e2e
 ```
+
+E2E 测试会自动创建 `prediction_test` 数据库、启动测试服务器 (port 3099)、执行 134 个用例、测试完成后销毁数据库。覆盖认证、交易、持仓、Agent、社交、评论、通知、跟单、限价单、结算、排行榜、管理员操作和完整用户旅程。
 
 ### 3. Frontend
 
@@ -172,7 +178,7 @@ npm run build          # Frontend production build -> dist/
 ## Project Structure
 
 ```
-synapse/
+flip-predict/
 |-- src/                              # Frontend (React + Vite)
 |   |-- app/
 |   |   |-- pages/                    # 15 page components
@@ -243,6 +249,11 @@ synapse/
 |       |   |-- schema.sql           # Full database schema
 |       |   +-- seed.ts              # Seed data for all 4 categories
 |       +-- ws/                       # WebSocket handlers
+|   +-- tests/
+|       +-- e2e/                      # E2E test suite (Vitest)
+|           |-- vitest.config.ts      # Sequential execution config
+|           |-- setup/                # Global setup/teardown + test helpers
+|           +-- suites/               # 17 test files (134 cases)
 |-- contracts/                        # Smart Contracts (Hardhat)
 |   |-- contracts/
 |   |   |-- PredictionMarket.sol     # Binary markets, positions, claims
