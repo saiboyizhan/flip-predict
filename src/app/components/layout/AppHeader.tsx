@@ -5,8 +5,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useAppKit } from "@reown/appkit/react";
-import { useAccount, useSignMessage, useDisconnect, useConnect } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { useAccount, useSignMessage, useDisconnect } from "wagmi";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
@@ -149,22 +148,8 @@ export function AppHeader() {
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const { disconnect: walletDisconnect } = useDisconnect();
-  const { connectAsync } = useConnect();
   const { open: openWeb3Modal } = useAppKit();
   const { login, disconnect: authDisconnect, isAuthenticated, isAdmin } = useAuthStore();
-
-  // Try injected (browser extension) first, fall back to AppKit modal
-  const handleConnect = useCallback(async () => {
-    if (typeof window !== "undefined" && window.ethereum) {
-      try {
-        await connectAsync({ connector: injected() });
-        return;
-      } catch {
-        // injected failed, fall back to modal
-      }
-    }
-    openWeb3Modal();
-  }, [connectAsync, openWeb3Modal]);
   const prevAddressRef = useRef<string | undefined>(undefined);
 
   const hasAgent = useAgentStore((s) => s.hasAgent);
@@ -473,7 +458,7 @@ export function AppHeader() {
           {isConnected && address ? (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleConnect()}
+                onClick={() => openWeb3Modal()}
                 className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-card border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 transition-colors"
               >
                 <Wallet className="w-4 h-4 text-emerald-400" />
@@ -562,7 +547,7 @@ export function AppHeader() {
             </div>
           ) : (
             <button
-              onClick={() => handleConnect()}
+              onClick={() => openWeb3Modal()}
               className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-white/[0.08] rounded-lg hover:border-blue-500/50 text-foreground hover:text-blue-400 bg-white/[0.04] font-semibold text-sm transition-colors"
             >
               <Wallet className="w-4 h-4" />
