@@ -98,20 +98,20 @@ export async function runAutoTradeCycle(db: Pool, agentId: string): Promise<void
     ON CONFLICT (user_address) DO NOTHING
   `, [agentAddress, wallet_balance]);
 
+  // Circuit breaker: check daily losses once before the loop (not per-decision)
+  const todayStartMs = todayDay * 86400000;
+  const dailyProfit = (await db.query(
+    "SELECT COALESCE(SUM(profit), 0) as total FROM agent_trades WHERE agent_id = $1 AND created_at >= $2",
+    [agentId, todayStartMs]
+  )).rows[0] as any;
+
+  if (dailyProfit && dailyProfit.total < -(maxDaily * 0.2)) {
+    return; // Daily loss limit hit, skip entire cycle
+  }
+
   for (const d of decisions) {
     if (d.action === 'hold') continue;
     if (d.action !== 'buy' && d.action !== 'sell') continue;
-
-    // Circuit breaker: stop if daily losses exceed 20% of max daily
-    const todayStartMs = todayDay * 86400000;
-    const dailyProfit = (await db.query(
-      "SELECT COALESCE(SUM(profit), 0) as total FROM agent_trades WHERE agent_id = $1 AND created_at >= $2",
-      [agentId, todayStartMs]
-    )).rows[0] as any;
-
-    if (dailyProfit && dailyProfit.total < -(maxDaily * 0.2)) {
-      break;
-    }
 
     if (d.action === 'buy') {
       // === BUY ===

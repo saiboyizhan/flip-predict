@@ -12,7 +12,7 @@ export async function initDatabase(): Promise<Pool> {
   const isProduction = process.env.NODE_ENV === 'production';
 
   const poolConfig = {
-    max: isProduction ? 20 : 10,
+    max: isProduction ? 8 : 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   };

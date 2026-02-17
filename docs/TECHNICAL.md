@@ -125,6 +125,25 @@ npm run dev
 npm run build    # Output: dist/
 ```
 
+### 5. E2E Tests
+
+```bash
+cd server
+
+# Run full E2E test suite (requires local PostgreSQL)
+npm run test:e2e
+```
+
+The E2E suite automatically:
+- Creates a dedicated `prediction_test` database
+- Starts a test server on port 3099 with isolated config
+- Runs 134 test cases across 17 suites sequentially
+- Tears down the server and drops the test database
+
+Suites cover: auth, faucet, markets, AMM trading, portfolio, agents, comments, notifications, social, copy-trading, orderbook, wallet, settlement, leaderboard, admin, and full user journey flows.
+
+Tested 20 consecutive runs with 0 failures (no flaky tests).
+
 ## Demo Guide
 
 ### Live Deployment

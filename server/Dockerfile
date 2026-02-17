@@ -1,14 +1,19 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npx tsc
+
 FROM node:20-alpine
 
 WORKDIR /app
-
-ENV NODE_ENV=production
-
 COPY package.json package-lock.json ./
-RUN npm install
-
-COPY . .
+RUN npm ci --omit=dev
+COPY --from=builder /app/dist ./dist
+COPY src/db/schema.sql ./dist/db/schema.sql
 
 EXPOSE 3001
 
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["node", "dist/index.js"]

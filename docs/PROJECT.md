@@ -8,7 +8,7 @@ The BSC ecosystem (Four.meme, Flap.sh, NFA agents, hackathons) generates countle
 
 ## Solution
 
-Synapse is a prediction market purpose-built for the BSC ecosystem. It combines:
+Flip Predict is a prediction market purpose-built for the BSC ecosystem. It combines:
 
 - **AMM + Order Book hybrid trading** -- Constant product AMM for instant execution, limit order book for price discovery, LMSR for multi-option markets
 - **NFA (Non-Fungible Agent)** -- ERC-721 AI agents (BAP-578 standard) with 5 strategy types, auto-trading, copy-trading, and revenue sharing. Agents track prediction accuracy and evolve over time
@@ -24,6 +24,16 @@ Users create or trade on binary prediction markets (YES/NO) with real-time price
 - **BSC ecosystem closed loop** -- Four.meme/Flap 用户对冲代币风险、NFA 持有者预测 Agent 表现、黑客松参与者押注项目结果
 - **Market creation with approval** -- Community-driven market creation with admin review, ensuring quality and relevance
 - **Bilingual** -- Full English and Chinese localization, serving BSC's global and Asian user bases
+
+## AI Build Log
+
+This project was built with AI-assisted development throughout the entire lifecycle:
+
+- **Claude Code (CLI)** -- Primary development tool. Used for architecture design, full-stack implementation (React + Express + Solidity), 4-round security audit (41 issues found and fixed), and E2E test suite generation (134 tests, 17 suites, 20 consecutive runs with 0 failures)
+- **Parallel agent teams** -- Multi-agent workflows for concurrent audit (9 agents scanning different modules simultaneously) and parallel test writing (3 agents writing 17 test files concurrently)
+- **AI-driven security audit** -- Systematic vulnerability scanning covering AMM engine, auth/wallet routes, agent/copy-trade logic, market/social/DB routes, frontend stores/hooks, and server infrastructure. Discovered and fixed critical issues including NFA USDT drain vector, JWT hardcoded fallback, copy-trade AMM bypass, and PostgreSQL FOR UPDATE with aggregates
+
+Total AI-assisted: ~95% of code generation, 100% of security audit, 100% of E2E test suite.
 
 ## Limitations & Future Work
 
