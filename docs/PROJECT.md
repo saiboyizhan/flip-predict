@@ -12,6 +12,7 @@ Flip Predict is a prediction market purpose-built for the BSC ecosystem. It comb
 
 - **AMM + Order Book hybrid trading** -- Constant product AMM for instant execution, limit order book for price discovery, LMSR for multi-option markets
 - **NFA (Non-Fungible Agent)** -- ERC-721 AI agents (BAP-578 standard) with 5 strategy types, auto-trading, copy-trading, and revenue sharing. Agents track prediction accuracy and evolve over time
+- **Hybrid architecture (Polymarket model)** -- Off-chain AMM for instant zero-gas trading + on-chain settlement for deposits, withdrawals, and claims. Same architecture used by Polymarket, Gnosis CTF, and other production prediction markets
 - **On-chain settlement** -- PredictionMarket.sol handles deposits, position taking, resolution, and claims on BSC
 - **4 market categories** -- Four.meme token predictions, Flap bonding curve graduations, NFA agent performance, and BNB Chain hackathon outcomes
 
@@ -130,9 +131,37 @@ Systematic bug tracking with severity levels and fix status:
 
 ![Deep Scan 5 Agents](./ai-build-log/05-deep-scan-5-agents.png)
 
+## NFA Agent Prediction System
+
+NFA agents autonomously trade on prediction markets using a two-tier decision engine:
+
+### Tier 1: Rule-based Strategy Engine (Default)
+
+Each agent has one of 5 strategy types that determine its trading behavior:
+
+| Strategy | Market Filter | Side Logic | Position Size |
+|----------|--------------|------------|--------------|
+| Conservative | Near 50/50 markets (0.35-0.65) | Follows majority | 3-5% of balance |
+| Aggressive | Extreme markets (<0.25 or >0.75) | Bets on dominant side | 10-20% of balance |
+| Contrarian | All markets | Always bets against the crowd | 5-10% of balance |
+| Momentum | All markets | Follows current price direction | 8-15% of balance |
+| Random | All markets | Coin flip | 1-10% of balance |
+
+Agents run on a background loop (Keeper), scanning active markets and executing trades through the real AMM engine.
+
+### Tier 2: LLM-enhanced Decisions (Optional)
+
+Agent owners can connect their own LLM API key (OpenAI, Anthropic, DeepSeek, Google, ZhiPu) to upgrade their agent's decision-making. When configured:
+
+1. The agent sends market data (titles, current prices, categories) to the LLM
+2. LLM returns structured JSON with action, side, amount, and confidence
+3. The owner's historical trading pattern optionally influences the agent's behavior (`learn_from_owner` mode)
+
+This creates a **creator economy**: skilled traders configure smarter agents, other users copy-trade those agents, and the agent owner earns a 10% revenue share on profitable copy trades.
+
 ## Limitations & Future Work
 
 - **Testnet stage** -- Currently deployed on BSC Testnet with MockUSDT; mainnet migration pending audit
 - **Manual settlement** -- Most markets require manual resolution; automated oracle coverage (DexScreener, BSCScan event monitoring) is limited
-- **No CTF tokens** -- Positions are contract-level mappings, not freely transferable ERC-1155 outcome tokens (planned for Phase 1)
-- **Future directions** -- UMA-style disputable arbitration, real-time settlement APIs, agent-created markets from on-chain signal detection
+- **Agent strategies are rule-based by default** -- ML-based prediction models and on-chain signal detection are planned for future versions
+- **Future directions** -- UMA-style disputable arbitration, real-time settlement APIs, agent-created markets from on-chain signal detection, reinforcement learning for agent strategies

@@ -34,29 +34,59 @@ sequenceDiagram
     participant Frontend
     participant Backend
     participant AMM
-    participant Contract
 
     User->>Frontend: Click YES/NO + enter amount
-    Frontend->>Backend: POST /api/orders {marketId, outcome, amount}
+    Frontend->>Backend: POST /api/orders {marketId, side, amount}
     Backend->>AMM: calculateBuy(yesPool, noPool, amount)
     AMM-->>Backend: sharesOut, newPrices
-    Backend->>Backend: Update PostgreSQL (positions, price history)
-    Backend->>Contract: takePosition(marketId, outcome, amount) [if on-chain]
-    Contract-->>Backend: tx receipt
+    Backend->>Backend: Update PostgreSQL (positions, price history, balances)
     Backend-->>Frontend: {shares, avgPrice, newYesPrice, newNoPrice}
-    Frontend->>Frontend: Update Zustand store + price chart
-    Frontend-->>User: Position confirmed
+    Frontend->>Frontend: Update Zustand store + price chart via WebSocket
+    Frontend-->>User: Position confirmed (instant, zero gas)
 ```
 
-### On-chain vs Off-chain
+### Data Flow -- Deposit / Withdraw (On-chain)
 
-| Component | Location | Rationale |
-|-----------|----------|-----------|
-| Market creation, position taking, claims | On-chain (PredictionMarket.sol) | Trustless settlement, verifiable |
-| NFA minting, agent metadata | On-chain (NFA.sol) | Ownership, transferability |
-| AMM pricing, order matching | Off-chain (Express backend) | Low latency, no gas per trade |
-| Price feeds, agent strategies | Off-chain (Oracle + Engine) | External data, compute-heavy |
-| Price history, comments, leaderboard | Off-chain (PostgreSQL) | Query flexibility, performance |
+```mermaid
+sequenceDiagram
+    participant User
+    participant MetaMask
+    participant Contract
+    participant Backend
+
+    User->>MetaMask: Approve USDT + deposit(amount)
+    MetaMask->>Contract: PredictionMarket.deposit(amount)
+    Contract-->>Backend: Deposit event detected
+    Backend->>Backend: Credit user balance in PostgreSQL
+    Backend-->>User: Balance updated
+```
+
+### Hybrid Architecture: Off-chain Matching + On-chain Settlement
+
+Flip Predict uses the same architecture as **Polymarket** and **Gnosis CTF**: fast off-chain order matching with trustless on-chain settlement. This is the industry-standard design for prediction markets -- putting every trade on-chain would cost ~$0.50 gas per trade on BSC and add 3-5 second latency, making the UX unusable for active traders.
+
+**What happens on-chain (verifiable on BscScan):**
+
+| Action | Contract Function | When |
+|--------|------------------|------|
+| Deposit USDT | `PredictionMarket.deposit()` | User funds their account |
+| Withdraw USDT | `PredictionMarket.adminWithdraw()` | User withdraws profits |
+| Mint NFA Agent | `NFA.mint()` | User creates an AI agent (ERC-721) |
+| Resolve market | `PredictionMarket.resolveMarket()` | Admin settles outcome |
+| Claim winnings | `PredictionMarket.claimWinnings()` | Winner redeems payout |
+| Split/Merge CTF | `PredictionMarket.splitPosition()` | CTF token operations |
+
+**What happens off-chain (low latency, zero gas):**
+
+| Action | Engine | Rationale |
+|--------|--------|-----------|
+| Buy/Sell YES/NO shares | Constant product AMM (`x * y = k`) | Instant execution, no gas |
+| Limit orders | OrderBook engine | Price discovery |
+| Multi-option markets | LMSR (`b * ln(sum(exp(q_i / b)))`) | Guaranteed liquidity |
+| Agent auto-trading | Strategy engine + optional LLM | Compute-heavy decisions |
+| Price history, comments | PostgreSQL | Query flexibility |
+
+This hybrid model gives users the best of both worlds: **instant trading** (off-chain AMM) with **trustless settlement** (on-chain contracts). All USDT flows (deposit, withdraw, winnings) are fully verifiable on BSC.
 
 ### Security Measures
 
