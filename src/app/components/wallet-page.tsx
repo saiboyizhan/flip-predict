@@ -322,8 +322,8 @@ export function WalletPage() {
       toast.error(t('wallet.invalidAmount'));
       return;
     }
-    if (amt > parseFloat(predictionMarketBalanceUSDT)) {
-      toast.error(t('wallet.insufficientContractBalance'));
+    if (platformBalance && amt > platformBalance.available) {
+      toast.error(t('wallet.insufficientBalance'));
       return;
     }
     withdrawAmountRef.current = withdrawAmount;
@@ -519,22 +519,22 @@ export function WalletPage() {
                 </div>
               )}
 
-              {/* On-Chain Contract Balance */}
+              {/* Wallet USDT Balance (available to deposit) */}
               <div className="bg-card border border-border rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
-                  <div className="text-blue-500 text-xs font-medium">{t('wallet.contractBalanceLabel')}</div>
+                  <div className="text-blue-500 text-xs font-medium">{t('wallet.walletUsdt', { defaultValue: 'Wallet USDT' })}</div>
                   <button
-                    onClick={() => refetchPredictionMarketBalance()}
+                    onClick={() => refetchWalletUsdtBalance()}
                     className="p-0.5 hover:bg-accent transition-colors rounded"
                     title={t('wallet.refreshBalance')}
                   >
-                    <RefreshCw className={`w-3 h-3 text-blue-400 ${predictionMarketBalanceLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3 h-3 text-blue-400`} />
                   </button>
                 </div>
                 <div className="text-xl sm:text-2xl font-semibold text-blue-500">
-                  {predictionMarketBalanceLoading ? "..." : `${parseFloat(predictionMarketBalanceUSDT).toFixed(4)}`}
+                  {parseFloat(walletUsdtBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
-                <div className="text-muted-foreground text-xs mt-1">USDT ({t('wallet.onChain')})</div>
+                <div className="text-muted-foreground text-xs mt-1">{t('wallet.availableToDeposit', { defaultValue: 'Available to deposit' })}</div>
               </div>
 
               {/* Native BNB Balance (for gas) */}
@@ -833,9 +833,7 @@ export function WalletPage() {
                           className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-lg p-3 outline-none transition-colors placeholder:text-muted-foreground"
                         />
                         <div className="text-muted-foreground text-xs mt-1">
-                          {withdrawMode === "contract"
-                            ? `${t('wallet.contractBalanceLabel')}: ${parseFloat(predictionMarketBalanceUSDT).toFixed(4)} USDT`
-                            : platformBalance
+                          {platformBalance
                               ? `${t('wallet.platformBalance')}: $${platformBalance.available.toLocaleString()}`
                               : ""}
                         </div>

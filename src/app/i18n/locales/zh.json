@@ -411,6 +411,8 @@
     "withdrawFromContract": "从合约提现",
     "walletBnb": "钱包 USDT",
     "contractBalanceLabel": "合约余额",
+    "walletUsdt": "钱包 USDT",
+    "availableToDeposit": "可充值到平台",
     "insufficientBnb": "钱包 USDT 余额不足",
     "insufficientContractBalance": "合约余额不足",
     "refreshBalance": "刷新合约余额",

@@ -327,6 +327,8 @@
     "withdrawFromContract": "Withdraw from Contract",
     "walletBnb": "Wallet USDT",
     "contractBalanceLabel": "Contract Balance",
+    "walletUsdt": "Wallet USDT",
+    "availableToDeposit": "Available to deposit",
     "insufficientBnb": "Insufficient USDT balance in wallet",
     "insufficientContractBalance": "Insufficient contract balance",
     "refreshBalance": "Refresh contract balance",
