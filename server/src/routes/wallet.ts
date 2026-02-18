@@ -264,7 +264,7 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
 // POST /api/wallet/withdraw
 router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response) => {
   const userAddress = req.userAddress!;
-  const { amount, toAddress } = req.body;
+  const { amount, toAddress, txHash: requestTxHash } = req.body;
 
   // --- Bug 5 fix: Validate amount > 0 with stricter checks ---
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
@@ -312,11 +312,14 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
     const now = Date.now();
 
     // --- Bug 5 fix: All writes in a single transaction ---
-    // Record the withdrawal
+    // Record the withdrawal (request_tx_hash = user's on-chain requestWithdraw tx)
+    const normalizedRequestTxHash = (typeof requestTxHash === 'string' && TX_HASH_REGEX.test(requestTxHash.trim()))
+      ? requestTxHash.trim().toLowerCase()
+      : null;
     await client.query(
-      `INSERT INTO withdrawals (id, user_address, amount, to_address, status, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5)`,
-      [id, userAddress, amount, toAddress, now]
+      `INSERT INTO withdrawals (id, user_address, amount, to_address, status, created_at, request_tx_hash)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6)`,
+      [id, userAddress, amount, toAddress, now, normalizedRequestTxHash]
     );
 
     // Deduct from available balance

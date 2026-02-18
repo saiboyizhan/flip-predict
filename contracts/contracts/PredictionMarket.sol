@@ -53,6 +53,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     address public nfaContract;
 
     uint256 public accumulatedFees;
+    uint256 public nextWithdrawRequestId;
 
     mapping(address => uint256) public dailyMarketCount;
     mapping(address => uint256) public lastMarketCreationDay;
@@ -84,6 +85,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     event ResolutionChallenged(uint256 indexed marketId, address indexed challenger, uint256 challengeCount, uint256 newWindowEnd);
     event ResolutionFinalized(uint256 indexed marketId, bool outcome);
     event StrictArbitrationModeUpdated(bool enabled);
+    event WithdrawRequested(address indexed user, uint256 amount, uint256 indexed requestId);
     // CTF events
     event PositionSplit(uint256 indexed marketId, address indexed user, uint256 amount);
     event PositionsMerged(uint256 indexed marketId, address indexed user, uint256 amount);
@@ -157,6 +159,15 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         balances[msg.sender] -= amount;
         require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
         emit Withdraw(msg.sender, amount);
+    }
+
+    /// @notice User submits on-chain withdraw request. Keeper processes actual USDT transfer.
+    /// @dev No on-chain balance check -- DB balance is the authority. Only emits event for gas efficiency.
+    /// @param amount Amount of USDT the user wants to withdraw (18 decimals)
+    function requestWithdraw(uint256 amount) external nonReentrant whenNotPaused {
+        require(amount > 0, "Amount must be > 0");
+        uint256 requestId = nextWithdrawRequestId++;
+        emit WithdrawRequested(msg.sender, amount, requestId);
     }
 
     // --- Market Management ---

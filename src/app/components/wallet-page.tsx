@@ -7,7 +7,7 @@ import { useAppKit } from "@reown/appkit/react";
 import { formatUnits, parseUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, claimPlatformFaucet } from "../services/api";
-import { useDeposit, useWithdraw, useContractBalance, usePredictionMarketBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
+import { useDeposit, useWithdraw, useRequestWithdraw, useContractBalance, usePredictionMarketBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 import { PREDICTION_MARKET_ADDRESS } from "../config/contracts";
 
@@ -71,8 +71,6 @@ export function WalletPage() {
   const [withdrawAddress, setWithdrawAddress] = useState(address ?? "");
   const [depositProcessing, setDepositProcessing] = useState(false);
   const [withdrawProcessing, setWithdrawProcessing] = useState(false);
-  const [depositMode, setDepositMode] = useState<"contract" | "manual">("contract");
-  const [withdrawMode, setWithdrawMode] = useState<"contract" | "manual">("manual");
   const [platformFaucetLoading, setPlatformFaucetLoading] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const authToken = useAuthStore((s) => s.token);
@@ -80,6 +78,7 @@ export function WalletPage() {
   // On-chain contract hooks
   const contractDeposit = useDeposit();
   const contractWithdraw = useWithdraw();
+  const requestWithdraw = useRequestWithdraw();
   const {
     balanceUSDT: walletUsdtBalance,
     refetch: refetchWalletUsdtBalance,
@@ -144,6 +143,13 @@ export function WalletPage() {
     contractWithdraw.isConfirmed,
     contractWithdraw.error as Error | null,
     "Withdraw",
+  );
+  useTxNotifier(
+    requestWithdraw.txHash,
+    requestWithdraw.isConfirming,
+    requestWithdraw.isConfirmed,
+    requestWithdraw.error as Error | null,
+    "Withdraw Request",
   );
   useTxNotifier(
     approveTxHash,
@@ -224,6 +230,31 @@ export function WalletPage() {
       contractWithdraw.reset();
     }
   }, [contractWithdraw.isConfirmed, contractWithdraw.txHash, refetchWalletUsdtBalance, refetchPredictionMarketBalance, refetchBnbBalance, contractWithdraw.reset]);
+
+  // After on-chain requestWithdraw confirms, call backend API to create pending withdrawal
+  useEffect(() => {
+    if (requestWithdraw.isConfirmed && requestWithdraw.txHash) {
+      const amt = parseFloat(withdrawAmountRef.current);
+      const addr = addressRef.current;
+      if (amt > 0 && addr) {
+        withdrawFunds(amt, addr, requestWithdraw.txHash)
+          .then((result) => {
+            if (result.success) {
+              setPlatformBalance(result.balance);
+              toast.success(t("wallet.withdrawSuccess"));
+            }
+          })
+          .catch((err) => {
+            console.error('[wallet] Withdraw request sync failed:', err?.message);
+            toast.error(err?.message || t("wallet.withdrawSyncFailed", { defaultValue: "Platform sync pending - please refresh the page." }));
+          });
+      }
+      refetchBnbBalance();
+      setWithdrawAmount("");
+      setShowWithdrawForm(false);
+      requestWithdraw.reset();
+    }
+  }, [requestWithdraw.isConfirmed, requestWithdraw.txHash, refetchBnbBalance, requestWithdraw.reset]);
 
   const walletAddress = address ?? "";
   const bnbBalance = balanceData?.value != null
@@ -322,7 +353,7 @@ export function WalletPage() {
     }
 
     if (amt > parseFloat(walletUsdtBalance)) {
-      toast.error(t('wallet.insufficientBnb'));
+      toast.error(t('wallet.insufficientUsdt', { defaultValue: 'Insufficient USDT balance in wallet' }));
       return;
     }
 
@@ -339,8 +370,9 @@ export function WalletPage() {
     contractDeposit.deposit(depositAmount);
   };
 
-  // Contract withdraw handler
-  const handleContractWithdraw = () => {
+  // On-chain withdraw request handler: calls requestWithdraw() on contract
+  const handleRequestWithdraw = () => {
+    if (!address) return;
     const amt = parseFloat(withdrawAmount);
     if (!amt || amt <= 0) {
       toast.error(t('wallet.invalidAmount'));
@@ -352,7 +384,7 @@ export function WalletPage() {
     }
     withdrawAmountRef.current = withdrawAmount;
     addressRef.current = address;
-    contractWithdraw.withdraw(withdrawAmount);
+    requestWithdraw.requestWithdraw(withdrawAmount);
   };
 
   const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
@@ -454,7 +486,7 @@ export function WalletPage() {
   };
 
   const isContractDepositBusy = contractDeposit.isWriting || contractDeposit.isConfirming || approveWriting || approveConfirming;
-  const isContractWithdrawBusy = contractWithdraw.isWriting || contractWithdraw.isConfirming;
+  const isRequestWithdrawBusy = requestWithdraw.isWriting || requestWithdraw.isConfirming;
 
   return (
     <div className="space-y-5">
@@ -663,34 +695,9 @@ export function WalletPage() {
                       </button>
                     </div>
 
-                    {/* Mode Toggle: Contract vs Manual */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setDepositMode("contract")}
-                        className={`py-2.5 text-sm font-bold tracking-wider uppercase transition-colors flex items-center justify-center gap-2 ${
-                          depositMode === "contract"
-                            ? "bg-blue-500/20 border border-blue-500/50 text-blue-400"
-                            : "bg-secondary border border-border text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <Zap className="w-4 h-4" />
-                        {t('wallet.onChain')}
-                      </button>
-                      <button
-                        onClick={() => setDepositMode("manual")}
-                        className={`py-2.5 text-sm font-bold tracking-wider uppercase transition-colors ${
-                          depositMode === "manual"
-                            ? "bg-muted/30 border border-border text-muted-foreground"
-                            : "bg-secondary border border-border text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {t('wallet.manualTxHash')}
-                      </button>
-                    </div>
-
                     <div>
                       <label className="block text-muted-foreground text-sm mb-2">
-                        {depositMode === "contract" ? t('trade.amountBnb') : t('wallet.depositAmount')}
+                        {t('wallet.depositAmount', { defaultValue: 'Amount (USDT)' })}
                       </label>
                       <input
                         type="number"
@@ -701,36 +708,13 @@ export function WalletPage() {
                         placeholder="0.00"
                         className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-lg p-3 outline-none transition-colors placeholder:text-muted-foreground"
                       />
-                      {depositMode === "contract" && (
-                        <div className="text-muted-foreground text-xs mt-1">
-                          {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB (gas) | USDT: {parseFloat(walletUsdtBalance).toFixed(4)}
-                        </div>
-                      )}
+                      <div className="text-muted-foreground text-xs mt-1">
+                        {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB (gas) | USDT: {parseFloat(walletUsdtBalance).toFixed(4)}
+                      </div>
                     </div>
 
-                    {/* Manual mode: show txHash input */}
-                    {depositMode === "manual" && (
-                      <div>
-                        <label className="block text-muted-foreground text-sm mb-2">{t('wallet.txHash')}</label>
-                        <input
-                          type="text"
-                          value={depositTxHash}
-                          onChange={(e) => setDepositTxHash(e.target.value)}
-                          placeholder={t('wallet.txHashPlaceholder')}
-                          className={`w-full bg-input-background border focus:outline-none text-foreground text-sm p-3 transition-colors font-mono placeholder:text-muted-foreground ${
-                            depositTxHash.trim() && !TX_HASH_REGEX.test(depositTxHash.trim())
-                              ? "border-red-500 focus:border-red-500"
-                              : "border-border focus:border-blue-500/60"
-                          }`}
-                        />
-                        {depositTxHash.trim() && !TX_HASH_REGEX.test(depositTxHash.trim()) && (
-                          <p className="text-red-400 text-xs mt-1">Invalid format. Must be 0x followed by 64 hex characters.</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Contract deposit: show tx status */}
-                    {depositMode === "contract" && approveTxHash && !contractDeposit.txHash && (
+                    {/* Approve tx status */}
+                    {approveTxHash && !contractDeposit.txHash && (
                       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
                         {approveConfirming ? (
                           <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
@@ -753,8 +737,8 @@ export function WalletPage() {
                       </div>
                     )}
 
-                    {/* Contract deposit: show tx status */}
-                    {depositMode === "contract" && contractDeposit.txHash && (
+                    {/* Deposit tx status */}
+                    {contractDeposit.txHash && (
                       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
                         {contractDeposit.isConfirming ? (
                           <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
@@ -778,7 +762,7 @@ export function WalletPage() {
                     )}
 
                     {/* Error display */}
-                    {depositMode === "contract" && (approveError || contractDeposit.error) && (
+                    {(approveError || contractDeposit.error) && (
                       <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
                         {((approveError || contractDeposit.error) as Error).message?.includes("User rejected")
                           ? t('trade.txCancelledByUser')
@@ -787,11 +771,11 @@ export function WalletPage() {
                     )}
 
                     <button
-                      onClick={depositMode === "contract" ? handleContractDeposit : handleDeposit}
-                      disabled={depositMode === "contract" ? isContractDepositBusy : depositProcessing}
+                      onClick={handleContractDeposit}
+                      disabled={isContractDepositBusy}
                       className="w-full bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-black font-bold py-3 text-base tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2"
                     >
-                      {(depositMode === "contract" ? isContractDepositBusy : depositProcessing) ? (
+                      {isContractDepositBusy ? (
                         <>
                           <Loader2 className="w-5 h-5 animate-spin" />
                           {approveConfirming
@@ -800,13 +784,11 @@ export function WalletPage() {
                               ? t('trade.confirmingOnChain')
                               : t('wallet.processing')}
                         </>
-                      ) : depositMode === "contract" ? (
+                      ) : (
                         <>
                           <Zap className="w-5 h-5" />
                           {t('wallet.depositToContract')}
                         </>
-                      ) : (
-                        t('wallet.deposit')
                       )}
                     </button>
                   </div>
@@ -831,11 +813,9 @@ export function WalletPage() {
                       </button>
                     </div>
 
-                    {/* Withdraw always uses backend API (contract withdraw is onlyOwner) */}
-
                     <div>
                       <label className="block text-muted-foreground text-sm mb-2">
-                        {withdrawMode === "contract" ? t('trade.amountBnb') : t('wallet.withdrawAmount')}
+                        {t('wallet.withdrawAmount', { defaultValue: 'Amount (USDT)' })}
                       </label>
                       <div className="relative">
                         <input
@@ -855,70 +835,54 @@ export function WalletPage() {
                       </div>
                     </div>
 
-                    {/* Manual mode: show destination address */}
-                    {withdrawMode === "manual" && (
-                      <div>
-                        <label className="block text-muted-foreground text-sm mb-2">{t('wallet.destinationAddress')}</label>
-                        <input
-                          type="text"
-                          value={withdrawAddress}
-                          onChange={(e) => setWithdrawAddress(e.target.value)}
-                          placeholder={t('wallet.destinationPlaceholder')}
-                          className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-sm p-3 outline-none transition-colors font-mono placeholder:text-muted-foreground"
-                        />
-                      </div>
-                    )}
-
-                    {/* Contract withdraw: show tx status */}
-                    {withdrawMode === "contract" && contractWithdraw.txHash && (
+                    {/* Withdraw request tx status */}
+                    {requestWithdraw.txHash && (
                       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
-                        {contractWithdraw.isConfirming ? (
+                        {requestWithdraw.isConfirming ? (
                           <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                        ) : contractWithdraw.isConfirmed ? (
+                        ) : requestWithdraw.isConfirmed ? (
                           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                         ) : (
                           <Clock className="w-4 h-4 text-blue-400" />
                         )}
                         <a
-                          href={`${getBscScanUrl(chainId)}/tx/${contractWithdraw.txHash}`}
+                          href={`${getBscScanUrl(chainId)}/tx/${requestWithdraw.txHash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
                         >
-                          {contractWithdraw.txHash.slice(0, 16)}...{contractWithdraw.txHash.slice(-8)}
+                          {requestWithdraw.txHash.slice(0, 16)}...{requestWithdraw.txHash.slice(-8)}
                         </a>
                         <span className="text-muted-foreground text-xs ml-auto">
-                          {contractWithdraw.isConfirming ? t('trade.txConfirming') : contractWithdraw.isConfirmed ? t('trade.txConfirmed') : t('trade.txSubmitted')}
+                          {requestWithdraw.isConfirming ? t('trade.txConfirming') : requestWithdraw.isConfirmed ? t('trade.txConfirmed') : t('trade.txSubmitted')}
                         </span>
                       </div>
                     )}
 
                     {/* Error display */}
-                    {withdrawMode === "contract" && contractWithdraw.error && (
+                    {requestWithdraw.error && (
                       <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                        {(contractWithdraw.error as Error).message?.includes("User rejected")
+                        {(requestWithdraw.error as Error).message?.includes("User rejected")
                           ? t('trade.txCancelledByUser')
-                          : (contractWithdraw.error as Error).message?.slice(0, 150) || t('trade.txFailed')}
+                          : (requestWithdraw.error as Error).message?.slice(0, 150) || t('trade.txFailed')}
                       </div>
                     )}
 
                     <button
-                      onClick={withdrawMode === "contract" ? handleContractWithdraw : handleWithdraw}
-                      disabled={withdrawMode === "contract" ? isContractWithdrawBusy : withdrawProcessing}
+                      onClick={handleRequestWithdraw}
+                      disabled={isRequestWithdrawBusy}
                       className="w-full bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-black font-bold py-3 text-base tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2"
                     >
-                      {(withdrawMode === "contract" ? isContractWithdrawBusy : withdrawProcessing) ? (
+                      {isRequestWithdrawBusy ? (
                         <>
                           <Loader2 className="w-5 h-5 animate-spin" />
-                          {contractWithdraw.isConfirming ? t('trade.confirmingOnChain') : t('wallet.processing')}
-                        </>
-                      ) : withdrawMode === "contract" ? (
-                        <>
-                          <Zap className="w-5 h-5" />
-                          {t('wallet.withdrawFromContract')}
+                          {requestWithdraw.isConfirming ? t('trade.confirmingOnChain') : t('wallet.processing')}
                         </>
                       ) : (
-                        t('wallet.withdraw')
+                        <>
+                          <Zap className="w-5 h-5" />
+                          {t('wallet.withdrawFromContract', { defaultValue: 'Request Withdrawal' })}
+                        </>
                       )}
                     </button>
                   </div>

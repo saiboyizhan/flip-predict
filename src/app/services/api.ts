@@ -1285,10 +1285,10 @@ export async function depositFunds(amount: number, txHash: string) {
   })
 }
 
-export async function withdrawFunds(amount: number, toAddress: string) {
+export async function withdrawFunds(amount: number, toAddress: string, requestTxHash?: string) {
   return request<{ success: boolean; balance: { available: number; locked: number; total: number } }>('/api/wallet/withdraw', {
     method: 'POST',
-    body: JSON.stringify({ amount, toAddress }),
+    body: JSON.stringify({ amount, toAddress, ...(requestTxHash ? { txHash: requestTxHash } : {}) }),
   })
 }
 

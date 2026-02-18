@@ -109,6 +109,50 @@ export function useWithdraw() {
 }
 
 // ----------------------------------------------------------------
+// useRequestWithdraw  --  calls contract.requestWithdraw(amount)
+//   User-facing on-chain withdraw request; Keeper processes actual transfer.
+// ----------------------------------------------------------------
+
+export function useRequestWithdraw() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const requestWithdraw = useCallback(
+    (amountUSDT: string) => {
+      reset();
+      writeContract({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'requestWithdraw',
+        args: [parseUnits(amountUSDT, 18)],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    requestWithdraw,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
+}
+
+// ----------------------------------------------------------------
 // useTakePosition  --  calls contract.takePosition(marketId, isYes, amount)
 // ----------------------------------------------------------------
 

@@ -6,7 +6,7 @@
  */
 
 // BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_PM_ADDRESS = '0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da'
+const DEFAULT_PM_ADDRESS = '0x8b35d3813B446a67e38A38087A94FB941DEeB951'
 
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
@@ -21,7 +21,7 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
 // BSC USDT (BEP-20) — 18 decimals
 // -----------------------------------------------------------------
 // BSC Testnet MockUSDT address
-const DEFAULT_USDT_ADDRESS = '0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F'
+const DEFAULT_USDT_ADDRESS = '0xB1Bf6498523a3BcD5086c4812A31aB8054fadf8b'
 
 export const USDT_ADDRESS = (
   import.meta.env.VITE_USDT_ADDRESS ||
@@ -254,7 +254,25 @@ export const PREDICTION_MARKET_ABI = [
     outputs: [{ name: '', type: 'uint256' }],
   },
 
+  // --- Withdraw request (user-initiated on-chain request) ---
+  {
+    name: 'requestWithdraw',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+  },
+
   // --- Events ---
+  {
+    name: 'WithdrawRequested',
+    type: 'event',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'requestId', type: 'uint256', indexed: true },
+    ],
+  },
   {
     name: 'MarketCreated',
     type: 'event',
