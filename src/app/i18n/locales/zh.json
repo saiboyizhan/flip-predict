@@ -371,7 +371,7 @@
     "secure": "安全可靠",
     "instant": "即时预测",
     "connectButton": "连接钱包",
-    "supportedWallets": "支持 MetaMask、WalletConnect、Coinbase Wallet 等主流钱包",
+    "supportedWallets": "支持 Binance Wallet、MetaMask、WalletConnect 等主流钱包",
     "platformBalance": "平台余额",
     "bnbBalance": "USDT 余额",
     "bscMainnet": "BSC 主网",

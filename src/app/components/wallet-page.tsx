@@ -460,44 +460,44 @@ export function WalletPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-card/50 border-2 border-border p-8 sm:p-16 text-center"
+            className="bg-card/50 border-2 border-border p-6 sm:p-10 text-center"
           >
-            <div className="max-w-xl mx-auto space-y-6">
-              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-2 border-blue-500/30 flex items-center justify-center">
-                <Wallet className="w-12 h-12 text-blue-400" />
+            <div className="max-w-2xl mx-auto space-y-6">
+              <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-2 border-blue-500/30 flex items-center justify-center">
+                <Wallet className="w-10 h-10 text-blue-400" />
               </div>
 
               <div>
-                <h2 className="text-lg sm:text-xl font-bold text-foreground mb-3">{t('wallet.connectTitle')}</h2>
-                <p className="text-muted-foreground text-base sm:text-lg">
+                <h2 className="text-lg sm:text-xl font-bold text-foreground mb-2">{t('wallet.connectTitle')}</h2>
+                <p className="text-muted-foreground text-sm sm:text-base">
                   {t('wallet.connectDesc')}
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 pt-4">
-                <div className="p-4 bg-secondary border border-border">
-                  <AlertCircle className="w-6 h-6 text-blue-400 mb-2" />
-                  <div className="text-muted-foreground text-sm">{t('wallet.decentralized')}</div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 sm:p-4 bg-secondary border border-border">
+                  <AlertCircle className="w-5 h-5 text-blue-400 mb-1.5" />
+                  <div className="text-muted-foreground text-xs sm:text-sm">{t('wallet.decentralized')}</div>
                 </div>
-                <div className="p-4 bg-secondary border border-border">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-400 mb-2" />
-                  <div className="text-muted-foreground text-sm">{t('wallet.secure')}</div>
+                <div className="p-3 sm:p-4 bg-secondary border border-border">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 mb-1.5" />
+                  <div className="text-muted-foreground text-xs sm:text-sm">{t('wallet.secure')}</div>
                 </div>
-                <div className="p-4 bg-secondary border border-border">
-                  <Link2 className="w-6 h-6 text-blue-400 mb-2" />
-                  <div className="text-muted-foreground text-sm">{t('wallet.instant')}</div>
+                <div className="p-3 sm:p-4 bg-secondary border border-border">
+                  <Link2 className="w-5 h-5 text-blue-400 mb-1.5" />
+                  <div className="text-muted-foreground text-xs sm:text-sm">{t('wallet.instant')}</div>
                 </div>
               </div>
 
               <button
                 onClick={openConnectModal}
-                className="w-full bg-blue-500 hover:bg-blue-400 text-black font-bold py-6 text-xl tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-3 group mt-8"
+                className="w-full bg-blue-500 hover:bg-blue-400 text-black font-bold py-4 text-lg tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-3 group"
               >
-                <Link2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                <Link2 className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 {t('wallet.connectButton')}
               </button>
 
-              <div className="text-muted-foreground text-sm pt-4">
+              <div className="text-muted-foreground text-xs sm:text-sm">
                 {t('wallet.supportedWallets')}
               </div>
             </div>
