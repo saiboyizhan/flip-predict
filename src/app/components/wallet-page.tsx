@@ -68,7 +68,7 @@ export function WalletPage() {
   const [depositAmount, setDepositAmount] = useState("");
   const [depositTxHash, setDepositTxHash] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [withdrawAddress, setWithdrawAddress] = useState("");
+  const [withdrawAddress, setWithdrawAddress] = useState(address ?? "");
   const [depositProcessing, setDepositProcessing] = useState(false);
   const [withdrawProcessing, setWithdrawProcessing] = useState(false);
   const [depositMode, setDepositMode] = useState<"contract" | "manual">("contract");
@@ -124,6 +124,11 @@ export function WalletPage() {
   const withdrawAmountRef = useRef(withdrawAmount);
   const addressRef = useRef(address);
   const pendingDepositAfterApproveRef = useRef(false);
+
+  // Keep withdraw address in sync with connected wallet
+  useEffect(() => {
+    if (address) setWithdrawAddress(address);
+  }, [address]);
 
   // Tx lifecycle toast notifications
   useTxNotifier(
