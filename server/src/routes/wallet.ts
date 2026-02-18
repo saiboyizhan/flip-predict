@@ -499,6 +499,17 @@ export async function processWithdrawals(): Promise<{ processed: number; failed:
       await selectClient.query('COMMIT');
       return { processed: 0, failed: 0 };
     }
+    // Flag stale 'processing' entries that were abandoned (e.g. process crash after on-chain tx).
+    // Mark as 'stuck' for manual review -- do NOT auto-retry because the on-chain tx may have succeeded.
+    const staleThreshold = Date.now() - 10 * 60 * 1000;
+    const staleResult = await selectClient.query(
+      "UPDATE withdrawals SET status = 'stuck' WHERE status = 'processing' AND created_at < $1 RETURNING id",
+      [staleThreshold]
+    );
+    if (staleResult.rowCount && staleResult.rowCount > 0) {
+      console.warn(`[keeper] Marked ${staleResult.rowCount} stale processing withdrawal(s) as stuck — manual review needed`);
+    }
+
     pending = (await selectClient.query(
       "SELECT * FROM withdrawals WHERE status = 'pending' ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED"
     )).rows;
@@ -521,6 +532,13 @@ export async function processWithdrawals(): Promise<{ processed: number; failed:
 
   for (const w of pending) {
     try {
+      // Mark as 'processing' BEFORE sending on-chain tx to prevent double-send
+      // if the process crashes after the tx succeeds but before the DB update.
+      await db.query(
+        "UPDATE withdrawals SET status = 'processing' WHERE id = $1",
+        [w.id]
+      );
+
       const amountWei = ethers.parseUnits(String(w.amount), 18);
       const tx = await pm.adminWithdraw(w.to_address, amountWei);
       const receipt = await tx.wait();
