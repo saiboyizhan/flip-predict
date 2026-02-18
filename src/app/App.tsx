@@ -173,8 +173,10 @@ export default function App() {
           synced: typeof notification.id === 'string',
         }
       );
-      // Show a toast for real-time feedback
-      toast.info(ntMessage ? `${ntTitle}: ${ntMessage}` : ntTitle);
+      // Show a toast for real-time feedback (skip trade type — TradePanel already shows its own toast)
+      if (notification.type !== 'trade') {
+        toast.info(ntMessage ? `${ntTitle}: ${ntMessage}` : ntTitle);
+      }
     });
 
     return unsubscribe;
