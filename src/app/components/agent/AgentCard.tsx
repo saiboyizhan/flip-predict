@@ -52,8 +52,14 @@ export function AgentCard({ agent, onClick }: AgentCardProps) {
         {/* Header: Avatar + Name + Level */}
         <div className="flex items-center gap-3 mb-3">
           {agent.avatar && (agent.avatar.startsWith("data:") || agent.avatar.startsWith("http") || agent.avatar.startsWith("ipfs") || agent.avatar.startsWith("/")) ? (
-            <div className="w-10 h-10 shrink-0 overflow-hidden border border-border">
-              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+            <div className={`relative w-10 h-10 shrink-0 overflow-hidden border border-border bg-gradient-to-br ${from} ${to} flex items-center justify-center`}>
+              <span className="text-white font-bold text-lg absolute">{agent.name.charAt(0)}</span>
+              <img
+                src={agent.avatar}
+                alt={agent.name}
+                className="w-full h-full object-cover relative z-10"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
             </div>
           ) : agent.avatar && agent.avatar.length <= 4 ? (
             <div className={`w-10 h-10 bg-gradient-to-br ${from} ${to} flex items-center justify-center shrink-0`}>

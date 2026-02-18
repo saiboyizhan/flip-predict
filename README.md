@@ -1,120 +1,115 @@
-# Flip Predict -- Prediction Market for BSC Ecosystem
+# Flip Predict
 
-> **Hackathon Starter Kit Navigation**
->
-> | Document | Description |
-> |----------|-------------|
-> | [bsc.address](./bsc.address) | Deployed contract addresses + explorer links |
-> | [docs/PROJECT.md](./docs/PROJECT.md) | Problem, solution, business impact, limitations |
-> | [docs/TECHNICAL.md](./docs/TECHNICAL.md) | Architecture, setup guide, demo walkthrough |
-> | [docs/EXTRAS.md](./docs/EXTRAS.md) | Demo video + slide deck |
->
-> **Live**: https://flippredict.net | **API**: https://flip-backend-production.up.railway.app | **Chain**: BSC Testnet
+**Prediction Market for the BSC Ecosystem -- Trade on Meme Tokens, AI Agents, and Hackathon Outcomes**
 
-An application-level prediction market on BSC with NFA (Non-Fungible Agent) integration, hybrid order execution (AMM + CLOB + LMSR), and on-chain settlement. Built for the meme token economy.
+| | |
+|---|---|
+| **Live App** | https://flippredict.net |
+| **Backend API** | https://flip-backend-production.up.railway.app |
+| **Chain** | BNB Smart Chain Testnet (Chain ID: 97) |
+| **Docs** | [PROJECT.md](./docs/PROJECT.md) -- [TECHNICAL.md](./docs/TECHNICAL.md) -- [EXTRAS.md](./docs/EXTRAS.md) |
+| **Contracts** | [bsc.address](./bsc.address) |
 
-Built for the BSC ecosystem: Four.meme token launches, Flap.sh bonding curve graduations, NFA agent performance, and BNB Chain hackathon outcomes.
+---
+
+## Problem
+
+BSC has massive predictable activity -- Four.meme token launches, Flap.sh bonding curve graduations, AI agent performance, hackathon results -- but no structured way to trade on these outcomes. Polymarket and Azuro ignore the BSC ecosystem entirely.
+
+## Solution
+
+Flip Predict is a full-stack prediction market built specifically for BSC. Users create and trade binary markets (YES/NO) with instant execution, zero gas fees, and AI-powered trading agents.
+
+**Core features:**
+
+- **Instant Trading** -- Constant product AMM (`x * y = k`) for zero-gas binary market execution, plus limit order book for price discovery and LMSR for multi-option markets
+- **NFA (Non-Fungible Agent)** -- ERC-721 AI agents (BAP-578 standard) that autonomously trade on prediction markets. 5 strategy types, auto-trading, copy-trading, and 10% revenue sharing for agent owners
+- **Owner Learning** -- Agents learn from their owner's trading history and replicate their style. The trained "trading personality" becomes the asset -- agents can be sold or rented on the NFA marketplace
+- **Polymarket-style Hybrid Architecture** -- Off-chain AMM for instant execution + on-chain settlement (deposit, withdraw, resolve, claim) on BSC. Same model used by Polymarket and Gnosis CTF
+- **4 BSC Categories** -- Four.meme token predictions, Flap bonding curve events, NFA agent performance, BNB Chain hackathon outcomes
+- **Bilingual** -- Full English/Chinese localization
+
+---
+
+## NFA Owner Learning -- The Core Differentiator
+
+The most unique feature: **your agent becomes you**.
+
+When `learn_from_owner` is enabled, the agent reads the owner's complete trading history and builds a real-time Owner Profile:
+
+| Metric | What It Captures | Agent Influence |
+|--------|-----------------|-----------------|
+| YES/NO Ratio | Directional bias (e.g. 70% YES) | Up to 40% side flip probability |
+| Category Weights | Preferred categories | Prioritizes owner's favorite markets |
+| Average Amount | Typical position size | 0.5x - 2.0x sizing multiplier |
+| Risk Score | Bet variance and concentration | Risk adjustment |
+| Contrarian Score | Frequency of betting against consensus | Contrarian strategy weight |
+| Win Rate | Settled position accuracy | Public reputation metric |
+
+**Flywheel:**
+1. Owner trades actively on the platform
+2. Agent learns the owner's pattern and mimics their style
+3. Agent builds a public track record (win rate, ROI, profit)
+4. Other users discover high-performing agents and start copy-trading
+5. Owner earns 10% revenue share on profitable copy trades
+6. Trained agents can be sold or rented on the NFA marketplace
+
+Optional: Owners can connect their own LLM API key (OpenAI, Anthropic, DeepSeek, Google, ZhiPu) to upgrade the agent's decision-making. The Owner Profile is injected into the LLM prompt so it reasons with awareness of the owner's style.
+
+---
 
 ## Architecture
 
 ```
-+------------------------------------------------------------------+
-|                        Frontend Layer                             |
-|  React 18 + Vite + TypeScript + Tailwind CSS 4 + shadcn/ui       |
-|  wagmi v2 + RainbowKit + Zustand + react-i18next (en/zh)         |
-|                                                                    |
-|  Pages: Home, MarketDetail, AgentDashboard, AgentDetail,           |
-|         Portfolio, Leaderboard, CreateMarket, MintAgent,           |
-|         Dashboard, Feed, Profile, Rewards, Wallet, Notifications   |
-|                                                                    |
-|  Components: MarketCard, TradePanel, OrderBook, LimitOrderForm,    |
-|              AgentCard, CopyTradePanel, PriceChart, TimeFilter     |
-+------------------------------|-------------------------------------+
-                               | REST + WebSocket
-+------------------------------|-------------------------------------+
-|                        Backend Layer                               |
-|  Express 5 + TypeScript + PostgreSQL + WebSocket                   |
-|                                                                    |
-|  Routes: markets, trading, orderbook, settlement, agents,          |
-|          copy-trading, portfolio, leaderboard, auth, fees,         |
-|          market-creation, achievements, rewards, social,           |
-|          comments, favorites, notifications, wallet, profile       |
-|                                                                    |
-|  Engine: AMM (constant product) + LMSR (multi-option) +           |
-|          OrderBook (limit orders) + Oracle (Binance/DexScreener)   |
-|          Agent Strategy (5 types) + Auto-Trader + Copy-Trade +     |
-|          Revenue Share + Agent Learning + Agent Cards (A2A)        |
-+------------------------------|-------------------------------------+
-                               | ethers.js v6 / RPC
-+------------------------------|-------------------------------------+
-|                       Contract Layer                               |
-|  Solidity 0.8.20 + OpenZeppelin v5 + Hardhat                      |
-|                                                                    |
-|  PredictionMarket.sol  -- Markets, positions, deposits, claims     |
-|  NFA.sol               -- ERC-721 agents (BAP-578 standard)       |
-|  BAP578Base.sol        -- Agent lifecycle, metadata, funding       |
-|  MockOracle.sol        -- Binance Oracle adapter for testing       |
-+------------------------------------------------------------------+
-                               |
-                          BNB Smart Chain
+Frontend (React 18 + Vite)              Backend (Express 5 + PostgreSQL)         Contracts (Solidity 0.8.20)
++--------------------------+            +-------------------------------+         +-------------------------+
+|  15 pages, 30+ components|   REST    |  20 route modules             |  ethers |  PredictionMarket.sol   |
+|  wagmi v2 + RainbowKit   |<-------->|  AMM + LMSR + OrderBook       |<------->|  NFA.sol (BAP-578)      |
+|  Zustand + i18n (en/zh)  |   + WS   |  Agent auto-trade + copy      |         |  BAP578Base.sol         |
+|  Tailwind CSS + shadcn   |           |  Keeper (background jobs)     |         |  MockOracle.sol         |
++--------------------------+            +-------------------------------+         +-------------------------+
+                                                                                           |
+                                                                                    BNB Smart Chain
 ```
 
-## Key Features
+**Hybrid model (same as Polymarket):**
 
-**NFA (Non-Fungible Agent)** -- ERC-721 agents built on the BAP-578 standard. Each NFA has a prediction profile tracking accuracy and reputation, 5 strategy types (conservative, aggressive, contrarian, momentum, random), auto-trade authorization with daily caps, copy-trading for followers, and revenue sharing on profitable copy trades. Agents learn from outcomes and evolve their weights over time.
+| On-chain (verifiable on BscScan) | Off-chain (instant, zero gas) |
+|----------------------------------|-------------------------------|
+| Deposit / Withdraw USDT | Buy / Sell YES/NO shares (AMM) |
+| Mint NFA Agent (ERC-721) | Limit orders (OrderBook) |
+| Resolve market | Multi-option markets (LMSR) |
+| Claim winnings | Agent auto-trading + copy-trading |
+| Split / Merge positions | Price history, comments, social |
 
-**Hybrid Trading Engine** -- Three execution paths working together:
-- On-chain: `PredictionMarket.sol` handles deposits, position taking (`takePosition`), resolution, and claims (`claimWinnings`)
-- AMM: Constant product market maker (`x * y = k`) for instant binary market execution with complementary pricing (yes + no = 1)
-- CLOB: Limit order book with bid/ask matching for price discovery at specific levels
-- LMSR: Logarithmic Market Scoring Rule (`b * ln(sum(exp(q_i / b)))`) for multi-option markets with guaranteed liquidity
+---
 
-**Settlement Pipeline** -- Multi-step resolution flow: preview (oracle price snapshot) -> propose (with evidence hash) -> optional challenge window -> finalize. Supports manual resolution, price oracle resolution (`price_above` / `price_below` with target), and backend evidence verification with proof digest.
+## Deployed Contracts (BSC Testnet)
 
-**BSC Ecosystem Focus** -- Four purpose-built market categories:
+| Contract | Address |
+|----------|---------|
+| PredictionMarket | [`0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da`](https://testnet.bscscan.com/address/0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da) |
+| NFA (ERC-721) | [`0x1a303032E49b7A0C395C938d73ff09cecE295081`](https://testnet.bscscan.com/address/0x1a303032E49b7A0C395C938d73ff09cecE295081) |
+| MockUSDT | [`0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F`](https://testnet.bscscan.com/address/0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F) |
 
-| Category | Focus |
-|----------|-------|
-| Four.meme | Meme token price predictions on Four.meme launch platform |
-| Flap | Bonding curve progression and token graduation events on Flap.sh |
-| NFA | AI agent ecosystem performance and on-chain metrics |
-| Hackathon | BNB Chain hackathon and community event outcomes |
-
-**A2A Protocol Compatible** -- Each NFA agent publishes a standard A2A Agent Card declaring capabilities, skills, and input/output modes, following the A2A protocol specification.
-
-**Bilingual Interface** -- Full English and Chinese localization via react-i18next. Language auto-detected from browser with manual toggle.
-
-**Polymarket-style UI** -- Time-based sidebar filters (ending today / this week / this month), category navigation, real-time price charts with 30-second refresh, threaded comments, and market countdown timers.
-
-## How It Differs from Polymarket
-
-| Dimension | Polymarket | Flip Predict |
-|-----------|-----------|---------|
-| **Trading** | Hybrid decentralized CLOB: off-chain matching engine, on-chain settlement, EIP-712 signed orders | On-chain `takePosition`/`claimWinnings` + backend AMM (constant product) + CLOB (limit orders) + LMSR (multi-option) |
-| **Position Assets** | YES/NO are CTF ERC-1155 outcome tokens -- freely transferable, composable, split/merge/redeem | Positions stored in contract mappings (`mapping(uint256 => mapping(address => Position))`), not freely transferable tokens |
-| **Settlement** | UMA Optimistic Oracle: propose answer -> challenge window -> dispute escalation -> DVM vote | Manual + price oracle with backend evidence hash, propose/challenge/finalize flow, on-chain `resolveMarket` |
-| **Pricing** | Orderbook bid/ask midpoint determines probability | AMM complementary pricing (`yesPrice + noPrice = 1`) + LMSR cost function for multi-option |
-| **AI Integration** | None -- pure infrastructure | Core differentiator: NFA agents with strategy types, auto-trading, copy-trading, revenue sharing, and learning |
-| **Scope** | General-purpose prediction infrastructure (any topic) | BSC ecosystem vertical: Four.meme, Flap, NFA agents, BNB hackathons |
-| **Architecture** | Standardized market infrastructure (CLOB + CTF + UMA) | Application-level closed loop (PredictionMarket contract + NFA integration + hybrid trading paths) |
+---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 18 + TypeScript + Vite + Tailwind CSS 4 |
-| UI Components | Radix UI + shadcn/ui + Recharts + motion/react |
+| Frontend | React 18 + TypeScript + Vite + Tailwind CSS 4 + shadcn/ui |
 | Web3 | wagmi v2 + viem + RainbowKit |
-| State Management | Zustand |
-| Internationalization | react-i18next (English + Chinese) |
-| Backend | Express 5 + TypeScript + PostgreSQL |
-| Real-time | WebSocket (ws) + Server-Sent Events |
-| AI Engine | OpenAI SDK with ZhiPu GLM |
-| Oracle | Binance Oracle feeds (Chainlink-compatible) + DexScreener API |
-| Market Engine | AMM (constant product) + LMSR + Order Book matching |
-| Smart Contracts | Solidity 0.8.20 + OpenZeppelin v5 + Hardhat |
-| E2E Testing | Vitest + ethers.js deterministic wallets + PostgreSQL test DB |
-| Chain | BNB Smart Chain (BSC mainnet + testnet) |
+| State | Zustand + react-i18next (en/zh) |
+| Backend | Express 5 + TypeScript + PostgreSQL + WebSocket |
+| Trading Engine | AMM (constant product) + LMSR + Order Book |
+| NFA Agents | 5 strategies + Owner Learning + LLM adapter + auto-trade + copy-trade |
+| Contracts | Solidity 0.8.20 + OpenZeppelin v5 + Hardhat |
+| Testing | Vitest E2E (134 cases, 17 suites, 20 runs 0 failures) |
+| Deployment | Cloudflare Pages (frontend) + Railway (backend + PostgreSQL) |
+| Chain | BNB Smart Chain Testnet |
+
+---
 
 ## Quick Start
 
@@ -122,202 +117,119 @@ Built for the BSC ecosystem: Four.meme token launches, Flap.sh bonding curve gra
 
 - Node.js >= 18
 - PostgreSQL running locally
-- MetaMask or compatible wallet with BSC network configured
+- MetaMask with BSC Testnet configured
 
-### 1. Smart Contracts
-
-```bash
-cd contracts
-npm install
-
-# Run tests
-npx hardhat test
-
-# Deploy to BSC testnet
-cp .env.example .env   # Add DEPLOYER_KEY and BSCSCAN_API_KEY
-npm run deploy:bscTestnet
-```
-
-### 2. Backend
+### Backend
 
 ```bash
 cd server
 npm install
-
-# Configure environment
-cp .env.example .env   # Add DATABASE_URL, ZHIPU_API_KEY, BSC_NETWORK/BSC_RPC_URL, NFA_CONTRACT_ADDRESS, PREDICTION_MARKET_ADDRESS, USDT_ADDRESS
-
-# Initialize database
-npm run seed
-
-# Start development server (http://localhost:3001)
-npm run dev
-
-# Run E2E tests (requires local PostgreSQL)
-npm run test:e2e
+cp .env.example .env
+# Edit .env: set JWT_SECRET, PG_* database credentials
+npm run seed              # Create tables + seed 24 markets
+npm run dev               # http://localhost:3001
 ```
 
-E2E 测试会自动创建 `prediction_test` 数据库、启动测试服务器 (port 3099)、执行 134 个用例、测试完成后销毁数据库。覆盖认证、交易、持仓、Agent、社交、评论、通知、跟单、限价单、结算、排行榜、管理员操作和完整用户旅程。
-
-### 3. Frontend
+### Frontend
 
 ```bash
-# From project root
 npm install
-
-# Start development server (http://localhost:5173)
-npm run dev
+cp .env.example .env
+# Edit .env: set VITE_API_URL=http://localhost:3001
+npm run dev               # http://localhost:5173
 ```
 
-### 4. Production Build
+### Contracts (optional -- already deployed)
 
 ```bash
-npm run build          # Frontend production build -> dist/
+cd contracts
+npm install
+npx hardhat test          # Run contract tests
 ```
 
-## Project Structure
+### E2E Tests
 
-```
-flip-predict/
-|-- src/                              # Frontend (React + Vite)
-|   |-- app/
-|   |   |-- pages/                    # 15 page components
-|   |   |   |-- HomePage.tsx          # Market grid with category/time filters
-|   |   |   |-- MarketDetailPage.tsx  # Price chart, order book, trade panel
-|   |   |   |-- AgentDashboardPage.tsx # NFA marketplace and leaderboard
-|   |   |   |-- AgentDetailPage.tsx   # Individual agent stats and history
-|   |   |   |-- PortfolioPage.tsx     # Active positions and trade history
-|   |   |   |-- CreateMarketPage.tsx  # Market creation with oracle config
-|   |   |   |-- MintAgentPage.tsx     # NFA minting interface
-|   |   |   |-- LeaderboardPage.tsx   # Top traders by PnL
-|   |   |   +-- ...                   # Dashboard, Feed, Profile, Rewards, Wallet
-|   |   |-- components/
-|   |   |   |-- market/               # MarketCard, MarketDetail, PriceChart, CommentSection
-|   |   |   |-- agent/                # AgentCard, AgentDashboard, CopyTradePanel, MintAgent
-|   |   |   |-- trading/              # TradePanel, OrderBook, LimitOrderForm, OpenOrders
-|   |   |   |-- explore/              # CategoryNav, MarketGrid, TimeFilter
-|   |   |   |-- portfolio/            # PositionList, PositionCard
-|   |   |   |-- layout/              # AppHeader, NotificationBell
-|   |   |   +-- ui/                   # shadcn/ui primitives
-|   |   |-- stores/                   # Zustand stores
-|   |   |   |-- useMarketStore.ts     # Markets, filters, categories
-|   |   |   |-- useAgentStore.ts      # NFA agents, strategies
-|   |   |   |-- useTradeStore.ts      # Orders, positions
-|   |   |   |-- usePortfolioStore.ts  # Portfolio tracking
-|   |   |   +-- useAuthStore.ts       # Wallet authentication
-|   |   |-- engine/                   # Frontend pricing logic
-|   |   |   |-- amm.ts               # Constant product calculations
-|   |   |   +-- lmsr.ts              # LMSR pricing
-|   |   |-- services/
-|   |   |   |-- api.ts               # API client (100+ methods)
-|   |   |   +-- ws.ts                # WebSocket client
-|   |   |-- i18n/                     # en.json + zh.json
-|   |   +-- config/                   # wagmi + RainbowKit setup
-|   +-- main.tsx
-|-- server/                           # Backend (Express + PostgreSQL)
-|   +-- src/
-|       |-- index.ts                  # Server entry point
-|       |-- config.ts                 # Environment configuration
-|       |-- routes/                   # 20 route modules
-|       |   |-- markets.ts           # CRUD + filters + resolution
-|       |   |-- trading.ts           # Buy/sell execution
-|       |   |-- orderbook.ts         # Limit orders + matching
-|       |   |-- settlement.ts        # Propose/challenge/finalize
-|       |   |-- agents.ts            # NFA CRUD + strategies
-|       |   |-- copy-trading.ts      # Follow/unfollow + copy execution
-|       |   +-- ...                   # auth, portfolio, leaderboard, fees, etc.
-|       |-- engine/                   # Core business logic
-|       |   |-- amm.ts               # Constant product AMM (x * y = k)
-|       |   |-- lmsr.ts              # LMSR market maker (multi-option)
-|       |   |-- orderbook.ts         # Order book matching engine
-|       |   |-- oracle.ts            # Binance Oracle + DexScreener feeds
-|       |   |-- agent-strategy.ts    # 5 strategy types (conservative..random)
-|       |   |-- agent-autotrader.ts  # Automated trade execution
-|       |   |-- agent-prediction.ts  # Prediction profile tracking
-|       |   |-- agent-learning.ts    # Weight evolution from outcomes
-|       |   |-- agent-advisor.ts     # Advisory recommendations
-|       |   |-- agent-runner.ts      # Agent execution loop
-|       |   |-- agent-cards.ts       # A2A protocol agent cards
-|       |   |-- copy-trade.ts        # Copy trade execution + capping
-|       |   |-- revenue-share.ts     # Profit sharing with agent owners
-|       |   |-- matching.ts          # Binary market matching
-|       |   |-- matching-multi.ts    # Multi-option matching
-|       |   |-- dexscreener.ts       # Real-time BSC token prices
-|       |   +-- keeper.ts            # Background task runner
-|       |-- db/
-|       |   |-- index.ts             # PostgreSQL connection pool
-|       |   |-- schema.sql           # Full database schema
-|       |   +-- seed.ts              # Seed data for all 4 categories
-|       +-- ws/                       # WebSocket handlers
-|   +-- tests/
-|       +-- e2e/                      # E2E test suite (Vitest)
-|           |-- vitest.config.ts      # Sequential execution config
-|           |-- setup/                # Global setup/teardown + test helpers
-|           +-- suites/               # 17 test files (134 cases)
-|-- contracts/                        # Smart Contracts (Hardhat)
-|   |-- contracts/
-|   |   |-- PredictionMarket.sol     # Binary markets, positions, claims
-|   |   |-- NFA.sol                  # Non-Fungible Agent (BAP-578)
-|   |   |-- BAP578Base.sol           # Agent standard base contract
-|   |   |-- MockOracle.sol           # Oracle adapter for testing
-|   |   |-- MockUSDT.sol             # Test token
-|   |   +-- interfaces/              # IBAP578, IBinanceOracle, ILearningModule, etc.
-|   |-- test/
-|   |   |-- PredictionMarket.test.ts
-|   |   +-- NFA.test.ts
-|   |-- scripts/deploy.ts
-|   +-- hardhat.config.ts
-|-- public/                           # Static assets
-|-- index.html                        # Vite entry point
-|-- vite.config.ts
-+-- package.json
+```bash
+cd server
+npm run test:e2e          # 134 tests, auto-creates test DB
 ```
 
-## API Endpoints
+---
 
-```
-Markets
-  GET    /api/markets                          List markets with category/status filters
-  GET    /api/markets/:id                      Market detail with prices and volume
-  POST   /api/markets/create                   Create market (resolution rule + oracle config)
+## Demo Walkthrough
 
-Trading
-  POST   /api/orders                           Place buy order (AMM execution)
-  POST   /api/orders/sell                      Place sell order
-  GET    /api/orderbook/:marketId              Order book snapshot (bids/asks/spread)
-  POST   /api/orderbook/limit                  Place limit order
+### 1. Connect Wallet and Get Test USDT
 
-Settlement
-  GET    /api/settlement/:marketId/preview     Pre-resolution snapshot (oracle price + expected outcome)
-  GET    /api/settlement/:marketId/proof       Settlement proof (payout totals, digest)
-  POST   /api/settlement/:marketId/propose     Propose resolution with evidence
-  POST   /api/settlement/:marketId/challenge   Challenge a proposal
-  POST   /api/settlement/:marketId/finalize    Finalize from accepted proposal
+- Open https://flippredict.net
+- Click **Connect Wallet**, select MetaMask, switch to BSC Testnet (Chain ID 97)
+- Click **Sign In** to authenticate via wallet signature
+- Navigate to **Wallet** page, click **Faucet** to claim 1,000 test USDT
 
-Agents
-  GET    /api/agents                           List NFA agents
-  GET    /api/agents/:id                       Agent detail + prediction profile
-  POST   /api/copy-trading/follow              Follow an agent for copy trading
-  POST   /api/copy-trading/unfollow            Stop following
+### 2. Browse and Trade on Markets
 
-Portfolio
-  GET    /api/portfolio/:address               User positions and history
-  GET    /api/leaderboard                      Trader rankings by PnL
+- Home page shows 24 active markets across 4 categories: Four.meme / Flap / NFA / Hackathon
+- Use sidebar time filters (Today / This Week / This Month) to narrow results
+- Click any market to open the detail page with real-time price chart
+- Enter an amount (e.g. 50 USDT), choose **YES** or **NO**, confirm trade
+- Price updates instantly via AMM -- no gas fee, no on-chain transaction
+- Switch to **Sell** tab to exit a position and see funds return to balance
+- Try the **Order Book** tab to place a limit order at a specific price
 
-Auth
-  POST   /api/auth/nonce                       Request signing nonce
-  POST   /api/auth/verify                      Verify wallet signature
-```
+### 3. Check Portfolio
+
+- Navigate to **Portfolio** page
+- View active positions with current value and unrealized PnL
+- Review complete trade history with timestamps and prices
+
+### 4. Mint and Train an NFA Agent
+
+- Navigate to **Mint Agent** page
+- Choose a strategy type (Conservative / Aggressive / Contrarian / Momentum / Random)
+- Mint the agent -- this creates an ERC-721 NFA on BSC
+- On the agent detail page, enable **Learn from Owner** so the agent starts learning your trading style
+- Use **Fund Agent** to transfer USDT from your platform balance to the agent
+- Enable **Auto Trade** -- the agent will now autonomously trade based on its strategy + your learned profile
+
+### 5. Copy Trading
+
+- Navigate to **Agent Dashboard** to browse all NFA agents
+- Sort by win rate, total profit, or ROI to find top performers
+- Click an agent and press **Follow** to start copy-trading
+- When the agent executes a trade, the same trade is automatically copied to your portfolio
+- Agent owner earns 10% revenue share on your profitable copy trades
+
+### 6. Agent Marketplace
+
+- Agents with strong track records can be listed for **sale** or **rent**
+- Buyers acquire the trained agent including its learned trading personality
+- Renters get temporary access to the agent's auto-trading capabilities
+- Sellers should withdraw agent balance before listing (Fund/Withdraw panel)
+
+---
+
+## AI Build Log
+
+Built end-to-end with **Claude Code** (Anthropic CLI) using Claude Sonnet 4 / Opus 4.
+
+| Phase | What | Result |
+|-------|------|--------|
+| Architecture + Implementation | Full-stack design and code generation | ~22,000 lines across contracts, backend, frontend |
+| Security Audit | 9 parallel agents scanning all modules | 4 rounds, 41 issues found and fixed |
+| E2E Testing | 3 parallel agents writing test suites | 134 tests, 17 suites, 20 runs 0 failures |
+| Production Debugging | SSL certs, memory, wallet connection | Deployed and running on Railway + Cloudflare |
+
+AI coverage: ~95% code generation, 100% security audit, 100% E2E test suite. Human role: product direction, UX decisions, deployment configuration.
+
+See [PROJECT.md](./docs/PROJECT.md#ai-build-log) for the full build log with screenshots of parallel agent workflows.
+
+---
 
 ## Roadmap
 
-**Phase 1: CTF Tokenization** -- Convert contract-level positions into ERC-1155 outcome tokens. This enables free transfer, secondary market trading, and composability with other DeFi protocols. Positions become liquid assets rather than locked contract state.
-
-**Phase 2: Disputable Arbitration** -- The backend already implements a full propose/challenge/finalize arbitration pipeline: proposers submit outcomes with evidence, any user can challenge during a configurable time window (auto-extended on each challenge), and admin finalizes after the window closes. The next step is exposing the challenge UI to regular users and adding bond-based incentives for honest participation, moving toward fully trustless UMA-style optimistic resolution.
-
-**Phase 3: Real Settlement APIs** -- Integrate DexScreener price feeds for automatic resolution of price-target markets. Add BSCScan API monitoring for on-chain event tracking: Four.meme token launches, Flap bonding curve graduations, and contract deployment events. Eliminates manual settlement for data-verifiable markets.
-
-**Phase 4: Agent Autonomy** -- NFA agents autonomously create markets from sentiment analysis and on-chain signal detection. Introduce agent reputation staking where agents lock tokens proportional to their confidence. High-performing agents earn delegation from users, creating a self-reinforcing prediction ecosystem.
+- **CTF Tokenization** -- Convert positions into ERC-1155 outcome tokens for secondary market trading
+- **Disputable Arbitration** -- UMA-style optimistic resolution with bond-based incentives
+- **Auto Settlement** -- DexScreener price feeds + BSCScan event monitoring for data-verifiable markets
+- **Agent Autonomy** -- NFA agents create markets from on-chain signal detection, reputation staking
 
 ## License
 

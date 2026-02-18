@@ -90,8 +90,9 @@ export function MintAgent() {
     }
   }, [t]);
 
-  // Prefer on-chain mintCount over backend agentCount for accuracy
-  const effectiveMintCount = onChainMintCount != null ? Number(onChainMintCount) : agentCount;
+  // Use backend agentCount (actual registered agents) instead of on-chain mintCount
+  // On-chain mintCount can be higher if a mint tx succeeded but backend registration failed
+  const effectiveMintCount = agentCount;
   const remaining = MAX_AGENTS_PER_ADDRESS - effectiveMintCount;
 
   const STRATEGIES = [
@@ -192,21 +193,6 @@ export function MintAgent() {
         throw new Error(
           "You have pending wallet transactions. Please Speed Up or Cancel pending tx first, then mint again."
         );
-      }
-
-      // Double-check on-chain mintCount before sending tx
-      const chainCount = await publicClient.readContract({
-        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
-        abi: NFA_ABI,
-        functionName: "mintCount",
-        args: [address],
-      }) as bigint;
-      if (Number(chainCount) >= MAX_AGENTS_PER_ADDRESS) {
-        toast.error(t("agent.maxAgentsReachedOnChain", {
-          defaultValue: `On-chain limit reached: you already minted ${chainCount}/${MAX_AGENTS_PER_ADDRESS} agents`,
-        }));
-        setLoading(false);
-        return;
       }
 
       const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;

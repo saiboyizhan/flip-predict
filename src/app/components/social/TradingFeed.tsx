@@ -102,7 +102,7 @@ export function TradingFeed() {
     return (
       <div className="text-center py-20">
         <Rss className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-        <p className="text-muted-foreground">No activity yet. Follow traders to see their trades here, or explore markets to find traders.</p>
+        <p className="text-muted-foreground">{t("social.feedEmpty")}</p>
       </div>
     );
   }
