@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { mintAgent } from "@/app/services/api";
 import { useAgentStore } from "@/app/stores/useAgentStore";
+import { useAuthStore } from "@/app/stores/useAuthStore";
 import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
 import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
 import type { Agent } from "@/app/services/api";
@@ -47,6 +48,7 @@ export function MintAgent() {
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
   const { agentCount, addAgent } = useAgentStore();
+  const { isAuthenticated } = useAuthStore();
 
   const BSC_TESTNET_CHAIN_ID = 97;
   const isWrongChain = isConnected && chainId !== BSC_TESTNET_CHAIN_ID;
@@ -153,6 +155,10 @@ export function MintAgent() {
       toast.error(t("auth.pleaseConnectWallet", "Please connect wallet first"));
       return;
     }
+    if (!isAuthenticated) {
+      toast.error(t("auth.pleaseLogin", { defaultValue: "Please login first (sign message to authenticate)" }));
+      return;
+    }
     if (chainId !== BSC_TESTNET_CHAIN_ID) {
       try {
         await switchChainAsync({ chainId: BSC_TESTNET_CHAIN_ID });
@@ -254,7 +260,22 @@ export function MintAgent() {
         payload.tokenId = tokenId.toString();
       }
 
-      const agent = await mintAgent(payload);
+      let agent: Agent;
+      try {
+        agent = await mintAgent(payload);
+      } catch (backendErr: any) {
+        // On-chain mint succeeded but backend registration failed
+        const scanUrl = getBscScanUrl(chainId);
+        toast.error(
+          t("agent.backendRegisterFailed", {
+            defaultValue: "On-chain mint succeeded but backend registration failed. Please go to Agents page and use auto-sync to recover.",
+          }),
+          { duration: 10000 }
+        );
+        window.open(`${scanUrl}/tx/${txHash}`, "_blank");
+        navigate("/agents");
+        return;
+      }
       addAgent(agent);
       toast.success(tokenId != null ? `${t("agent.mintSuccess")} #${tokenId.toString()}` : t("agent.mintSuccess"));
       const scanUrl = getBscScanUrl(chainId);
@@ -533,10 +554,17 @@ export function MintAgent() {
               </div>
             )}
 
+            {/* Not Authenticated Warning */}
+            {isConnected && !isAuthenticated && (
+              <div className="border border-yellow-500/30 bg-yellow-500/5 p-3 text-yellow-400 text-xs">
+                {t("agent.notAuthenticated", { defaultValue: "Please login first: go to Wallet page and sign the authentication message." })}
+              </div>
+            )}
+
             {/* Mint Button */}
             <button
               onClick={handleMint}
-              disabled={loading || remaining <= 0 || isWrongChain}
+              disabled={loading || remaining <= 0 || isWrongChain || !isAuthenticated}
               className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
