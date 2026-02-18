@@ -229,13 +229,22 @@ export function WalletPage() {
     if (!isConnected || !address || !isAuthenticated) return;
 
     setLoadingBalance(true);
-    fetchBalance(address)
-      .then((data) => setPlatformBalance(data))
-      .catch((err) => {
-        console.warn('[wallet] fetchBalance failed:', err?.message);
-        setPlatformBalance(null);
+    const addr = address;
+    fetchBalance(addr)
+      .then((data) => {
+        setPlatformBalance(data);
+        setLoadingBalance(false);
       })
-      .finally(() => setLoadingBalance(false));
+      .catch((err) => {
+        console.warn('[wallet] fetchBalance failed, retrying in 1.5s:', err?.message);
+        // Retry once after a short delay (JWT token may still be propagating)
+        setTimeout(() => {
+          fetchBalance(addr)
+            .then((data) => setPlatformBalance(data))
+            .catch(() => setPlatformBalance(null))
+            .finally(() => setLoadingBalance(false));
+        }, 1500);
+      });
 
     setLoadingHistory(true);
     fetchTradeHistory(address)
