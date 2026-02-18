@@ -1,25 +1,27 @@
 {
-  "contracts": {
-    "PredictionMarket": {
+  "projectName": "Flip Predict",
+  "network": "BSC Testnet",
+  "contracts": [
+    {
+      "name": "PredictionMarket",
       "address": "0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da",
-      "explorer": "https://testnet.bscscan.com/address/0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da"
+      "explorerLink": "https://testnet.bscscan.com/address/0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da",
+      "description": "Core market contract: deposit, withdraw, resolve, claim winnings, split/merge positions"
     },
-    "NFA": {
+    {
+      "name": "NFA (Non-Fungible Agent)",
       "address": "0x1a303032E49b7A0C395C938d73ff09cecE295081",
-      "explorer": "https://testnet.bscscan.com/address/0x1a303032E49b7A0C395C938d73ff09cecE295081"
+      "explorerLink": "https://testnet.bscscan.com/address/0x1a303032E49b7A0C395C938d73ff09cecE295081",
+      "description": "ERC-721 AI trading agents (BAP-578 standard) with on-chain strategy config and metadata"
     },
-    "MockUSDT": {
+    {
+      "name": "MockUSDT",
       "address": "0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F",
-      "explorer": "https://testnet.bscscan.com/address/0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F"
+      "explorerLink": "https://testnet.bscscan.com/address/0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F",
+      "description": "Test USDT token for testnet trading (ERC-20, 18 decimals)"
     }
-  },
-  "network": {
-    "name": "BNB Smart Chain Testnet",
-    "chainId": 97,
-    "rpc": "https://data-seed-prebsc-1-s1.bnbchain.org:8545"
-  },
-  "deployment": {
-    "frontendUrl": "https://flippredict.net",
-    "backendApi": "https://flip-backend-production.up.railway.app"
-  }
+  ],
+  "frontendUrl": "https://flippredict.net",
+  "backendApi": "https://flip-backend-production.up.railway.app",
+  "notes": "All contracts deployed on BSC Testnet (Chain ID 97). Use the in-app faucet to claim test USDT. Connect MetaMask and switch to BSC Testnet to interact."
 }
