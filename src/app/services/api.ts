@@ -1292,6 +1292,29 @@ export async function withdrawFunds(amount: number, toAddress: string, requestTx
   })
 }
 
+export async function getWithdrawPermit(amount: number) {
+  return request<{
+    success: boolean
+    permit: {
+      amount: string
+      nonce: string
+      deadline: string
+      signature: string
+    }
+    balance: { available: number; locked: number; total: number }
+  }>('/api/wallet/withdraw-permit', {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  })
+}
+
+export async function cancelWithdrawPermit(withdrawalId: string) {
+  return request<{ success: boolean; balance: { available: number; locked: number; total: number } }>('/api/wallet/withdraw-cancel', {
+    method: 'POST',
+    body: JSON.stringify({ withdrawalId }),
+  })
+}
+
 export async function fetchWalletTransactions(limit = 20, offset = 0) {
   return request<{ transactions: any[]; total: number }>(`/api/wallet/transactions?limit=${limit}&offset=${offset}`)
 }

@@ -690,6 +690,10 @@ ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS request_tx_hash TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_withdrawals_request_tx_hash
   ON withdrawals (LOWER(request_tx_hash)) WHERE request_tx_hash IS NOT NULL;
 
+-- Migration: add permit columns for withdrawWithPermit flow
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS permit_nonce BIGINT;
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS permit_deadline BIGINT;
+
 -- Round 3: Data integrity constraints
 DO $$ BEGIN
   ALTER TABLE markets ADD CONSTRAINT chk_markets_yes_reserve_pos CHECK (yes_reserve > 0);

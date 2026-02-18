@@ -109,11 +109,11 @@ export function useWithdraw() {
 }
 
 // ----------------------------------------------------------------
-// useRequestWithdraw  --  calls contract.requestWithdraw(amount)
-//   User-facing on-chain withdraw request; Keeper processes actual transfer.
+// useWithdrawWithPermit  --  calls contract.withdrawWithPermit(amount, nonce, deadline, sig)
+//   One-step instant withdrawal: backend signs permit, user calls contract, USDT arrives immediately.
 // ----------------------------------------------------------------
 
-export function useRequestWithdraw() {
+export function useWithdrawWithPermit() {
   const {
     writeContract,
     data: txHash,
@@ -128,21 +128,21 @@ export function useRequestWithdraw() {
     error: confirmError,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const requestWithdraw = useCallback(
-    (amountUSDT: string) => {
+  const withdrawWithPermit = useCallback(
+    (amountWei: bigint, nonce: bigint, deadline: bigint, signature: `0x${string}`) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
-        functionName: 'requestWithdraw',
-        args: [parseUnits(amountUSDT, 18)],
+        functionName: 'withdrawWithPermit',
+        args: [amountWei, nonce, deadline, signature],
       });
     },
     [writeContract, reset],
   );
 
   return {
-    requestWithdraw,
+    withdrawWithPermit,
     txHash,
     isWriting,
     isConfirming,

@@ -6,8 +6,8 @@ import { useAccount, useBalance, useDisconnect, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
 import { formatUnits, parseUnits } from "viem";
 import { useTranslation } from "react-i18next";
-import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, claimPlatformFaucet } from "../services/api";
-import { useDeposit, useWithdraw, useRequestWithdraw, useContractBalance, usePredictionMarketBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
+import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, getWithdrawPermit, claimPlatformFaucet } from "../services/api";
+import { useDeposit, useWithdraw, useWithdrawWithPermit, useContractBalance, usePredictionMarketBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 import { PREDICTION_MARKET_ADDRESS } from "../config/contracts";
 
@@ -78,7 +78,7 @@ export function WalletPage() {
   // On-chain contract hooks
   const contractDeposit = useDeposit();
   const contractWithdraw = useWithdraw();
-  const requestWithdraw = useRequestWithdraw();
+  const permitWithdraw = useWithdrawWithPermit();
   const {
     balanceUSDT: walletUsdtBalance,
     refetch: refetchWalletUsdtBalance,
@@ -145,11 +145,11 @@ export function WalletPage() {
     "Withdraw",
   );
   useTxNotifier(
-    requestWithdraw.txHash,
-    requestWithdraw.isConfirming,
-    requestWithdraw.isConfirmed,
-    requestWithdraw.error as Error | null,
-    "Withdraw Request",
+    permitWithdraw.txHash,
+    permitWithdraw.isConfirming,
+    permitWithdraw.isConfirmed,
+    permitWithdraw.error as Error | null,
+    "Withdraw",
   );
   useTxNotifier(
     approveTxHash,
@@ -231,30 +231,17 @@ export function WalletPage() {
     }
   }, [contractWithdraw.isConfirmed, contractWithdraw.txHash, refetchWalletUsdtBalance, refetchPredictionMarketBalance, refetchBnbBalance, contractWithdraw.reset]);
 
-  // After on-chain requestWithdraw confirms, call backend API to create pending withdrawal
+  // After on-chain withdrawWithPermit confirms, refresh balances
   useEffect(() => {
-    if (requestWithdraw.isConfirmed && requestWithdraw.txHash) {
-      const amt = parseFloat(withdrawAmountRef.current);
-      const addr = addressRef.current;
-      if (amt > 0 && addr) {
-        withdrawFunds(amt, addr, requestWithdraw.txHash)
-          .then((result) => {
-            if (result.success) {
-              setPlatformBalance(result.balance);
-              toast.success(t("wallet.withdrawSuccess"));
-            }
-          })
-          .catch((err) => {
-            console.error('[wallet] Withdraw request sync failed:', err?.message);
-            toast.error(err?.message || t("wallet.withdrawSyncFailed", { defaultValue: "Platform sync pending - please refresh the page." }));
-          });
-      }
+    if (permitWithdraw.isConfirmed && permitWithdraw.txHash) {
+      toast.success(t("wallet.withdrawSuccess"));
+      refetchWalletUsdtBalance();
       refetchBnbBalance();
       setWithdrawAmount("");
       setShowWithdrawForm(false);
-      requestWithdraw.reset();
+      permitWithdraw.reset();
     }
-  }, [requestWithdraw.isConfirmed, requestWithdraw.txHash, refetchBnbBalance, requestWithdraw.reset]);
+  }, [permitWithdraw.isConfirmed, permitWithdraw.txHash, refetchWalletUsdtBalance, refetchBnbBalance, permitWithdraw.reset]);
 
   const walletAddress = address ?? "";
   const bnbBalance = balanceData?.value != null
@@ -370,8 +357,9 @@ export function WalletPage() {
     contractDeposit.deposit(depositAmount);
   };
 
-  // On-chain withdraw request handler: calls requestWithdraw() on contract
-  const handleRequestWithdraw = () => {
+  // Permit-based withdraw: get backend signature, then call contract withdrawWithPermit
+  const [permitLoading, setPermitLoading] = useState(false);
+  const handlePermitWithdraw = async () => {
     if (!address) return;
     const amt = parseFloat(withdrawAmount);
     if (!amt || amt <= 0) {
@@ -382,9 +370,27 @@ export function WalletPage() {
       toast.error(t('wallet.insufficientBalance'));
       return;
     }
-    withdrawAmountRef.current = withdrawAmount;
-    addressRef.current = address;
-    requestWithdraw.requestWithdraw(withdrawAmount);
+
+    setPermitLoading(true);
+    try {
+      // Step 1: Get signed permit from backend (deducts DB balance)
+      const result = await getWithdrawPermit(amt);
+      if (!result.success) throw new Error('Failed to get withdraw permit');
+      setPlatformBalance(result.balance);
+
+      // Step 2: Call contract with the permit (wallet popup)
+      const { amount: amountWei, nonce, deadline, signature } = result.permit;
+      permitWithdraw.withdrawWithPermit(
+        BigInt(amountWei),
+        BigInt(nonce),
+        BigInt(deadline),
+        signature as `0x${string}`,
+      );
+    } catch (err: any) {
+      toast.error(err?.message || t('common.error'));
+    } finally {
+      setPermitLoading(false);
+    }
   };
 
   const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
@@ -486,7 +492,7 @@ export function WalletPage() {
   };
 
   const isContractDepositBusy = contractDeposit.isWriting || contractDeposit.isConfirming || approveWriting || approveConfirming;
-  const isRequestWithdrawBusy = requestWithdraw.isWriting || requestWithdraw.isConfirming;
+  const isPermitWithdrawBusy = permitLoading || permitWithdraw.isWriting || permitWithdraw.isConfirming;
 
   return (
     <div className="space-y-5">
@@ -835,53 +841,53 @@ export function WalletPage() {
                       </div>
                     </div>
 
-                    {/* Withdraw request tx status */}
-                    {requestWithdraw.txHash && (
+                    {/* Withdraw tx status */}
+                    {permitWithdraw.txHash && (
                       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
-                        {requestWithdraw.isConfirming ? (
+                        {permitWithdraw.isConfirming ? (
                           <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                        ) : requestWithdraw.isConfirmed ? (
+                        ) : permitWithdraw.isConfirmed ? (
                           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                         ) : (
                           <Clock className="w-4 h-4 text-blue-400" />
                         )}
                         <a
-                          href={`${getBscScanUrl(chainId)}/tx/${requestWithdraw.txHash}`}
+                          href={`${getBscScanUrl(chainId)}/tx/${permitWithdraw.txHash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
                         >
-                          {requestWithdraw.txHash.slice(0, 16)}...{requestWithdraw.txHash.slice(-8)}
+                          {permitWithdraw.txHash.slice(0, 16)}...{permitWithdraw.txHash.slice(-8)}
                         </a>
                         <span className="text-muted-foreground text-xs ml-auto">
-                          {requestWithdraw.isConfirming ? t('trade.txConfirming') : requestWithdraw.isConfirmed ? t('trade.txConfirmed') : t('trade.txSubmitted')}
+                          {permitWithdraw.isConfirming ? t('trade.txConfirming') : permitWithdraw.isConfirmed ? t('trade.txConfirmed') : t('trade.txSubmitted')}
                         </span>
                       </div>
                     )}
 
                     {/* Error display */}
-                    {requestWithdraw.error && (
+                    {permitWithdraw.error && (
                       <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                        {(requestWithdraw.error as Error).message?.includes("User rejected")
+                        {(permitWithdraw.error as Error).message?.includes("User rejected")
                           ? t('trade.txCancelledByUser')
-                          : (requestWithdraw.error as Error).message?.slice(0, 150) || t('trade.txFailed')}
+                          : (permitWithdraw.error as Error).message?.slice(0, 150) || t('trade.txFailed')}
                       </div>
                     )}
 
                     <button
-                      onClick={handleRequestWithdraw}
-                      disabled={isRequestWithdrawBusy}
+                      onClick={handlePermitWithdraw}
+                      disabled={isPermitWithdrawBusy}
                       className="w-full bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-black font-bold py-3 text-base tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2"
                     >
-                      {isRequestWithdrawBusy ? (
+                      {isPermitWithdrawBusy ? (
                         <>
                           <Loader2 className="w-5 h-5 animate-spin" />
-                          {requestWithdraw.isConfirming ? t('trade.confirmingOnChain') : t('wallet.processing')}
+                          {permitWithdraw.isConfirming ? t('trade.confirmingOnChain') : permitLoading ? t('wallet.signingPermit', { defaultValue: 'Getting permit...' }) : t('wallet.processing')}
                         </>
                       ) : (
                         <>
                           <Zap className="w-5 h-5" />
-                          {t('wallet.withdrawFromContract', { defaultValue: 'Request Withdrawal' })}
+                          {t('wallet.withdrawFromContract', { defaultValue: 'Withdraw USDT' })}
                         </>
                       )}
                     </button>

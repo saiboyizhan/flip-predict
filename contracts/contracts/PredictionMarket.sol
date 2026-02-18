@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./interfaces/IBinanceOracle.sol";
 
 /// @title PredictionMarket - CTF-style binary prediction market on BSC
@@ -54,6 +56,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
     uint256 public accumulatedFees;
     uint256 public nextWithdrawRequestId;
+    mapping(uint256 => bool) public usedWithdrawNonces;
 
     mapping(address => uint256) public dailyMarketCount;
     mapping(address => uint256) public lastMarketCreationDay;
@@ -86,6 +89,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     event ResolutionFinalized(uint256 indexed marketId, bool outcome);
     event StrictArbitrationModeUpdated(bool enabled);
     event WithdrawRequested(address indexed user, uint256 amount, uint256 indexed requestId);
+    event WithdrawnWithPermit(address indexed user, uint256 amount, uint256 nonce);
     // CTF events
     event PositionSplit(uint256 indexed marketId, address indexed user, uint256 amount);
     event PositionsMerged(uint256 indexed marketId, address indexed user, uint256 amount);
@@ -168,6 +172,33 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         require(amount > 0, "Amount must be > 0");
         uint256 requestId = nextWithdrawRequestId++;
         emit WithdrawRequested(msg.sender, amount, requestId);
+    }
+
+    /// @notice Withdraw USDT with admin-signed permit. One-step: user gets USDT immediately.
+    /// @dev Backend deducts DB balance, signs a permit, user calls this to claim USDT.
+    ///      Includes address(this) in hash to prevent cross-contract replay.
+    /// @param amount Amount of USDT to withdraw (18 decimals)
+    /// @param nonce Unique nonce (prevents replay)
+    /// @param deadline Timestamp after which the permit expires
+    /// @param adminSignature Admin's EIP-191 signature over (user, amount, nonce, deadline, contract)
+    function withdrawWithPermit(
+        uint256 amount,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata adminSignature
+    ) external nonReentrant whenNotPaused {
+        require(amount > 0, "Amount must be > 0");
+        require(block.timestamp <= deadline, "Permit expired");
+        require(!usedWithdrawNonces[nonce], "Nonce already used");
+        usedWithdrawNonces[nonce] = true;
+
+        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, amount, nonce, deadline, address(this)));
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
+        address signer = ECDSA.recover(ethSignedHash, adminSignature);
+        require(signer == owner(), "Invalid admin signature");
+
+        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
+        emit WithdrawnWithPermit(msg.sender, amount, nonce);
     }
 
     // --- Market Management ---

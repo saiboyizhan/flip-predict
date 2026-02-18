@@ -424,6 +424,149 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
   }
 });
 
+// ============================================================
+// Withdraw with Admin Permit (one-step instant withdrawal)
+// ============================================================
+
+const PERMIT_DEADLINE_SECONDS = 5 * 60; // 5 minutes
+
+/**
+ * Auto-cleanup expired permit_issued withdrawals.
+ * Since the deadline has passed, the on-chain nonce can no longer be used,
+ * so we can safely refund the balance.
+ */
+async function cleanupExpiredPermits(userAddress: string): Promise<void> {
+  const db = getDb();
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const now = Math.floor(Date.now() / 1000);
+    const expired = await client.query(
+      "SELECT id, amount FROM withdrawals WHERE user_address = $1 AND status = 'permit_issued' AND permit_deadline < $2 FOR UPDATE",
+      [userAddress, now]
+    );
+    for (const row of expired.rows) {
+      await client.query(
+        "UPDATE withdrawals SET status = 'expired' WHERE id = $1",
+        [row.id]
+      );
+      await client.query(
+        `INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
+         ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2`,
+        [userAddress, row.amount]
+      );
+      console.info(`[permit] Refunded expired permit ${row.id}: ${row.amount} to ${userAddress}`);
+    }
+    await client.query('COMMIT');
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[permit] Cleanup error:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
+// POST /api/wallet/withdraw-permit
+// Issues an admin-signed permit for instant on-chain withdrawal.
+// Deducts DB balance first; if permit expires unused, auto-reclaimed.
+router.post('/withdraw-permit', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const userAddress = req.userAddress!;
+  const { amount } = req.body;
+
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: 'amount must be a positive number' });
+    return;
+  }
+  if (amount > MAX_WITHDRAWAL_AMOUNT) {
+    res.status(400).json({ error: `amount must not exceed ${MAX_WITHDRAWAL_AMOUNT}` });
+    return;
+  }
+
+  if (!DEPLOYER_KEY) {
+    res.status(503).json({ error: 'Signing key not configured' });
+    return;
+  }
+  const pmAddr = getPredictionMarketAddress();
+  if (!pmAddr) {
+    res.status(503).json({ error: 'PREDICTION_MARKET_ADDRESS not configured' });
+    return;
+  }
+
+  // Auto-cleanup any expired permits first
+  await cleanupExpiredPermits(userAddress);
+
+  const pool = getDb();
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const balanceRow = (await client.query(
+      'SELECT available, locked FROM balances WHERE user_address = $1 FOR UPDATE',
+      [userAddress]
+    )).rows[0] as any;
+
+    const available = balanceRow?.available ?? 0;
+    const locked = balanceRow?.locked ?? 0;
+
+    if (amount > available) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Insufficient balance' });
+      return;
+    }
+
+    // Generate permit parameters
+    const nonce = Date.now(); // unique enough for non-concurrent use
+    const deadline = Math.floor(Date.now() / 1000) + PERMIT_DEADLINE_SECONDS;
+    const amountWei = ethers.parseUnits(amount.toString(), 18);
+
+    // Sign: keccak256(abi.encodePacked(user, amount, nonce, deadline, contractAddress))
+    const messageHash = ethers.solidityPackedKeccak256(
+      ['address', 'uint256', 'uint256', 'uint256', 'address'],
+      [userAddress, amountWei, nonce, deadline, ethers.getAddress(pmAddr)]
+    );
+    const signingKey = new ethers.SigningKey(DEPLOYER_KEY);
+    const sig = signingKey.sign(ethers.hashMessage(ethers.getBytes(messageHash)));
+    const signature = ethers.Signature.from(sig).serialized;
+
+    // Deduct balance and create withdrawal record
+    const id = crypto.randomUUID();
+    await client.query(
+      `INSERT INTO withdrawals (id, user_address, amount, to_address, status, created_at, permit_nonce, permit_deadline)
+       VALUES ($1, $2, $3, $4, 'permit_issued', $5, $6, $7)`,
+      [id, userAddress, amount, userAddress, Date.now(), nonce, deadline]
+    );
+    await client.query(
+      'UPDATE balances SET available = available - $1 WHERE user_address = $2',
+      [amount, userAddress]
+    );
+
+    const newAvailable = available - amount;
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      permit: {
+        amount: amountWei.toString(),
+        nonce: nonce.toString(),
+        deadline: deadline.toString(),
+        signature,
+      },
+      balance: {
+        available: newAvailable,
+        locked,
+        total: newAvailable + locked,
+      },
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('Withdraw permit error:', err);
+    res.status(500).json({ error: 'Failed to issue withdraw permit' });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /api/wallet/transactions
 router.get('/transactions', authMiddleware, async (req: AuthRequest, res: Response) => {
   const userAddress = req.userAddress!;

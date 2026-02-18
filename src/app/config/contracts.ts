@@ -6,7 +6,7 @@
  */
 
 // BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_PM_ADDRESS = '0x8b35d3813B446a67e38A38087A94FB941DEeB951'
+const DEFAULT_PM_ADDRESS = '0xe5E4408c0484738C1aAF9BCa0Fe57dBaE0F9c4f7'
 
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
@@ -21,7 +21,7 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
 // BSC USDT (BEP-20) — 18 decimals
 // -----------------------------------------------------------------
 // BSC Testnet MockUSDT address
-const DEFAULT_USDT_ADDRESS = '0xB1Bf6498523a3BcD5086c4812A31aB8054fadf8b'
+const DEFAULT_USDT_ADDRESS = '0xb9e59AbC61DeF3dB4e37aF4DAE38CDBca5175a32'
 
 export const USDT_ADDRESS = (
   import.meta.env.VITE_USDT_ADDRESS ||
@@ -262,6 +262,19 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [{ name: 'amount', type: 'uint256' }],
     outputs: [],
   },
+  // --- Withdraw with admin permit (one-step instant withdrawal) ---
+  {
+    name: 'withdrawWithPermit',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'amount', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'adminSignature', type: 'bytes' },
+    ],
+    outputs: [],
+  },
 
   // --- Events ---
   {
@@ -271,6 +284,15 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'user', type: 'address', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
       { name: 'requestId', type: 'uint256', indexed: true },
+    ],
+  },
+  {
+    name: 'WithdrawnWithPermit',
+    type: 'event',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'nonce', type: 'uint256', indexed: false },
     ],
   },
   {
