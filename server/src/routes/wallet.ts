@@ -525,7 +525,8 @@ router.post('/withdraw-permit', authMiddleware, async (req: AuthRequest, res: Re
       ['address', 'uint256', 'uint256', 'uint256', 'address'],
       [userAddress, amountWei, nonce, deadline, ethers.getAddress(pmAddr)]
     );
-    const signingKey = new ethers.SigningKey(DEPLOYER_KEY);
+    const keyHex = DEPLOYER_KEY.startsWith('0x') ? DEPLOYER_KEY : `0x${DEPLOYER_KEY}`;
+    const signingKey = new ethers.SigningKey(keyHex);
     const sig = signingKey.sign(ethers.hashMessage(ethers.getBytes(messageHash)));
     const signature = ethers.Signature.from(sig).serialized;
 
