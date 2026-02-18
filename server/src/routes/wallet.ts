@@ -301,7 +301,11 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
 
   // Verify on-chain: tx must be a real requestWithdraw from this user with matching amount
   const pmAddress = getPredictionMarketAddress();
-  if (pmAddress && USDT_ADDRESS) {
+  if (!pmAddress) {
+    res.status(503).json({ error: 'PREDICTION_MARKET_ADDRESS not configured' });
+    return;
+  }
+  {
     try {
       const provider = getDepositProvider();
       const receipt = await provider.getTransactionReceipt(normalizedRequestTxHash);
@@ -336,8 +340,12 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
         return;
       }
     } catch (err: any) {
-      console.warn('[wallet] Withdraw tx verification RPC error, proceeding:', err.message);
-      // Non-blocking: if RPC is down, allow withdrawal (same as deposit verification)
+      // Withdrawals MUST be verified on-chain -- reject if RPC is unavailable.
+      // (Unlike deposits where the user already sent USDT and we credit optimistically,
+      //  here a fake txHash would cause real USDT to be sent out by the Keeper.)
+      console.error('[wallet] Withdraw tx verification RPC error:', err.message);
+      res.status(503).json({ error: 'On-chain verification unavailable, please try again later' });
+      return;
     }
   }
 
@@ -404,6 +412,11 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
     });
   } catch (err: any) {
     await client.query('ROLLBACK');
+    // Handle UNIQUE constraint violation on request_tx_hash (concurrent duplicate)
+    if (err?.code === '23505') {
+      res.status(409).json({ error: 'This withdraw request tx has already been used' });
+      return;
+    }
     console.error('Withdraw error:', err);
     res.status(500).json({ error: 'Withdraw failed' });
   } finally {
