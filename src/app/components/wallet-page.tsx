@@ -72,7 +72,7 @@ export function WalletPage() {
   const [depositProcessing, setDepositProcessing] = useState(false);
   const [withdrawProcessing, setWithdrawProcessing] = useState(false);
   const [depositMode, setDepositMode] = useState<"contract" | "manual">("contract");
-  const [withdrawMode, setWithdrawMode] = useState<"contract" | "manual">("contract");
+  const [withdrawMode, setWithdrawMode] = useState<"contract" | "manual">("manual");
   const [platformFaucetLoading, setPlatformFaucetLoading] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const authToken = useAuthStore((s) => s.token);
@@ -826,30 +826,7 @@ export function WalletPage() {
                       </button>
                     </div>
 
-                    {/* Mode Toggle: Contract vs Manual */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setWithdrawMode("contract")}
-                        className={`py-2.5 text-sm font-bold tracking-wider uppercase transition-colors flex items-center justify-center gap-2 ${
-                          withdrawMode === "contract"
-                            ? "bg-blue-500/20 border border-blue-500/50 text-blue-400"
-                            : "bg-secondary border border-border text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <Zap className="w-4 h-4" />
-                        {t('wallet.onChain')}
-                      </button>
-                      <button
-                        onClick={() => setWithdrawMode("manual")}
-                        className={`py-2.5 text-sm font-bold tracking-wider uppercase transition-colors ${
-                          withdrawMode === "manual"
-                            ? "bg-muted/30 border border-border text-muted-foreground"
-                            : "bg-secondary border border-border text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {t('wallet.manualApi')}
-                      </button>
-                    </div>
+                    {/* Withdraw always uses backend API (contract withdraw is onlyOwner) */}
 
                     <div>
                       <label className="block text-muted-foreground text-sm mb-2">
