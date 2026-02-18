@@ -602,7 +602,11 @@
     "justNow": "Just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
-    "daysAgo": "{{count}}d ago"
+    "daysAgo": "{{count}}d ago",
+    "buyFilled": "Buy Order Filled",
+    "buyDesc": "Bought {{shares}} {{side}} shares",
+    "sellFilled": "Sell Order Filled",
+    "sellDesc": "Sold {{shares}} {{side}} shares"
   },
   "priceChart": {
     "custom": "Custom",

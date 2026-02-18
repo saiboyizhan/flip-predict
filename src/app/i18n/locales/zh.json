@@ -635,7 +635,11 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}}分钟前",
     "hoursAgo": "{{count}}小时前",
-    "daysAgo": "{{count}}天前"
+    "daysAgo": "{{count}}天前",
+    "buyFilled": "买入成交",
+    "buyDesc": "买入 {{shares}} 份 {{side}}",
+    "sellFilled": "卖出成交",
+    "sellDesc": "卖出 {{shares}} 份 {{side}}"
   },
   "priceChart": {
     "custom": "自定义",

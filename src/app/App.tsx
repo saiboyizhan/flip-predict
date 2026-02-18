@@ -136,11 +136,36 @@ export default function App() {
     if (!isAuthenticated) return;
 
     const unsubscribe = subscribeNotifications((notification: any) => {
+      // Translate notification title/message using metadata when available
+      const meta = notification.metadata || {};
+      let ntTitle = notification.title || '';
+      let ntMessage = notification.message || '';
+
+      if (ntTitle === 'Buy Order Filled' && meta.shares != null) {
+        const label = meta.side?.toUpperCase?.() ?? 'YES';
+        const amt = Number(meta.amount ?? 0).toFixed(2);
+        ntTitle = t('notification.buyFilled', { defaultValue: 'Buy Order Filled' });
+        ntMessage = t('notification.buyDesc', {
+          shares: Number(meta.shares).toFixed(2),
+          side: label,
+          defaultValue: `Bought ${Number(meta.shares).toFixed(2)} ${label} shares for $${amt}`,
+        });
+      } else if (ntTitle === 'Sell Order Filled' && meta.shares != null) {
+        const label = meta.side?.toUpperCase?.() ?? 'YES';
+        const amt = Number(meta.amountOut ?? 0).toFixed(2);
+        ntTitle = t('notification.sellFilled', { defaultValue: 'Sell Order Filled' });
+        ntMessage = t('notification.sellDesc', {
+          shares: Number(meta.shares).toFixed(2),
+          side: label,
+          defaultValue: `Sold ${Number(meta.shares).toFixed(2)} ${label} shares for $${amt}`,
+        });
+      }
+
       // Add to notification store for real-time updates
       addNotification(
         notification.type || 'system',
-        notification.title || 'Notification',
-        notification.message || '',
+        ntTitle || t('notification.title', { defaultValue: 'Notification' }),
+        ntMessage,
         {
           id: typeof notification.id === 'string' ? notification.id : undefined,
           timestamp: Number(notification.timestamp ?? notification.created_at) || Date.now(),
@@ -149,8 +174,6 @@ export default function App() {
         }
       );
       // Show a toast for real-time feedback
-      const ntTitle = notification.title || 'Notification';
-      const ntMessage = notification.message || '';
       toast.info(ntMessage ? `${ntTitle}: ${ntMessage}` : ntTitle);
     });
 
