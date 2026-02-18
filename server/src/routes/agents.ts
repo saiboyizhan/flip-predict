@@ -531,19 +531,21 @@ router.post('/auto-sync', authMiddleware, async (req: AuthRequest, res: Response
 
     const userAddress = req.userAddress!.toLowerCase();
 
-    // Read on-chain balance
-    const balance = Number(await nfaContract.balanceOf(userAddress));
+    // Read on-chain balance (with timeout to avoid hanging on slow RPCs)
+    const rpcTimeout = <T>(promise: Promise<T>, ms = 10000): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('RPC timeout')), ms))]);
+
+    const balance = Number(await rpcTimeout(nfaContract.balanceOf(userAddress)));
     if (balance === 0) {
       res.json({ synced: 0, agents: [] });
       return;
     }
 
-    // Get all token IDs owned by user
-    const tokenIds: number[] = [];
-    for (let i = 0; i < balance; i++) {
-      const tokenId = Number(await nfaContract.tokenOfOwnerByIndex(userAddress, i));
-      tokenIds.push(tokenId);
-    }
+    // Get all token IDs owned by user (parallel)
+    const tokenIdPromises = Array.from({ length: balance }, (_, i) =>
+      rpcTimeout(nfaContract.tokenOfOwnerByIndex(userAddress, i)).then(Number)
+    );
+    const tokenIds = await Promise.all(tokenIdPromises);
 
     // Check which tokens are already in DB
     const existingTokens = (await db.query(
@@ -565,13 +567,19 @@ router.post('/auto-sync', authMiddleware, async (req: AuthRequest, res: Response
       return;
     }
 
-    // For each missing token, read on-chain metadata and create agent
+    // Read on-chain metadata for missing tokens (parallel)
     const AVATAR_PATHS = ['/avatars/avatar_0.svg', '/avatars/avatar_1.svg', '/avatars/avatar_2.svg', '/avatars/avatar_3.svg'];
-    const syncedAgents: any[] = [];
+    const metadataResults = await Promise.allSettled(
+      missingTokenIds.slice(0, maxToSync).map(tokenId =>
+        rpcTimeout(nfaContract.getAgentMetadata(tokenId)).then(metadata => ({ tokenId, metadata }))
+      )
+    );
 
-    for (const tokenId of missingTokenIds) {
+    const syncedAgents: any[] = [];
+    for (const result of metadataResults) {
+      if (result.status !== 'fulfilled') continue;
+      const { tokenId, metadata } = result.value;
       try {
-        const metadata = await nfaContract.getAgentMetadata(tokenId);
         const onChainName = metadata.name || `Agent #${tokenId}`;
         const avatarId = Number(metadata.avatarId);
         const avatarPath = AVATAR_PATHS[avatarId] || AVATAR_PATHS[0];
