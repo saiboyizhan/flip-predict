@@ -12,7 +12,7 @@ import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
 import type { Agent } from "@/app/services/api";
 import { AgentCard } from "./AgentCard";
 import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract, useSwitchChain } from "wagmi";
-import { zeroAddress, zeroHash, parseGwei } from "viem";
+import { zeroAddress, zeroHash } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -202,22 +202,35 @@ export function MintAgent() {
       }
 
       const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
-      // Force gas price to 10 gwei to avoid "underpriced" rejection on BSC Testnet
+      const mintArgs = [{
+        name: name.trim(),
+        persona: persona.trim(),
+        voiceHash: zeroHash,
+        animationURI: "",
+        vaultURI: "",
+        vaultHash: zeroHash,
+        avatarId,
+      }] as const;
+
+      // Simulate first to get a clear revert reason before spending gas
+      try {
+        await publicClient.simulateContract({
+          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+          abi: NFA_ABI,
+          functionName: "mint",
+          args: mintArgs,
+          account: address,
+        });
+      } catch (simErr: any) {
+        const reason = simErr?.cause?.reason || simErr?.shortMessage || simErr?.message || "Unknown simulation error";
+        throw new Error(`Mint simulation failed: ${reason}`);
+      }
+
       const txHash = await writeContractAsync({
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
         abi: NFA_ABI,
         functionName: "mint",
-        args: [{
-          name: name.trim(),
-          persona: persona.trim(),
-          voiceHash: zeroHash,
-          animationURI: "",
-          vaultURI: "",
-          vaultHash: zeroHash,
-          avatarId,
-        }],
-        gasPrice: parseGwei("10"),
-        gas: BigInt(500_000),
+        args: mintArgs,
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
