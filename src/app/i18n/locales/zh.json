@@ -878,7 +878,7 @@
     "selectMarket": "选择市场",
     "selectMarketPlaceholder": "选择一个市场...",
     "predDirection": "预测方向",
-    "confidence": "信心程度: <highlight>{{pct}}%</highlight>",
+    "confidence": "信心程度: {{pct}}%",
     "reason": "理由 (可选)",
     "reasonPlaceholder": "为什么你这样预测？",
     "recording": "记录中...",

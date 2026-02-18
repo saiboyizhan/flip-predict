@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { getMyAgents, autoSyncAgents, type Agent } from '@/app/services/api'
 
+let syncInFlight = false
+
 interface AgentState {
   agents: Agent[]
   hasAgent: boolean
@@ -22,23 +24,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   fetchMyAgents: async () => {
     try {
       // Auto-sync on-chain agents that aren't registered in backend yet.
-      // Fire-and-forget: don't block the main fetch if sync fails or is slow.
-      autoSyncAgents()
-        .then((result) => {
-          if (result.synced > 0) {
-            // Re-fetch after successful sync to include newly synced agents
-            getMyAgents().then((agents) => {
-              set({
-                agents,
-                hasAgent: agents.length > 0,
-                agentCount: agents.length,
-              })
-            }).catch(() => {})
-          }
-        })
-        .catch(() => {
-          // Sync failed (RPC unavailable, not authenticated, etc.) — ignore
-        })
+      // Guard: only one sync request at a time to prevent duplicate inserts.
+      if (!syncInFlight) {
+        syncInFlight = true
+        autoSyncAgents()
+          .then((result) => {
+            if (result.synced > 0) {
+              getMyAgents().then((agents) => {
+                set({
+                  agents,
+                  hasAgent: agents.length > 0,
+                  agentCount: agents.length,
+                })
+              }).catch(() => {})
+            }
+          })
+          .catch(() => {})
+          .finally(() => { syncInFlight = false })
+      }
 
       const agents = await getMyAgents()
       set({

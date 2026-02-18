@@ -4,7 +4,7 @@ import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { Sparkles, Check, Loader2, ImagePlus, Upload, Trash2, ShieldCheck, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { mintAgent, autoSyncAgents } from "@/app/services/api";
+import { mintAgent } from "@/app/services/api";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import { PRESET_AVATARS, MAX_AGENTS_PER_ADDRESS } from "@/app/config/avatars";
@@ -47,7 +47,7 @@ export function MintAgent() {
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
-  const { agentCount, addAgent } = useAgentStore();
+  const { addAgent } = useAgentStore();
   const { isAuthenticated } = useAuthStore();
 
   const BSC_TESTNET_CHAIN_ID = 97;
@@ -92,12 +92,10 @@ export function MintAgent() {
     }
   }, [t]);
 
-  // Use the HIGHER of backend agentCount and on-chain mintCount.
-  // The contract enforces on-chain mintCount, so if on-chain > backend (e.g. backend
-  // registration failed after successful on-chain mint), we must respect on-chain count.
+  // Use on-chain mintCount as the source of truth for the connected wallet.
+  // The contract enforces the limit, so this is always accurate per-wallet.
   const onChainCount = onChainMintCount != null ? Number(onChainMintCount) : 0;
-  const effectiveMintCount = Math.max(agentCount, onChainCount);
-  const remaining = MAX_AGENTS_PER_ADDRESS - effectiveMintCount;
+  const remaining = MAX_AGENTS_PER_ADDRESS - onChainCount;
 
   const STRATEGIES = [
     { id: "conservative", name: t("agent.strategies.conservative"), desc: t("agent.strategies.conservativeDesc") },
@@ -315,7 +313,6 @@ export function MintAgent() {
     }
   };
 
-
   // Full-page state when mint limit reached
   if (remaining <= 0) {
     return (
@@ -348,7 +345,7 @@ export function MintAgent() {
             <div className="max-w-xs mx-auto mb-8">
               <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
                 <span>{t("agent.mintedCount", { defaultValue: "Minted" })}</span>
-                <span className="font-mono text-foreground">{effectiveMintCount}/{MAX_AGENTS_PER_ADDRESS}</span>
+                <span className="font-mono text-foreground">{onChainCount}/{MAX_AGENTS_PER_ADDRESS}</span>
               </div>
               <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
                 <div className="h-full bg-blue-500 rounded-full" style={{ width: "100%" }} />
@@ -356,34 +353,6 @@ export function MintAgent() {
             </div>
 
 
-            {/* Sync notice when on-chain count > backend count */}
-            {onChainCount > agentCount && (
-              <div className="mb-6 border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm text-yellow-400 max-w-sm mx-auto">
-                <p className="mb-2">
-                  {t("agent.unsyncedAgents", {
-                    defaultValue: `${onChainCount - agentCount} agent(s) minted on-chain but not registered. Click sync to recover them.`,
-                  })}
-                </p>
-                <button
-                  onClick={async () => {
-                    try {
-                      const result = await autoSyncAgents();
-                      if (result.synced > 0) {
-                        result.agents.forEach((a) => addAgent(a));
-                        toast.success(`Synced ${result.synced} agent(s) from on-chain`);
-                      } else {
-                        toast.info("No new agents to sync");
-                      }
-                    } catch (err: any) {
-                      toast.error(err?.message || "Sync failed");
-                    }
-                  }}
-                  className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-semibold transition-colors"
-                >
-                  {t("agent.syncAgents", { defaultValue: "Sync On-Chain Agents" })}
-                </button>
-              </div>
-            )}
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

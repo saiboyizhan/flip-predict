@@ -1168,7 +1168,7 @@ export async function fetchUserStats(address: string) {
     resolvedTrades: Number(raw?.resolvedTrades) || 0,
     winningTrades: Number(raw?.winningTrades) || 0,
     winRate: Number(raw?.winRate) || 0,
-    totalProfit: Number(raw?.totalProfit ?? raw?.unrealizedPnl) || 0,
+    totalProfit: Number(raw?.totalProfit) || 0,
     totalWins: Number(raw?.totalWins ?? raw?.winningTrades) || 0,
   }
 }

@@ -587,10 +587,13 @@ router.post('/auto-sync', authMiddleware, async (req: AuthRequest, res: Response
         const id = generateId();
         const now = Date.now();
 
-        await db.query(`
+        const insertResult = await db.query(`
           INSERT INTO agents (id, name, owner_address, strategy, description, persona, avatar, token_id, wallet_balance, level, experience, created_at)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1000, 1, 0, $9)
+          ON CONFLICT (token_id) DO NOTHING
+          RETURNING id
         `, [id, onChainName.slice(0, 30), userAddress, 'random', '', metadata.persona || '', avatarPath, tokenId, now]);
+        if (insertResult.rows.length === 0) continue; // already exists
 
         const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [id])).rows[0];
         syncedAgents.push(agent);

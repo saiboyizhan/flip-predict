@@ -760,7 +760,7 @@
     "selectMarket": "Select a market",
     "selectMarketPlaceholder": "Choose a market...",
     "predDirection": "Prediction Direction",
-    "confidence": "Confidence: <highlight>{{pct}}%</highlight>",
+    "confidence": "Confidence: {{pct}}%",
     "reason": "Reason (optional)",
     "reasonPlaceholder": "Why do you predict this?",
     "recording": "Recording...",
