@@ -74,6 +74,7 @@ export function WalletPage() {
   const [depositMode, setDepositMode] = useState<"contract" | "manual">("contract");
   const [withdrawMode, setWithdrawMode] = useState<"contract" | "manual">("contract");
   const [platformFaucetLoading, setPlatformFaucetLoading] = useState(false);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   // On-chain contract hooks
   const contractDeposit = useDeposit();
@@ -223,14 +224,17 @@ export function WalletPage() {
     ? parseFloat(formatUnits(balanceData.value, balanceData.decimals))
     : 0;
 
-  // Fetch real data when connected
+  // Fetch real data when connected AND authenticated (JWT token available)
   useEffect(() => {
-    if (!isConnected || !address) return;
+    if (!isConnected || !address || !isAuthenticated) return;
 
     setLoadingBalance(true);
     fetchBalance(address)
       .then((data) => setPlatformBalance(data))
-      .catch(() => setPlatformBalance(null))
+      .catch((err) => {
+        console.warn('[wallet] fetchBalance failed:', err?.message);
+        setPlatformBalance(null);
+      })
       .finally(() => setLoadingBalance(false));
 
     setLoadingHistory(true);
@@ -262,7 +266,7 @@ export function WalletPage() {
       .then((data) => setUserStats(data))
       .catch(() => setUserStats(null))
       .finally(() => setLoadingStats(false));
-  }, [isConnected, address]);
+  }, [isConnected, address, isAuthenticated]);
 
   const copyAddress = () => {
     navigator.clipboard.writeText(walletAddress);

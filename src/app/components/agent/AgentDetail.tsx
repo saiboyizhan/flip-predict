@@ -1193,7 +1193,6 @@ export function AgentDetail() {
                     { id: 'llm', label: t('agentDetail.tabLlm') },
                     { id: 'copyTrading', label: t('copyTrade.title') },
                     { id: 'earnings', label: t('earnings.title') },
-                    { id: 'onchain', label: t("agentDetail.tabOnchain", { defaultValue: "On-Chain" }) },
                   ]
                 : [
                     { id: 'trades', label: t('agentDetail.tabTrades') },
