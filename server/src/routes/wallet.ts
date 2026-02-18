@@ -287,11 +287,76 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
     return;
   }
 
+  // --- On-chain requestWithdraw tx verification ---
+  // txHash is required: user must submit an on-chain requestWithdraw() tx first
+  if (!requestTxHash || typeof requestTxHash !== 'string') {
+    res.status(400).json({ error: 'txHash is required (on-chain requestWithdraw tx)' });
+    return;
+  }
+  const normalizedRequestTxHash = requestTxHash.trim().toLowerCase();
+  if (!TX_HASH_REGEX.test(normalizedRequestTxHash)) {
+    res.status(400).json({ error: 'txHash format is invalid' });
+    return;
+  }
+
+  // Verify on-chain: tx must be a real requestWithdraw from this user with matching amount
+  const pmAddress = getPredictionMarketAddress();
+  if (pmAddress && USDT_ADDRESS) {
+    try {
+      const provider = getDepositProvider();
+      const receipt = await provider.getTransactionReceipt(normalizedRequestTxHash);
+      if (!receipt || receipt.status !== 1) {
+        res.status(400).json({ error: 'Transaction not found or failed on-chain' });
+        return;
+      }
+      const tx = await provider.getTransaction(normalizedRequestTxHash);
+      if (!tx || tx.from.toLowerCase() !== userAddress.toLowerCase()) {
+        res.status(400).json({ error: 'Transaction sender does not match your wallet' });
+        return;
+      }
+      // Verify WithdrawRequested event: topic0 = keccak256("WithdrawRequested(address,uint256,uint256)")
+      const WITHDRAW_REQUESTED_TOPIC = ethers.id('WithdrawRequested(address,uint256,uint256)');
+      let eventFound = false;
+      const expectedAmount = ethers.parseUnits(amount.toString(), 18);
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== pmAddress) continue;
+        if (!log.topics || log.topics.length < 3) continue;
+        if (log.topics[0] !== WITHDRAW_REQUESTED_TOPIC) continue;
+        // topic[1] = user address (indexed), data = amount (uint256)
+        const eventUser = '0x' + log.topics[1].slice(26).toLowerCase();
+        if (eventUser !== userAddress.toLowerCase()) continue;
+        const eventAmount = BigInt(log.data);
+        if (eventAmount >= expectedAmount) {
+          eventFound = true;
+          break;
+        }
+      }
+      if (!eventFound) {
+        res.status(400).json({ error: 'No matching WithdrawRequested event found in transaction' });
+        return;
+      }
+    } catch (err: any) {
+      console.warn('[wallet] Withdraw tx verification RPC error, proceeding:', err.message);
+      // Non-blocking: if RPC is down, allow withdrawal (same as deposit verification)
+    }
+  }
+
   const pool = getDb();
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
+
+    // Prevent same requestWithdraw tx from being used twice
+    const existingTx = await client.query(
+      'SELECT id FROM withdrawals WHERE LOWER(request_tx_hash) = $1',
+      [normalizedRequestTxHash]
+    );
+    if (existingTx.rows.length > 0) {
+      await client.query('ROLLBACK');
+      res.status(409).json({ error: 'This withdraw request tx has already been used' });
+      return;
+    }
 
     // --- Bug 5 fix: SELECT ... FOR UPDATE to prevent concurrent reads (double-spend) ---
     const balanceRow = (await client.query(
@@ -313,9 +378,6 @@ router.post('/withdraw', authMiddleware, async (req: AuthRequest, res: Response)
 
     // --- Bug 5 fix: All writes in a single transaction ---
     // Record the withdrawal (request_tx_hash = user's on-chain requestWithdraw tx)
-    const normalizedRequestTxHash = (typeof requestTxHash === 'string' && TX_HASH_REGEX.test(requestTxHash.trim()))
-      ? requestTxHash.trim().toLowerCase()
-      : null;
     await client.query(
       `INSERT INTO withdrawals (id, user_address, amount, to_address, status, created_at, request_tx_hash)
        VALUES ($1, $2, $3, $4, 'pending', $5, $6)`,

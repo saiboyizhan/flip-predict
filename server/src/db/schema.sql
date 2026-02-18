@@ -687,6 +687,8 @@ CREATE TABLE IF NOT EXISTS agent_llm_config (
 ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS tx_hash TEXT;
 -- Migration: add request_tx_hash to withdrawals for user's on-chain requestWithdraw tx
 ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS request_tx_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_withdrawals_request_tx_hash
+  ON withdrawals (LOWER(request_tx_hash)) WHERE request_tx_hash IS NOT NULL;
 
 -- Round 3: Data integrity constraints
 DO $$ BEGIN
