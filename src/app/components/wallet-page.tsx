@@ -75,6 +75,7 @@ export function WalletPage() {
   const [withdrawMode, setWithdrawMode] = useState<"contract" | "manual">("contract");
   const [platformFaucetLoading, setPlatformFaucetLoading] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const authToken = useAuthStore((s) => s.token);
 
   // On-chain contract hooks
   const contractDeposit = useDeposit();
@@ -230,21 +231,24 @@ export function WalletPage() {
 
     setLoadingBalance(true);
     const addr = address;
-    fetchBalance(addr)
-      .then((data) => {
-        setPlatformBalance(data);
-        setLoadingBalance(false);
-      })
-      .catch((err) => {
-        console.warn('[wallet] fetchBalance failed, retrying in 1.5s:', err?.message);
-        // Retry once after a short delay (JWT token may still be propagating)
-        setTimeout(() => {
-          fetchBalance(addr)
-            .then((data) => setPlatformBalance(data))
-            .catch(() => setPlatformBalance(null))
-            .finally(() => setLoadingBalance(false));
-        }, 1500);
-      });
+    // Retry up to 3 times with increasing delays (JWT may still be propagating)
+    const retryFetchBalance = (attempt: number) => {
+      fetchBalance(addr)
+        .then((data) => {
+          setPlatformBalance(data);
+          setLoadingBalance(false);
+        })
+        .catch((err) => {
+          console.warn(`[wallet] fetchBalance attempt ${attempt} failed:`, err?.message);
+          if (attempt < 3) {
+            setTimeout(() => retryFetchBalance(attempt + 1), attempt * 1000);
+          } else {
+            setPlatformBalance(null);
+            setLoadingBalance(false);
+          }
+        });
+    };
+    retryFetchBalance(1);
 
     setLoadingHistory(true);
     fetchTradeHistory(address)
@@ -275,7 +279,7 @@ export function WalletPage() {
       .then((data) => setUserStats(data))
       .catch(() => setUserStats(null))
       .finally(() => setLoadingStats(false));
-  }, [isConnected, address, isAuthenticated]);
+  }, [isConnected, address, isAuthenticated, authToken]);
 
   const copyAddress = () => {
     navigator.clipboard.writeText(walletAddress);
@@ -291,9 +295,11 @@ export function WalletPage() {
 
   const refreshBalance = () => {
     if (!address) return;
+    setLoadingBalance(true);
     fetchBalance(address)
       .then((data) => setPlatformBalance(data))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoadingBalance(false));
     refetchWalletUsdtBalance();
     refetchPredictionMarketBalance();
     refetchAllowance();
@@ -520,13 +526,27 @@ export function WalletPage() {
                 <StatSkeleton />
               ) : (
                 <div className="bg-card border border-border rounded-lg p-4">
-                  <div className="text-muted-foreground text-xs font-medium mb-1">{t('wallet.platformBalance')}</div>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-muted-foreground text-xs font-medium">{t('wallet.platformBalance')}</div>
+                    <button
+                      onClick={refreshBalance}
+                      className="p-0.5 hover:bg-accent transition-colors rounded"
+                      title={t('wallet.refreshBalance')}
+                    >
+                      <RefreshCw className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  </div>
                   <div className="text-xl sm:text-2xl font-semibold text-foreground">
-                    ${platformBalance ? platformBalance.available.toLocaleString() : "0"}
+                    {platformBalance ? `$${platformBalance.available.toLocaleString()}` : "--"}
                   </div>
                   {platformBalance && platformBalance.locked > 0 && (
                     <div className="text-muted-foreground text-xs mt-1">
                       {t('wallet.locked', { amount: platformBalance.locked.toLocaleString() })}
+                    </div>
+                  )}
+                  {!platformBalance && (
+                    <div className="text-muted-foreground text-xs mt-1">
+                      {t('wallet.balanceUnavailable', { defaultValue: 'Click refresh to load' })}
                     </div>
                   )}
                 </div>

@@ -40,18 +40,30 @@ function getDepositReceiverAddress(): string | null {
   return configured.toLowerCase();
 }
 
+function getPredictionMarketAddress(): string | null {
+  const configured = process.env.PREDICTION_MARKET_ADDRESS || process.env.VITE_PREDICTION_MARKET_ADDRESS;
+  if (!configured || !ethers.isAddress(configured)) return null;
+  return configured.toLowerCase();
+}
+
 async function verifyDepositTransaction(
   txHash: string,
   userAddress: string,
   amount: number
 ): Promise<{ ok: true } | { ok: false; statusCode: number; error: string }> {
   const receiver = getDepositReceiverAddress();
-  if (!receiver) {
+  const pmAddress = getPredictionMarketAddress();
+  if (!receiver && !pmAddress) {
     return { ok: false, statusCode: 503, error: 'Deposit verification is not configured' };
   }
   if (!USDT_ADDRESS) {
     return { ok: false, statusCode: 503, error: 'USDT_ADDRESS is not configured' };
   }
+
+  // Accept USDT transfers to either the deposit receiver wallet OR the PredictionMarket contract
+  const validReceivers = new Set<string>();
+  if (receiver) validReceivers.add(receiver);
+  if (pmAddress) validReceivers.add(pmAddress);
 
   const provider = getDepositProvider();
 
@@ -99,9 +111,9 @@ async function verifyDepositTransaction(
       const fromAddr = '0x' + log.topics[1].slice(26).toLowerCase();
       const toAddr = '0x' + log.topics[2].slice(26).toLowerCase();
 
-      // Verify: from = user, to = deposit receiver
+      // Verify: from = user, to = deposit receiver OR PredictionMarket contract
       if (fromAddr !== userAddress.toLowerCase()) continue;
-      if (toAddr !== receiver) continue;
+      if (!validReceivers.has(toAddr)) continue;
 
       // data = transfer amount (uint256)
       const transferAmount = BigInt(log.data);
@@ -153,9 +165,10 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
     return;
   }
 
-  // On-chain verification: skip if DEPOSIT_RECEIVER_ADDRESS or USDT_ADDRESS not configured (testnet demo mode)
+  // On-chain verification: skip only if USDT_ADDRESS not configured AND no receiver/PM address (testnet demo mode)
   const receiver = getDepositReceiverAddress();
-  if (receiver && USDT_ADDRESS) {
+  const pmAddr = getPredictionMarketAddress();
+  if (USDT_ADDRESS && (receiver || pmAddr)) {
     let verificationResult;
     try {
       verificationResult = await verifyDepositTransaction(normalizedTxHash, userAddress, amount);
@@ -169,7 +182,7 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
       return;
     }
   } else {
-    console.warn('[wallet] DEPOSIT_RECEIVER_ADDRESS or USDT_ADDRESS not configured — skipping on-chain verification (demo mode)');
+    console.warn('[wallet] USDT_ADDRESS not configured or no receiver address — skipping on-chain verification (demo mode)');
   }
 
   const pool = getDb();
