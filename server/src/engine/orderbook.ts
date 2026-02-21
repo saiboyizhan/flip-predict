@@ -424,13 +424,27 @@ export async function placeMarketOrder(
         // Bug D21 Fix: Coerce reserves to number before passing to AMM.
         const ammResult = calculateBuy(Number(market.yes_reserve), Number(market.no_reserve), side as 'yes' | 'no', remainingBudget);
 
+        // LP fee splitting on AMM portion: 80% back to reserves when LPs exist
+        const totalLpShares = Number(market.total_lp_shares) || 0;
+        const ammLpFee = totalLpShares > 0 ? buyFee * 0.8 : 0;
+        let finalYesReserve = ammResult.newYesReserve;
+        let finalNoReserve = ammResult.newNoReserve;
+        if (ammLpFee > 0) {
+          const postPoolValue = ammResult.newYesReserve + ammResult.newNoReserve;
+          const yesRatio = ammResult.newYesReserve / postPoolValue;
+          finalYesReserve = ammResult.newYesReserve + ammLpFee * yesRatio;
+          finalNoReserve = ammResult.newNoReserve + ammLpFee * (1 - yesRatio);
+        }
+        // Adjust protocol fee: only count non-LP portion
+        const ammProtocolFee = buyFee - ammLpFee;
+
         await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2', [remainingBudget, userAddress]);
 
         await client.query(`
           UPDATE markets
           SET yes_reserve = $1, no_reserve = $2, yes_price = $3, no_price = $4, volume = volume + $5
           WHERE id = $6
-        `, [ammResult.newYesReserve, ammResult.newNoReserve, ammResult.newYesPrice, ammResult.newNoPrice, remainingBudget, marketId]);
+        `, [finalYesReserve, finalNoReserve, ammResult.newYesPrice, ammResult.newNoPrice, remainingBudget, marketId]);
 
         // Record price history
         await client.query(
@@ -443,15 +457,24 @@ export async function placeMarketOrder(
         totalCost += remainingBudget;
 
         trades.push({ price: ammResult.pricePerShare, amount: ammResult.sharesOut, counterpartyOrderId: 'amm' });
-      }
 
-      // Record buy fee
-      if (buyFee > 0.0001) {
-        await client.query(
-          `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
-           VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
-          [randomUUID(), userAddress, marketId, buyFee, now]
-        );
+        // Record protocol fee only for AMM portion
+        if (ammProtocolFee > 0.0001) {
+          await client.query(
+            `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+             VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+            [randomUUID(), userAddress, marketId, ammProtocolFee, now]
+          );
+        }
+      } else {
+        // No AMM portion — full fee is protocol fee
+        if (buyFee > 0.0001) {
+          await client.query(
+            `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+             VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+            [randomUUID(), userAddress, marketId, buyFee, now]
+          );
+        }
       }
 
     } else {
@@ -517,12 +540,15 @@ export async function placeMarketOrder(
       // Remaining goes to AMM
       // P1 Fix: Skip dust amounts to avoid AMM errors on tiny remainders
       if (remaining < 0.01) remaining = 0;
+      let hadAmmSell = false;
       if (remaining > 0.0001) {
+        hadAmmSell = true;
         // Bug D21 Fix: Coerce reserves to number before passing to AMM.
         const ammResult = calculateSell(Number(market.yes_reserve), Number(market.no_reserve), side as 'yes' | 'no', remaining);
 
         await creditAvailableBalance(client, userAddress, ammResult.amountOut);
 
+        // LP fee splitting will be applied below after computing sellFee
         await client.query(`
           UPDATE markets
           SET yes_reserve = $1, no_reserve = $2, yes_price = $3, no_price = $4, volume = volume + $5
@@ -544,15 +570,38 @@ export async function placeMarketOrder(
       // Sell fee on total proceeds
       const sellFee = Math.round(totalCost * TRADE_FEE_RATE * 10000) / 10000;
       if (sellFee > 0.0001) {
+        // LP fee splitting: only on AMM portion
+        const totalLpShares = Number(market.total_lp_shares) || 0;
+        const lpFee = (totalLpShares > 0 && hadAmmSell) ? sellFee * 0.8 : 0;
+        const protocolFee = sellFee - lpFee;
+
+        // Deduct full fee from user
         await client.query(
           'UPDATE balances SET available = GREATEST(available - $1, 0) WHERE user_address = $2',
           [sellFee, userAddress]
         );
-        await client.query(
-          `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
-           VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
-          [randomUUID(), userAddress, marketId, sellFee, now]
-        );
+
+        // Return LP fee to reserves
+        if (lpFee > 0) {
+          const mktRes = await client.query('SELECT yes_reserve, no_reserve FROM markets WHERE id = $1', [marketId]);
+          const curYes = Number(mktRes.rows[0].yes_reserve);
+          const curNo = Number(mktRes.rows[0].no_reserve);
+          const pv = curYes + curNo;
+          const yRatio = pv > 0 ? curYes / pv : 0.5;
+          await client.query(
+            'UPDATE markets SET yes_reserve = yes_reserve + $1, no_reserve = no_reserve + $2 WHERE id = $3',
+            [lpFee * yRatio, lpFee * (1 - yRatio), marketId]
+          );
+        }
+
+        // Record only protocol fee
+        if (protocolFee > 0.0001) {
+          await client.query(
+            `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+             VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+            [randomUUID(), userAddress, marketId, protocolFee, now]
+          );
+        }
       }
     }
 

@@ -66,6 +66,11 @@ export async function executeBuyMulti(
     const fee = Math.round(amount * TRADE_FEE_RATE * 10000) / 10000;
     const effectiveAmount = amount - fee;
 
+    // LP fee splitting for multi-option markets
+    const totalLpShares = Number(market.total_lp_shares) || 0;
+    const lpFee = totalLpShares > 0 ? fee * 0.8 : 0;
+    const protocolFee = fee - lpFee;
+
     const result = calculateLMSRBuy(reserves, b, optionIndex, effectiveAmount);
 
     const orderId = randomUUID();
@@ -79,12 +84,18 @@ export async function executeBuyMulti(
     await client.query('UPDATE markets SET volume = volume + $1 WHERE id = $2', [amount, marketId]);
 
     // Update each option's reserve and price
+    // If LP fee exists, distribute proportionally across option reserves
     const newPrices: { optionId: string; price: number }[] = [];
+    const totalReserve = lpFee > 0 ? result.newReserves.reduce((s: number, r: number) => s + r, 0) : 0;
     for (let i = 0; i < options.length; i++) {
       const opt = options[i];
+      let adjustedReserve = result.newReserves[i];
+      if (lpFee > 0 && totalReserve > 0) {
+        adjustedReserve += lpFee * (result.newReserves[i] / totalReserve);
+      }
       await client.query(
         'UPDATE market_options SET reserve = $1, price = $2 WHERE id = $3',
-        [result.newReserves[i], result.newPrices[i], opt.id],
+        [adjustedReserve, result.newPrices[i], opt.id],
       );
       newPrices.push({ optionId: opt.id, price: result.newPrices[i] });
 
@@ -116,12 +127,12 @@ export async function executeBuyMulti(
         shares = positions.shares + EXCLUDED.shares
     `, [randomUUID(), userAddress, marketId, `option_${optionIndex}`, result.sharesOut, pricePerShare, now, optionId]);
 
-    // Record trade fee
-    if (fee > 0) {
+    // Record protocol fee only (LP fee already went back to reserves)
+    if (protocolFee > 0) {
       await client.query(
         `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
          VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
-        [randomUUID(), userAddress, marketId, fee, now]
+        [randomUUID(), userAddress, marketId, protocolFee, now]
       );
     }
 
@@ -194,6 +205,11 @@ export async function executeSellMulti(
     const fee = Math.round(grossAmountOut * TRADE_FEE_RATE * 10000) / 10000;
     const netAmountOut = grossAmountOut - fee;
 
+    // LP fee splitting
+    const totalLpShares = Number(market.total_lp_shares) || 0;
+    const lpFee = totalLpShares > 0 ? fee * 0.8 : 0;
+    const protocolFee = fee - lpFee;
+
     const orderId = randomUUID();
     const now = Date.now();
     const pricePerShare = grossAmountOut / shares;
@@ -209,12 +225,18 @@ export async function executeSellMulti(
     await client.query('UPDATE markets SET volume = volume + $1 WHERE id = $2', [result.amountOut, marketId]);
 
     // Update each option's reserve and price
+    // If LP fee exists, distribute proportionally across option reserves
     const newPrices: { optionId: string; price: number }[] = [];
+    const totalReserve = lpFee > 0 ? result.newReserves.reduce((s: number, r: number) => s + r, 0) : 0;
     for (let i = 0; i < options.length; i++) {
       const opt = options[i];
+      let adjustedReserve = result.newReserves[i];
+      if (lpFee > 0 && totalReserve > 0) {
+        adjustedReserve += lpFee * (result.newReserves[i] / totalReserve);
+      }
       await client.query(
         'UPDATE market_options SET reserve = $1, price = $2 WHERE id = $3',
-        [result.newReserves[i], result.newPrices[i], opt.id],
+        [adjustedReserve, result.newPrices[i], opt.id],
       );
       newPrices.push({ optionId: opt.id, price: result.newPrices[i] });
 
@@ -238,12 +260,12 @@ export async function executeSellMulti(
       await client.query('UPDATE positions SET shares = $1 WHERE id = $2', [newShares, position.id]);
     }
 
-    // Record trade fee
-    if (fee > 0) {
+    // Record protocol fee only (LP fee already went back to reserves)
+    if (protocolFee > 0) {
       await client.query(
         `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
          VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
-        [randomUUID(), userAddress, marketId, fee, now]
+        [randomUUID(), userAddress, marketId, protocolFee, now]
       );
     }
 

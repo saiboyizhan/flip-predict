@@ -720,3 +720,40 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_copy_trades_follower_time ON copy_trades(follower_address, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_settlement_log_action_time ON settlement_log(action, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_trades_market ON agent_trades(market_id);
+
+-- ============================================
+-- LP 流动性机制
+-- ============================================
+CREATE TABLE IF NOT EXISTS lp_positions (
+  id TEXT PRIMARY KEY,
+  user_address TEXT NOT NULL,
+  market_id TEXT NOT NULL REFERENCES markets(id),
+  lp_shares DOUBLE PRECISION NOT NULL,
+  deposit_amount DOUBLE PRECISION NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lp_positions_user_market ON lp_positions(user_address, market_id);
+CREATE INDEX IF NOT EXISTS idx_lp_positions_market ON lp_positions(market_id);
+
+-- Markets 新增列: LP shares tracking and configurable initial liquidity
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS total_lp_shares DOUBLE PRECISION DEFAULT 0;
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS initial_liquidity DOUBLE PRECISION DEFAULT 10000;
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS virtual_lp_shares DOUBLE PRECISION DEFAULT 0;
+
+-- Fix reserve CHECK constraints: settlement zeroes out reserves, need >= 0 instead of > 0
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_markets_yes_reserve_pos') THEN
+    ALTER TABLE markets DROP CONSTRAINT chk_markets_yes_reserve_pos;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_markets_no_reserve_pos') THEN
+    ALTER TABLE markets DROP CONSTRAINT chk_markets_no_reserve_pos;
+  END IF;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE markets ADD CONSTRAINT chk_markets_yes_reserve_nonneg CHECK (yes_reserve >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE markets ADD CONSTRAINT chk_markets_no_reserve_nonneg CHECK (no_reserve >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

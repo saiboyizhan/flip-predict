@@ -396,10 +396,17 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       // Create market (binary only - multi blocked above)
       const marketId = generateId();
 
+      // Configurable initial liquidity (default 500, range 50-100000)
+      const rawInitialLiquidity = Number(req.body.initialLiquidity);
+      const finalInitialLiquidity = Number.isFinite(rawInitialLiquidity)
+        ? Math.max(50, Math.min(100000, rawInitialLiquidity))
+        : 500;
+      const virtualLpShares = finalInitialLiquidity * 2;
+
       await client.query(`
-        INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type)
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', 0.5, 0.5, 0, 10000, 10000, 10000, $7, 'binary')
-      `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), Math.floor(now)]);
+        INSERT INTO markets (id, on_chain_market_id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at, market_type, initial_liquidity, virtual_lp_shares)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending_approval', 0.5, 0.5, 0, $8, $8, $8, $7, 'binary', $8, $9)
+      `, [marketId, parsedOnChainMarketId, normalizedTitle, normalizedDescription, normalizedCategory || 'four-meme', Math.floor(endTimeMs), Math.floor(now), finalInitialLiquidity, virtualLpShares]);
 
       // Track in user_created_markets
       await client.query(`

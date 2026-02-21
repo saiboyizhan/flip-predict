@@ -60,8 +60,23 @@ export async function executeBuy(
     const fee = Math.round(amount * TRADE_FEE_RATE * 10000) / 10000;
     const effectiveAmount = amount - fee;
 
+    // LP fee splitting: 80% back to reserves, 20% protocol (when LPs exist)
+    const totalLpShares = Number(market.total_lp_shares) || 0;
+    const lpFee = totalLpShares > 0 ? fee * 0.8 : 0;
+    const protocolFee = fee - lpFee;
+
     // Calculate trade via AMM (using effective amount after fee)
     const result = calculateBuy(yesReserve, noReserve, side, effectiveAmount);
+
+    // If LP fee exists, add it back to reserves proportionally (maintains price)
+    let finalYesReserve = result.newYesReserve;
+    let finalNoReserve = result.newNoReserve;
+    if (lpFee > 0) {
+      const postPoolValue = result.newYesReserve + result.newNoReserve;
+      const yesRatio = result.newYesReserve / postPoolValue;
+      finalYesReserve = result.newYesReserve + lpFee * yesRatio;
+      finalNoReserve = result.newNoReserve + lpFee * (1 - yesRatio);
+    }
 
     const orderId = randomUUID();
     const now = Date.now();
@@ -74,7 +89,7 @@ export async function executeBuy(
       UPDATE markets
       SET yes_reserve = $1, no_reserve = $2, yes_price = $3, no_price = $4, volume = volume + $5
       WHERE id = $6
-    `, [result.newYesReserve, result.newNoReserve, result.newYesPrice, result.newNoPrice, amount, marketId]);
+    `, [finalYesReserve, finalNoReserve, result.newYesPrice, result.newNoPrice, amount, marketId]);
 
     // Record price history
     await client.query(
@@ -102,12 +117,12 @@ export async function executeBuy(
         shares = positions.shares + EXCLUDED.shares
     `, [randomUUID(), userAddress, marketId, side, result.sharesOut, result.pricePerShare, now]);
 
-    // Record trade fee
-    if (fee > 0) {
+    // Record protocol fee only (LP fee already went back to reserves)
+    if (protocolFee > 0) {
       await client.query(
         `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
          VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
-        [randomUUID(), userAddress, marketId, fee, now]
+        [randomUUID(), userAddress, marketId, protocolFee, now]
       );
     }
 
@@ -172,6 +187,21 @@ export async function executeSell(
     const fee = Math.round(grossAmountOut * TRADE_FEE_RATE * 10000) / 10000;
     const netAmountOut = grossAmountOut - fee;
 
+    // LP fee splitting: 80% back to reserves, 20% protocol (when LPs exist)
+    const totalLpShares = Number(market.total_lp_shares) || 0;
+    const lpFee = totalLpShares > 0 ? fee * 0.8 : 0;
+    const protocolFee = fee - lpFee;
+
+    // If LP fee exists, add it back to reserves proportionally (maintains price)
+    let finalYesReserve = result.newYesReserve;
+    let finalNoReserve = result.newNoReserve;
+    if (lpFee > 0) {
+      const postPoolValue = result.newYesReserve + result.newNoReserve;
+      const yesRatio = result.newYesReserve / postPoolValue;
+      finalYesReserve = result.newYesReserve + lpFee * yesRatio;
+      finalNoReserve = result.newNoReserve + lpFee * (1 - yesRatio);
+    }
+
     const orderId = randomUUID();
     const now = Date.now();
 
@@ -188,7 +218,7 @@ export async function executeSell(
       UPDATE markets
       SET yes_reserve = $1, no_reserve = $2, yes_price = $3, no_price = $4, volume = volume + $5
       WHERE id = $6
-    `, [result.newYesReserve, result.newNoReserve, result.newYesPrice, result.newNoPrice, result.amountOut, marketId]);
+    `, [finalYesReserve, finalNoReserve, result.newYesPrice, result.newNoPrice, result.amountOut, marketId]);
 
     // Record price history
     await client.query(
@@ -210,12 +240,12 @@ export async function executeSell(
       await client.query('UPDATE positions SET shares = $1 WHERE id = $2', [newShares, position.id]);
     }
 
-    // Record trade fee
-    if (fee > 0) {
+    // Record protocol fee only (LP fee already went back to reserves)
+    if (protocolFee > 0) {
       await client.query(
         `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
          VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
-        [randomUUID(), userAddress, marketId, fee, now]
+        [randomUUID(), userAddress, marketId, protocolFee, now]
       );
     }
 

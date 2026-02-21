@@ -16,6 +16,7 @@ import { TradePanel } from "../trading/TradePanel";
 import { OrderBook } from "../trading/OrderBook";
 import { LimitOrderForm } from "../trading/LimitOrderForm";
 import { OpenOrders } from "../trading/OpenOrders";
+import { LiquidityPanel } from "../trading/LiquidityPanel";
 import { CommentSection } from "./CommentSection";
 import { PriceChart } from "./PriceChart";
 import { finalizeSettlement, getSettlement, proposeSettlement, fetchMarketActivity, fetchRelatedMarkets, fetchMarket } from "@/app/services/api";
@@ -442,6 +443,11 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
                 prefilledPrice={prefilledPrice}
               />
               <OpenOrders marketId={market.id} />
+              <LiquidityPanel
+                marketId={market.id}
+                status={market.status}
+                onLiquidityChange={handleTradeComplete}
+              />
             </>
           )}
         </div>

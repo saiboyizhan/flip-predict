@@ -562,7 +562,6 @@ export function AppHeader() {
                               : "text-muted-foreground hover:text-foreground hover:bg-accent"
                           }`}
                         >
-                          <item.icon className="w-4 h-4" />
                           <span>{t(item.labelKey)}</span>
                         </button>
                       );
@@ -622,7 +621,6 @@ export function AppHeader() {
                     : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <item.icon className="w-4 h-4" />
               <span>{t(item.labelKey)}</span>
               {isActive && (
                 <div
@@ -675,7 +673,6 @@ export function AppHeader() {
                         : "text-muted-foreground hover:text-foreground hover:bg-accent"
                     }`}
                   >
-                    <item.icon className="w-5 h-5" />
                     <span>{t(item.labelKey)}</span>
                   </button>
                 );

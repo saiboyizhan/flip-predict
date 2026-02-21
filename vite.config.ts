@@ -16,6 +16,21 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://flip-backend-production.up.railway.app',
+        changeOrigin: true,
+        headers: { Origin: 'https://flippredict.net' },
+      },
+      '/ws': {
+        target: 'wss://flip-backend-production.up.railway.app',
+        ws: true,
+        changeOrigin: true,
+        headers: { Origin: 'https://flippredict.net' },
+      },
+    },
+  },
   build: {
     chunkSizeWarningLimit: 700,
     rollupOptions: {

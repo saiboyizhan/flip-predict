@@ -32,6 +32,7 @@ import profileRoutes from './routes/profile';
 import copyTradingRoutes from './routes/copy-trading';
 
 import favoritesRoutes from './routes/favorites';
+import liquidityRoutes from './routes/liquidity';
 import { authMiddleware, AuthRequest } from './routes/middleware/auth';
 import { adminMiddleware } from './routes/middleware/admin';
 import { BSC_CHAIN_ID, BSC_NETWORK, logNetworkConfigSummary } from './config/network';
@@ -174,6 +175,7 @@ async function main() {
   app.use('/api/copy-trading', copyTradingLimiter, copyTradingRoutes);
 
   app.use('/api/favorites', publicReadLimiter, favoritesRoutes);
+  app.use('/api/markets', tradingLimiter, liquidityRoutes);
 
   // Health check
   app.get('/api/health', (_req, res) => {

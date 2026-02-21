@@ -1,6 +1,6 @@
 import type { Market, MarketOption } from '@/app/types/market.types'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://flip-backend-production.up.railway.app'
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 // --- Token management ---
 let token: string | null = null
@@ -1513,6 +1513,56 @@ export async function toggleAgentLlm(agentId: string, enabled: boolean): Promise
   return request(`/api/agents/${agentId}/llm-config/toggle`, {
     method: 'POST',
     body: JSON.stringify({ enabled }),
+  })
+}
+
+// === LP Liquidity API ===
+
+export interface LpInfo {
+  totalLpShares: number
+  virtualLpShares: number
+  poolValue: number
+  yesReserve: number
+  noReserve: number
+  userShares: number
+  userValue: number
+  shareOfPool: number
+  initialLiquidity: number
+  providers: Array<{
+    address: string
+    shares: number
+    value: number
+    depositAmount: number
+    shareOfPool: number
+  }>
+}
+
+export async function getLpInfo(marketId: string): Promise<LpInfo> {
+  return request(`/api/markets/${marketId}/liquidity`)
+}
+
+export async function addLiquidity(marketId: string, amount: number): Promise<{
+  lpShares: number
+  newYesReserve: number
+  newNoReserve: number
+  totalLpShares: number
+}> {
+  return request(`/api/markets/${marketId}/liquidity/add`, {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  })
+}
+
+export async function removeLiquidity(marketId: string, shares: number): Promise<{
+  usdtOut: number
+  sharesRemoved: number
+  newYesReserve: number
+  newNoReserve: number
+  totalLpShares: number
+}> {
+  return request(`/api/markets/${marketId}/liquidity/remove`, {
+    method: 'POST',
+    body: JSON.stringify({ shares }),
   })
 }
 

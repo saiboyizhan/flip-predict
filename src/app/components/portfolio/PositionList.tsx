@@ -1,13 +1,15 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
-import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight } from "lucide-react";
+import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight, Droplets } from "lucide-react";
 import { PositionCard } from "./PositionCard";
 import { usePortfolioStore } from "@/app/stores/usePortfolioStore";
 import { useTradeStore } from "@/app/stores/useTradeStore";
+import { getLpInfo } from "@/app/services/api";
+import { useAuthStore } from "@/app/stores/useAuthStore";
 
 interface HistoryRecord {
   id: string;
@@ -49,7 +51,10 @@ const STAT_COLOR_CLASS: Record<string, { badge: string; icon: string }> = {
 export function PositionList({ history = [] }: PositionListProps) {
   const { navigate } = useTransitionNavigate();
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<"positions" | "history">("positions");
+  const [activeTab, setActiveTab] = useState<"positions" | "history" | "lp">("positions");
+  const address = useAuthStore((s) => s.address);
+  const [lpPositions, setLpPositions] = useState<Array<{ marketId: string; marketTitle: string; shares: number; value: number; shareOfPool: number }>>([]);
+  const [lpLoading, setLpLoading] = useState(false);
 
   const positions = usePortfolioStore((s) => s.positions);
   const removePosition = usePortfolioStore((s) => s.removePosition);
@@ -70,6 +75,26 @@ export function PositionList({ history = [] }: PositionListProps) {
       setSellingIds((prev) => { const next = new Set(prev); next.delete(positionId); return next; });
     }
   };
+
+  // Fetch LP positions for all markets the user has positions in
+  useEffect(() => {
+    if (!address || positions.length === 0) return;
+    setLpLoading(true);
+    const marketIds = [...new Set(positions.map(p => p.marketId))];
+    Promise.all(
+      marketIds.map(id =>
+        getLpInfo(id).then(info => ({
+          marketId: id,
+          marketTitle: positions.find(p => p.marketId === id)?.marketTitle || id,
+          shares: info.userShares,
+          value: info.userValue,
+          shareOfPool: info.shareOfPool,
+        })).catch(() => null)
+      )
+    ).then(results => {
+      setLpPositions(results.filter((r): r is NonNullable<typeof r> => r !== null && r.shares > 0));
+    }).finally(() => setLpLoading(false));
+  }, [address, positions]);
 
   const totalValue = useMemo(
     () => positions.reduce((sum, p) => sum + p.shares * p.currentPrice, 0),
@@ -142,10 +167,10 @@ export function PositionList({ history = [] }: PositionListProps) {
 
       {/* Tabs */}
       <div className="relative flex border-b border-border">
-        {["positions", "history"].map((tab) => (
+        {["positions", "history", "lp"].map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab as "positions" | "history")}
+            onClick={() => setActiveTab(tab as "positions" | "history" | "lp")}
             className={`relative px-6 py-3 text-sm font-semibold tracking-wider uppercase transition-colors ${
               activeTab === tab
                 ? "text-blue-400"
@@ -154,7 +179,9 @@ export function PositionList({ history = [] }: PositionListProps) {
           >
             {tab === "positions"
               ? t('portfolio.currentPositions', { count: positions.length })
-              : t('portfolio.tradeHistory', { count: history.length })}
+              : tab === "history"
+              ? t('portfolio.tradeHistory', { count: history.length })
+              : `LP (${lpPositions.length})`}
             {activeTab === tab && (
               <motion.div
                 layoutId="tab-indicator"
@@ -253,6 +280,54 @@ export function PositionList({ history = [] }: PositionListProps) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "lp" && (
+        <div>
+          {lpLoading ? (
+            <div className="bg-card border border-border p-16 flex items-center justify-center">
+              <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : lpPositions.length === 0 ? (
+            <div className="bg-card border border-border p-16 flex flex-col items-center justify-center">
+              <Droplets className="w-16 h-16 text-muted-foreground mb-4" />
+              <h3 className="text-xl font-bold text-muted-foreground mb-2">{t('portfolio.noLpPositions', 'No LP Positions')}</h3>
+              <p className="text-muted-foreground text-sm">{t('portfolio.noLpPositionsDesc', 'You haven\'t provided liquidity to any markets yet.')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {lpPositions.map((lp, index) => (
+                <motion.div
+                  key={lp.marketId}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  onClick={() => navigate(`/market/${lp.marketId}`)}
+                  className="bg-card border border-border rounded-xl p-5 cursor-pointer hover:border-blue-500/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Droplets className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm font-semibold text-foreground truncate">{lp.marketTitle}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <div className="text-muted-foreground mb-1">{t('lp.yourShares', 'LP Shares')}</div>
+                      <div className="font-mono font-semibold">{lp.shares.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">{t('lp.yourValue', 'Value')}</div>
+                      <div className="font-mono font-semibold text-blue-400">${lp.value.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">{t('lp.poolShare', 'Pool Share')}</div>
+                      <div className="font-mono font-semibold">{(lp.shareOfPool * 100).toFixed(1)}%</div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
             </div>
           )}
         </div>

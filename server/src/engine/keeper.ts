@@ -265,6 +265,80 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   );
 
   // ============================================================
+  // LP Settlement: settle LP positions BEFORE trader positions
+  // ============================================================
+  const lpRes = await client.query(
+    'SELECT * FROM lp_positions WHERE market_id = $1 FOR UPDATE',
+    [marketId]
+  );
+  const lpPositions = lpRes.rows;
+
+  // Re-fetch market after order cancellation to get current reserves
+  const marketAfterCancel = await client.query('SELECT * FROM markets WHERE id = $1', [marketId]);
+  const mkt = marketAfterCancel.rows[0];
+  const currentYesReserve = Number(mkt.yes_reserve);
+  const currentNoReserve = Number(mkt.no_reserve);
+  const virtualLpShares = Number(mkt.virtual_lp_shares) || 0;
+  const totalLpShares = Number(mkt.total_lp_shares) || 0;
+
+  if (lpPositions.length > 0 && totalLpShares > 0) {
+    const allShares = virtualLpShares + totalLpShares;
+    const poolValue = currentYesReserve + currentNoReserve;
+
+    // Determine winning reserve (CTF model: losing side becomes 0)
+    const winningReserve = winningSide === 'yes' ? currentYesReserve : currentNoReserve;
+
+    // LP total payout: their fraction of the winning reserve
+    const lpFraction = totalLpShares / allShares;
+    const lpTotalPayout = lpFraction * winningReserve;
+
+    // Distribute payout to each LP proportionally
+    let totalLpPaid = 0;
+    for (const lp of lpPositions) {
+      const lpShares = Number(lp.lp_shares);
+      const lpShareRatio = lpShares / totalLpShares;
+      const payout = lpShareRatio * lpTotalPayout;
+
+      if (!Number.isFinite(payout) || payout <= 0) continue;
+
+      // Credit LP user
+      await client.query(
+        `INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
+         ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2`,
+        [lp.user_address, payout]
+      );
+
+      await client.query(`
+        INSERT INTO settlement_log (id, market_id, action, user_address, amount, details, created_at)
+        VALUES ($1, $2, 'lp_settle', $3, $4, $5, $6)
+      `, [
+        randomUUID(), marketId, lp.user_address, payout,
+        JSON.stringify({ lp_shares: lpShares, deposit: Number(lp.deposit_amount), payout, winning_side: winningSide }),
+        now
+      ]);
+
+      totalLpPaid += payout;
+    }
+
+    // Deduct LP payout from winning reserve
+    if (winningSide === 'yes') {
+      await client.query(
+        'UPDATE markets SET yes_reserve = GREATEST(yes_reserve - $1, 0) WHERE id = $2',
+        [totalLpPaid, marketId]
+      );
+    } else {
+      await client.query(
+        'UPDATE markets SET no_reserve = GREATEST(no_reserve - $1, 0) WHERE id = $2',
+        [totalLpPaid, marketId]
+      );
+    }
+
+    // Clean up LP positions and reset LP shares
+    await client.query('DELETE FROM lp_positions WHERE market_id = $1', [marketId]);
+    await client.query('UPDATE markets SET total_lp_shares = 0 WHERE id = $1', [marketId]);
+  }
+
+  // ============================================================
   // Settle positions
   // ============================================================
   // Bug D3 Fix: Lock position rows to prevent concurrent trades from modifying
