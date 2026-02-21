@@ -14,7 +14,6 @@ const CATEGORY_IDS = [
   "four-meme",
   "flap",
   "nfa",
-  "hackathon",
 ];
 
 export function CategoryNav({ selectedCategory, onCategoryChange }: CategoryNavProps) {

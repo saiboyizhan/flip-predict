@@ -27,64 +27,52 @@ interface SeedMarket {
 }
 
 const MARKETS: SeedMarket[] = [
-  // ==================== four-meme: 毕业数量预测 (13) ====================
-  // --- 日预测 ---
-  { id: 'fm-001', title: '今日 Four.meme 毕业代币数量是否超过 30 个？', description: 'Four.meme 日均毕业 50-150 个代币，bonding curve 达到 24 BNB 即自动毕业到 PancakeSwap。低于 30 个通常意味着市场极度冷清。以 Dune Analytics Four.meme Dashboard 当日 UTC 0:00-23:59 数据为准。', category: 'four-meme', yesPrice: 0.82, volume: 1180000, endDays: 1, createdDays: 0 },
-  { id: 'fm-002', title: '今日 Four.meme 毕业代币数量是否超过 80 个？', description: '80 个毕业是 Four.meme 的中等活跃水平。近 7 日有 4 天超过 80，3 天低于 80。以 Dune Analytics 当日数据为准。', category: 'four-meme', yesPrice: 0.55, volume: 1010000, endDays: 1, createdDays: 0 },
-  { id: 'fm-003', title: '今日 Four.meme 毕业代币数量是否超过 150 个？', description: '150+ 属于高峰水平，历史上仅在市场极度 FOMO 时出现过（如 2025.10 Meme Season 期间）。以 Dune Analytics 当日数据为准。', category: 'four-meme', yesPrice: 0.18, volume: 760000, endDays: 1, createdDays: 0 },
-  { id: 'fm-004', title: '2月16日 Four.meme 毕业代币是否超过 50 个？', description: '周日通常是链上活跃度的低谷。过去 4 个周日平均毕业 62 个，但波动较大（最低 38，最高 91）。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.63, volume: 580000, endDays: 1, createdDays: 0 },
-  { id: 'fm-005', title: '2月17日 Four.meme 毕业代币是否超过 100 个？', description: '周一通常迎来链上活跃度回升。如果周末有新叙事发酵，周一容易出现毕业高峰。过去 4 个周一平均毕业 95 个。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.47, volume: 490000, endDays: 2, createdDays: 0 },
-  { id: 'fm-006', title: '2月18日 Four.meme 毕业代币是否超过 80 个？', description: '黑客松截止前一天 (2/19)，BSC 生态关注度可能提升。周二历史平均毕业约 88 个，属于正常偏高水平。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.58, volume: 400000, endDays: 3, createdDays: 0 },
-  { id: 'fm-007', title: '2月19日 Four.meme 毕业代币是否超过 30 个？', description: 'Good Vibes Only 黑客松截止当天。注意力可能从 Meme 转向黑客松，但 Four.meme 基础毕业量通常不会低于 40。30 是极端低值阈值。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.88, volume: 320000, endDays: 4, createdDays: 0 },
+  // ==================== four-meme: 毕业数量预测 (12) ====================
+  // --- 日预测 (2/21 起) ---
+  { id: 'fm-001', title: '2月21日 Four.meme 毕业代币数量是否超过 30 个？', description: 'Four.meme 日均毕业 50-150 个代币，bonding curve 达到 24 BNB 即自动毕业到 PancakeSwap。低于 30 个通常意味着市场极度冷清。周六链上活跃度可能偏低。以 Dune Analytics Four.meme Dashboard 当日 UTC 0:00-23:59 数据为准。', category: 'four-meme', yesPrice: 0.82, volume: 1180000, endDays: 1, createdDays: 0 },
+  { id: 'fm-002', title: '2月21日 Four.meme 毕业代币数量是否超过 80 个？', description: '80 个毕业是 Four.meme 的中等活跃水平。周末通常低于工作日平均值。近 7 日有 4 天超过 80，3 天低于 80。以 Dune Analytics 当日数据为准。', category: 'four-meme', yesPrice: 0.48, volume: 1010000, endDays: 1, createdDays: 0 },
+  { id: 'fm-003', title: '2月22日 Four.meme 毕业代币数量是否超过 60 个？', description: '周日通常是链上活跃度的低谷。过去 4 个周日平均毕业 62 个，但波动较大（最低 38，最高 91）。60 个是中等预期。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.55, volume: 580000, endDays: 2, createdDays: 0 },
+  { id: 'fm-004', title: '2月23日 Four.meme 毕业代币是否超过 100 个？', description: '周日链上活跃度偏低，100 个是较高目标。过去 4 个周日最高 91 个。除非突发 FOMO 叙事，否则较难达到。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.25, volume: 490000, endDays: 3, createdDays: 0 },
+  { id: 'fm-005', title: '2月24日 Four.meme 毕业代币是否超过 100 个？', description: '周一通常迎来链上活跃度回升。如果周末有新叙事发酵，周一容易出现毕业高峰。过去 4 个周一平均毕业 95 个。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.47, volume: 640000, endDays: 4, createdDays: 0 },
+  { id: 'fm-006', title: '2月25日 Four.meme 毕业代币是否超过 80 个？', description: '周二历史平均毕业约 88 个，属于正常偏高水平。BNB 价格走势和 BSC 整体热度是关键影响因素。以 Dune Analytics 数据为准。', category: 'four-meme', yesPrice: 0.58, volume: 400000, endDays: 5, createdDays: 0 },
   // --- 周预测 ---
-  { id: 'fm-008', title: '本周 (2/10-2/16) Four.meme 毕业代币总数是否超过 500 个？', description: '日均 50-150 计算，本周 7 天合计需日均 71+。截至 2/14 已毕业约 380 个，剩余 2 天需 120+。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.72, volume: 1480000, endDays: 1, createdDays: 3 },
-  { id: 'fm-009', title: '本周 (2/10-2/16) Four.meme 毕业代币总数是否超过 700 个？', description: '700 需要日均 100+，属于较高水平。截至 2/14 已毕业约 380 个，剩 2 天需 320+（日均 160），难度较大。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.25, volume: 890000, endDays: 1, createdDays: 3 },
-  { id: 'fm-010', title: '下周 (2/17-2/23) Four.meme 毕业代币总数是否超过 600 个？', description: '下周包含黑客松结束后的反弹期，历史上大事件后 Meme 活跃度通常上升。600 需日均 85+，为中等偏高水平。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.52, volume: 740000, endDays: 8, createdDays: 1 },
-  { id: 'fm-011', title: '下周 (2/17-2/23) Four.meme 毕业代币总数是否超过 1000 个？', description: '1000 需日均 143+，接近历史高峰水平。除非出现 Meme Season 级别的 FOMO 行情，否则很难达到。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.15, volume: 1080000, endDays: 8, createdDays: 1 },
+  { id: 'fm-007', title: '本周 (2/17-2/23) Four.meme 毕业代币总数是否超过 500 个？', description: '日均 50-150 计算，本周 7 天合计需日均 71+。截至 2/20 已毕业约 350 个，剩余 3 天需 150+（日均 50），难度不大。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.75, volume: 1480000, endDays: 3, createdDays: 2 },
+  { id: 'fm-008', title: '本周 (2/17-2/23) Four.meme 毕业代币总数是否超过 700 个？', description: '700 需要日均 100+，属于较高水平。截至 2/20 已毕业约 350 个，剩 3 天需 350+（日均 117），有一定挑战。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.32, volume: 890000, endDays: 3, createdDays: 2 },
+  { id: 'fm-009', title: '下周 (2/24-3/2) Four.meme 毕业代币总数是否超过 600 个？', description: '下周 BSC 生态进入常态化运行，600 需日均 85+，为中等偏高水平。BNB 价格走势将直接影响 Meme 热度。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.50, volume: 740000, endDays: 10, createdDays: 0 },
+  { id: 'fm-010', title: '下周 (2/24-3/2) Four.meme 毕业代币总数是否超过 1000 个？', description: '1000 需日均 143+，接近历史高峰水平。除非出现 Meme Season 级别的 FOMO 行情，否则很难达到。以 Dune Analytics 周统计数据为准。', category: 'four-meme', yesPrice: 0.15, volume: 1080000, endDays: 10, createdDays: 0 },
   // --- 毕业率 + 创建量 ---
-  { id: 'fm-012', title: '本周 Four.meme 毕业率是否超过 2%？', description: '毕业率 = 毕业数 / 新创建数。历史平均约 1.3%，上周达 1.75%。超过 2% 意味着质量项目比例显著提升。以 Dune Analytics 毕业率图表为准。', category: 'four-meme', yesPrice: 0.30, volume: 620000, endDays: 1, createdDays: 2 },
-  { id: 'fm-013', title: '今日 Four.meme 新创建代币数量是否超过 10,000 个？', description: '10,000+ 创建量标志着 Meme 热潮回归，2025 年 10 月曾连续多日达到此水平。当前日均约 5,000-8,000。以 Dune Analytics 当日数据为准。', category: 'four-meme', yesPrice: 0.35, volume: 520000, endDays: 1, createdDays: 0 },
+  { id: 'fm-011', title: '本周 Four.meme 毕业率是否超过 2%？', description: '毕业率 = 毕业数 / 新创建数。历史平均约 1.3%，近期最高达 1.75%。超过 2% 意味着质量项目比例显著提升。以 Dune Analytics 毕业率图表为准。', category: 'four-meme', yesPrice: 0.28, volume: 620000, endDays: 3, createdDays: 1 },
+  { id: 'fm-012', title: '2月21日 Four.meme 新创建代币数量是否超过 10,000 个？', description: '10,000+ 创建量标志着 Meme 热潮回归，2025 年 10 月曾连续多日达到此水平。当前日均约 5,000-8,000。周六可能偏低。以 Dune Analytics 当日数据为准。', category: 'four-meme', yesPrice: 0.30, volume: 520000, endDays: 1, createdDays: 0 },
 
-  // ==================== flap: 毕业数量预测 (11) ====================
-  // --- 日预测 ---
-  { id: 'fl-001', title: '今日 Flap 毕业代币数量是否超过 5 个？', description: 'Flap 是 BSC 上的 Meme 代币发射平台，bonding curve 达到 16 BNB 即自动毕业到 PancakeSwap V3。平台规模较小，日均毕业约 3-15 个。5 个是较低阈值。以 Flap Board 当日数据为准。', category: 'flap', yesPrice: 0.75, volume: 480000, endDays: 1, createdDays: 0 },
-  { id: 'fl-002', title: '今日 Flap 毕业代币数量是否超过 10 个？', description: '10 个毕业是 Flap 的中等偏高水平。平台日均毕业约 3-15 个，超过 10 个说明市场活跃度不错。以 Flap Board 当日 Listed on Dex 数量为准。', category: 'flap', yesPrice: 0.45, volume: 370000, endDays: 1, createdDays: 0 },
-  { id: 'fl-003', title: '今日 Flap 毕业代币数量是否超过 20 个？', description: '20+ 毕业属于 Flap 的高峰水平，通常只在 BSC Meme 热潮期间出现。PreLaunch 功能（2026.1.8 上线）是否带来更多优质项目？以 Flap Board 当日数据为准。', category: 'flap', yesPrice: 0.15, volume: 310000, endDays: 1, createdDays: 0 },
-  { id: 'fl-004', title: '2月16日 Flap 毕业代币是否超过 8 个？', description: '周日链上活跃度通常下降。Flap 周日毕业量可能低于工作日。8 个是周日的中等预期。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.50, volume: 250000, endDays: 1, createdDays: 0 },
-  { id: 'fl-005', title: '2月17日 Flap 毕业代币是否超过 10 个？', description: '周一回暖期。如果周末有新叙事（如新 Tax Vault 模板上线），周一可能迎来毕业小高峰。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.42, volume: 220000, endDays: 2, createdDays: 0 },
-  { id: 'fl-006', title: '2月19日 Flap 毕业代币是否超过 5 个？', description: '黑客松截止当天，BSC 生态关注度可能提升。Flap 基础毕业量通常不低于 3-5 个。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.72, volume: 180000, endDays: 4, createdDays: 0 },
+  // ==================== flap: 毕业数量预测 (10) ====================
+  // --- 日预测 (2/21 起) ---
+  { id: 'fl-001', title: '2月21日 Flap 毕业代币数量是否超过 5 个？', description: 'Flap 是 BSC 上的 Meme 代币发射平台，bonding curve 达到 16 BNB 即自动毕业到 PancakeSwap V3。平台规模较小，日均毕业约 3-15 个。5 个是较低阈值。以 Flap Board 当日数据为准。', category: 'flap', yesPrice: 0.75, volume: 480000, endDays: 1, createdDays: 0 },
+  { id: 'fl-002', title: '2月21日 Flap 毕业代币数量是否超过 10 个？', description: '10 个毕业是 Flap 的中等偏高水平。平台日均毕业约 3-15 个，周六活跃度可能偏低。以 Flap Board 当日 Listed on Dex 数量为准。', category: 'flap', yesPrice: 0.40, volume: 370000, endDays: 1, createdDays: 0 },
+  { id: 'fl-003', title: '2月22日 Flap 毕业代币数量是否超过 8 个？', description: '周日链上活跃度通常下降。Flap 周日毕业量可能低于工作日。8 个是周日的中等预期。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.45, volume: 250000, endDays: 2, createdDays: 0 },
+  { id: 'fl-004', title: '2月24日 Flap 毕业代币是否超过 10 个？', description: '周一回暖期。如果周末有新叙事（如新 Tax Vault 模板上线），周一可能迎来毕业小高峰。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.42, volume: 220000, endDays: 4, createdDays: 0 },
+  { id: 'fl-005', title: '2月21日 Flap 毕业代币数量是否超过 20 个？', description: '20+ 毕业属于 Flap 的高峰水平，通常只在 BSC Meme 热潮期间出现。PreLaunch 功能是否带来更多优质项目？以 Flap Board 当日数据为准。', category: 'flap', yesPrice: 0.15, volume: 310000, endDays: 1, createdDays: 0 },
   // --- 周预测 ---
-  { id: 'fl-007', title: '本周 (2/10-2/16) Flap 毕业代币总数是否超过 50 个？', description: 'Flap 日均毕业 3-15 个，7 天合计需日均 7+。50 个是中等偏高的一周目标。以 Flap Board 周统计数据为准。', category: 'flap', yesPrice: 0.60, volume: 580000, endDays: 1, createdDays: 3 },
-  { id: 'fl-008', title: '本周 (2/10-2/16) Flap 毕业代币总数是否超过 100 个？', description: '100 个需日均 14+，接近 Flap 的上限水平。除非出现 BSC Meme 热潮，否则难以达到。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.20, volume: 430000, endDays: 1, createdDays: 3 },
-  { id: 'fl-009', title: '下周 (2/17-2/23) Flap 毕业代币总数是否超过 80 个？', description: '黑客松结束后 BSC 生态可能迎来反弹。PreLaunch 功能持续吸引新项目。80 个需日均 11+。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.38, volume: 350000, endDays: 8, createdDays: 1 },
+  { id: 'fl-006', title: '本周 (2/17-2/23) Flap 毕业代币总数是否超过 50 个？', description: 'Flap 日均毕业 3-15 个，7 天合计需日均 7+。50 个是中等偏高的一周目标。以 Flap Board 周统计数据为准。', category: 'flap', yesPrice: 0.58, volume: 580000, endDays: 3, createdDays: 2 },
+  { id: 'fl-007', title: '本周 (2/17-2/23) Flap 毕业代币总数是否超过 100 个？', description: '100 个需日均 14+，接近 Flap 的上限水平。除非出现 BSC Meme 热潮，否则难以达到。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.18, volume: 430000, endDays: 3, createdDays: 2 },
+  { id: 'fl-008', title: '下周 (2/24-3/2) Flap 毕业代币总数是否超过 80 个？', description: 'BSC 生态进入常态运行。PreLaunch 功能持续吸引新项目。80 个需日均 11+。以 Flap Board 数据为准。', category: 'flap', yesPrice: 0.35, volume: 350000, endDays: 10, createdDays: 0 },
   // --- 创建量 + 毕业率 ---
-  { id: 'fl-010', title: '今日 Flap 新创建代币数量是否超过 200 个？', description: 'Flap 日均创建量约 100-500 个，远低于 Four.meme。200 个是中等水平。Tax as Funds 功能是否吸引更多创作者？以 Flap Board Newly Created 数量为准。', category: 'flap', yesPrice: 0.55, volume: 260000, endDays: 1, createdDays: 0 },
-  { id: 'fl-011', title: '本周 Flap 毕业率是否超过 5%？', description: 'Flap 毕业率 (毕业数/创建数) 通常高于 Four.meme (约 1.3%)，因为 Tax Token 机制吸引更认真的项目方。5% 是较高目标。以 Flap Board 数据计算。', category: 'flap', yesPrice: 0.28, volume: 230000, endDays: 1, createdDays: 2 },
+  { id: 'fl-009', title: '2月21日 Flap 新创建代币数量是否超过 200 个？', description: 'Flap 日均创建量约 100-500 个，远低于 Four.meme。200 个是中等水平。Tax as Funds 功能是否吸引更多创作者？以 Flap Board Newly Created 数量为准。', category: 'flap', yesPrice: 0.50, volume: 260000, endDays: 1, createdDays: 0 },
+  { id: 'fl-010', title: '本周 Flap 毕业率是否超过 5%？', description: 'Flap 毕业率 (毕业数/创建数) 通常高于 Four.meme (约 1.3%)，因为 Tax Token 机制吸引更认真的项目方。5% 是较高目标。以 Flap Board 数据计算。', category: 'flap', yesPrice: 0.28, volume: 230000, endDays: 3, createdDays: 1 },
 
   // ==================== nfa: NFA Agent 生态预测 (10) ====================
   // --- 日预测 ---
-  { id: 'nf-001', title: '今日 NFA Agent 总交易量是否超过 500 笔？', description: 'NFA (Non-Fungible Agent) 系统中的 ERC-721 Agent 支持 5 种策略类型，日均交易量约 200-600 笔。500 笔是中等偏高水平。以 Flip Platform Dashboard 当日数据为准。', category: 'nfa', yesPrice: 0.55, volume: 640000, endDays: 1, createdDays: 0 },
-  { id: 'nf-002', title: '今日 NFA Agent 预测总数是否超过 200 次？', description: 'NFA Agent 可以对市场进行自动预测记录。当前平台共有约 80 个活跃 Agent，日均预测约 120-250 次。200 次需要大部分 Agent 处于活跃状态。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.48, volume: 420000, endDays: 1, createdDays: 0 },
+  { id: 'nf-001', title: '2月21日 NFA Agent 总交易量是否超过 500 笔？', description: 'NFA (Non-Fungible Agent) 系统中的 ERC-721 Agent 支持 5 种策略类型，日均交易量约 200-600 笔。500 笔是中等偏高水平。周六交易量可能偏低。以 Flip Platform Dashboard 当日数据为准。', category: 'nfa', yesPrice: 0.50, volume: 640000, endDays: 1, createdDays: 0 },
+  { id: 'nf-002', title: '2月21日 NFA Agent 预测总数是否超过 200 次？', description: 'NFA Agent 可以对市场进行自动预测记录。当前平台共有约 80 个活跃 Agent，日均预测约 120-250 次。200 次需要大部分 Agent 处于活跃状态。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.48, volume: 420000, endDays: 1, createdDays: 0 },
   // --- 周预测 ---
-  { id: 'nf-003', title: '本周 NFA Agent 排行榜 Top1 准确率是否超过 70%？', description: '排行榜 Top1 Agent 通常准确率在 55%-75% 之间。超过 70% 意味着表现极为出色，接近最优策略水平。以 Flip Platform Dashboard 本周排行数据为准。', category: 'nfa', yesPrice: 0.40, volume: 820000, endDays: 1, createdDays: 2 },
-  { id: 'nf-004', title: '本周新铸造 NFA Agent 数量是否超过 50 个？', description: 'NFA Agent 采用 Free Mint 模式，每个地址最多 3 个。本周黑客松期间 BSC 生态关注度提升，可能带动 Agent 铸造量。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.35, volume: 510000, endDays: 1, createdDays: 1 },
-  { id: 'nf-005', title: '本周 NFA Agent 平均收益率是否为正？', description: '所有活跃 NFA Agent 在本周的平均收益率。正收益意味着 Agent 策略整体有效。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.52, volume: 710000, endDays: 1, createdDays: 2 },
-  { id: 'nf-006', title: '本周 NFA 跟单交易关注者是否超过 100 人？', description: 'NFA Agent 支持跟单功能，用户可以自动复制 Top Agent 的交易策略。当前跟单总人数约 60 人。黑客松期间新用户涌入可能推高这个数字。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.30, volume: 380000, endDays: 1, createdDays: 1 },
-  { id: 'nf-007', title: '本周是否有 NFA Agent 达成 5 连胜？', description: '5 连胜要求 Agent 连续 5 次预测全部正确。按平均 60% 准确率计算，5 连胜概率约 7.8%。但高水平 Agent 准确率可达 70%+。以 Flip Platform Dashboard 连胜记录为准。', category: 'nfa', yesPrice: 0.42, volume: 560000, endDays: 1, createdDays: 2 },
-  { id: 'nf-008', title: 'NFA Agent 市场上架总数是否超过 30 个？', description: 'NFA Agent 支持出售和出租。当前市场上架约 15 个 Agent。随着平台用户增长和 Agent 价值被认可，上架数量可能增加。以 Flip Platform Dashboard Agent 市场数据为准。', category: 'nfa', yesPrice: 0.25, volume: 290000, endDays: 4, createdDays: 1 },
+  { id: 'nf-003', title: '本周 NFA Agent 排行榜 Top1 准确率是否超过 70%？', description: '排行榜 Top1 Agent 通常准确率在 55%-75% 之间。超过 70% 意味着表现极为出色，接近最优策略水平。以 Flip Platform Dashboard 本周排行数据为准。', category: 'nfa', yesPrice: 0.40, volume: 820000, endDays: 3, createdDays: 1 },
+  { id: 'nf-004', title: '本周新铸造 NFA Agent 数量是否超过 50 个？', description: 'NFA Agent 采用 Free Mint 模式，每个地址最多 3 个。BSC 生态关注度持续提升，可能带动 Agent 铸造量。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.35, volume: 510000, endDays: 3, createdDays: 0 },
+  { id: 'nf-005', title: '本周 NFA Agent 平均收益率是否为正？', description: '所有活跃 NFA Agent 在本周的平均收益率。正收益意味着 Agent 策略整体有效。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.52, volume: 710000, endDays: 3, createdDays: 1 },
+  { id: 'nf-006', title: '本周 NFA 跟单交易关注者是否超过 100 人？', description: 'NFA Agent 支持跟单功能，用户可以自动复制 Top Agent 的交易策略。当前跟单总人数约 60 人。新用户涌入可能推高这个数字。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.30, volume: 380000, endDays: 3, createdDays: 0 },
+  { id: 'nf-007', title: '本周是否有 NFA Agent 达成 5 连胜？', description: '5 连胜要求 Agent 连续 5 次预测全部正确。按平均 60% 准确率计算，5 连胜概率约 7.8%。但高水平 Agent 准确率可达 70%+。以 Flip Platform Dashboard 连胜记录为准。', category: 'nfa', yesPrice: 0.42, volume: 560000, endDays: 3, createdDays: 1 },
+  { id: 'nf-008', title: 'NFA Agent 市场上架总数是否超过 30 个？', description: 'NFA Agent 支持出售和出租。当前市场上架约 15 个 Agent。随着平台用户增长和 Agent 价值被认可，上架数量可能增加。以 Flip Platform Dashboard Agent 市场数据为准。', category: 'nfa', yesPrice: 0.25, volume: 290000, endDays: 5, createdDays: 0 },
   // --- 下周预测 ---
-  { id: 'nf-009', title: '下周 (2/17-2/23) NFA Agent 总交易量是否超过 3000 笔？', description: '黑客松结束后用户可能更多关注 NFA Agent 交易功能。日均 500 笔计算，7 天 3500 笔。但黑客松后可能有用户流失。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.45, volume: 480000, endDays: 8, createdDays: 1 },
-  { id: 'nf-010', title: '下周 (2/17-2/23) 激进策略 Agent 收益率是否跑赢稳健策略？', description: '激进策略偏好高风险高回报，稳健策略追求稳定收益。在波动较大的市场中激进策略通常占优。黑客松结束后市场波动方向不确定。以 Flip Platform Dashboard 策略对比数据为准。', category: 'nfa', yesPrice: 0.58, volume: 590000, endDays: 8, createdDays: 1 },
-
-  // ==================== hackathon: Good Vibes Only 黑客松预测 (8) ====================
-  { id: 'hk-001', title: 'Good Vibes Only 黑客松总提交项目数是否超过 200 个？', description: 'Good Vibes Only 是 BNB Chain 上的黑客松活动，截止日期 2026-02-19。BSC 生态近期活跃度较高，但 200 个提交是较高目标。以 DoraHacks 官方数据为准。', category: 'hackathon', yesPrice: 0.45, volume: 930000, endDays: 4, createdDays: 3 },
-  { id: 'hk-002', title: '黑客松 DeFi 类别是否获得最多提交数？', description: 'BNB Chain 黑客松通常设有 DeFi、GameFi、AI+Blockchain 等赛道。DeFi 历来是 BSC 强项，但 AI+Blockchain 近期热度极高。以 DoraHacks 官方分类统计为准。', category: 'hackathon', yesPrice: 0.38, volume: 740000, endDays: 4, createdDays: 2 },
-  { id: 'hk-003', title: '黑客松 AI + Blockchain 赛道提交数是否超过 50 个？', description: 'AI Agent 和链上 AI 是 2026 年最热门叙事之一。BSC 上已有 ERC-8004 等标准。50 个需要强劲参赛热情。以 DoraHacks 官方分类数据为准。', category: 'hackathon', yesPrice: 0.52, volume: 830000, endDays: 4, createdDays: 2 },
-  { id: 'hk-004', title: '黑客松获奖项目是否全部开源？', description: '开源是 Web3 精神的核心。大多数黑客松获奖项目会在 GitHub 上公开代码，但也有部分项目选择闭源。以 DoraHacks 获奖项目 GitHub 链接验证为准。', category: 'hackathon', yesPrice: 0.65, volume: 530000, endDays: 8, createdDays: 1 },
-  { id: 'hk-005', title: '是否有 BSC Meme 相关项目在黑客松中获奖？', description: 'BSC Meme 生态（Four.meme、Flap 等）是 BNB Chain 的重要组成部分。如果有 Meme 相关工具或协议获奖，将进一步验证 Meme 赛道价值。以 DoraHacks 官方获奖名单为准。', category: 'hackathon', yesPrice: 0.32, volume: 670000, endDays: 8, createdDays: 2 },
-  { id: 'hk-006', title: '黑客松总奖金池是否超过 $50K？', description: 'BNB Chain 历史上黑客松奖金池通常在 $30K-$100K 之间。$50K 是中等偏高的预期。以 DoraHacks / Good Vibes Only 官方公告为准。', category: 'hackathon', yesPrice: 0.60, volume: 490000, endDays: 4, createdDays: 1 },
-  { id: 'hk-007', title: '决赛入围项目中亚洲团队是否超过 5 支？', description: 'BNB Chain 在亚洲有强大的开发者社区。但全球化趋势下欧美团队参与度也在提升。5 支亚洲团队入围意味着亚洲开发者继续保持竞争力。以 DoraHacks 决赛名单为准。', category: 'hackathon', yesPrice: 0.70, volume: 400000, endDays: 8, createdDays: 1 },
-  { id: 'hk-008', title: '黑客松是否催生超过 100 个新 GitHub 仓库？', description: '每个参赛项目通常至少创建 1 个 GitHub 仓库。100 个仓库大约对应 50-80 个参赛团队的代码产出。以 GitHub 搜索相关关键词统计为准。', category: 'hackathon', yesPrice: 0.55, volume: 360000, endDays: 8, createdDays: 1 },
+  { id: 'nf-009', title: '下周 (2/24-3/2) NFA Agent 总交易量是否超过 3000 笔？', description: 'BSC 生态进入常态运行，用户关注 NFA Agent 交易功能。日均 500 笔计算，7 天 3500 笔。以 Flip Platform Dashboard 数据为准。', category: 'nfa', yesPrice: 0.45, volume: 480000, endDays: 10, createdDays: 0 },
+  { id: 'nf-010', title: '下周 (2/24-3/2) 激进策略 Agent 收益率是否跑赢稳健策略？', description: '激进策略偏好高风险高回报，稳健策略追求稳定收益。在波动较大的市场中激进策略通常占优。市场波动方向不确定。以 Flip Platform Dashboard 策略对比数据为准。', category: 'nfa', yesPrice: 0.55, volume: 590000, endDays: 10, createdDays: 0 },
 ];
 
 function priceToReserves(yesPrice: number, baseLiquidity: number = 10000) {
@@ -251,10 +239,9 @@ const SAMPLE_AGENTS: SeedAgent[] = [
 
 const MARKET_IDS = [
   'fm-001', 'fm-002', 'fm-003', 'fm-004', 'fm-005',
-  'fm-008', 'fm-009', 'fm-010', 'fm-011', 'fm-012', 'fm-013',
-  'fl-001', 'fl-002', 'fl-004', 'fl-007', 'fl-009', 'fl-010', 'fl-011',
+  'fm-007', 'fm-008', 'fm-009', 'fm-010', 'fm-011', 'fm-012',
+  'fl-001', 'fl-002', 'fl-003', 'fl-006', 'fl-008', 'fl-009', 'fl-010',
   'nf-001', 'nf-003', 'nf-005', 'nf-007', 'nf-009', 'nf-010',
-  'hk-001', 'hk-002', 'hk-003', 'hk-005', 'hk-008',
 ];
 
 export async function seedAgents(pool: Pool) {
@@ -315,19 +302,16 @@ export async function seedAgents(pool: Pool) {
     for (const a of SAMPLE_AGENTS) {
       const riskPref = a.strategy === 'aggressive' ? 0.8 : a.strategy === 'conservative' ? 0.2 : a.strategy === 'contrarian' ? 0.6 : a.strategy === 'momentum' ? 0.5 : 0.5;
       const contrarian = a.strategy === 'contrarian' ? 0.8 : a.strategy === 'aggressive' ? 0.3 : 0.1;
-      const fmTrades = Math.floor(a.trades * 0.40);
-      const flTrades = Math.floor(a.trades * 0.25);
-      const nfTrades = Math.floor(a.trades * 0.20);
-      const hkTrades = a.trades - fmTrades - flTrades - nfTrades;
-      const fmWins = Math.floor(a.wins * 0.40);
-      const flWins = Math.floor(a.wins * 0.25);
-      const nfWins = Math.floor(a.wins * 0.20);
-      const hkWins = a.wins - fmWins - flWins - nfWins;
+      const fmTrades = Math.floor(a.trades * 0.45);
+      const flTrades = Math.floor(a.trades * 0.30);
+      const nfTrades = a.trades - fmTrades - flTrades;
+      const fmWins = Math.floor(a.wins * 0.45);
+      const flWins = Math.floor(a.wins * 0.30);
+      const nfWins = a.wins - fmWins - flWins;
       const categoryStats = JSON.stringify({
         'four-meme': { total: fmTrades, correct: fmWins },
         'flap': { total: flTrades, correct: flWins },
         'nfa': { total: nfTrades, correct: nfWins },
-        'hackathon': { total: hkTrades, correct: hkWins },
       });
       await client.query(`
         INSERT INTO agent_style_profile (agent_id, category_stats, risk_preference, confidence_calibration, contrarian_tendency, streak_current, streak_best, updated_at)
@@ -459,32 +443,32 @@ const SEED_COMMENTS: SeedComment[] = [
       '16 BNB 就能毕业，比 Four.meme 的 24 BNB 门槛低',
       '今天 Board 上 Graduating 状态的不多，10 个有点悬',
       'Tax Token 项目通常更认真，毕业概率更高',
-      '45/55 这个赔率很有吸引力，值得小仓位 YES',
+      '40/60 这个赔率很有吸引力，值得小仓位 YES',
     ],
   },
   {
-    marketId: 'fl-007',
+    marketId: 'fl-006',
     comments: [
       '本周还剩两天，看前几天平均 7-8 个/天，50 应该能到',
       'Flap 本周表现还行，创建量也在增长',
       '50 需要日均 7+，这是 Flap 的正常水平',
       '周末可能拖后腿，但前 5 天积累应该够了',
-      'YES 60% 合理，不算确定但概率偏高',
+      'YES 58% 合理，不算确定但概率偏高',
       '我在 Flap 上观察了一周，感觉 50 问题不大',
     ],
   },
   {
-    marketId: 'fl-009',
+    marketId: 'fl-008',
     comments: [
       '下周 80 个需要日均 11+，对 Flap 来说挑战不小',
-      '黑客松结束后的反弹能不能带动 Flap 还不好说',
-      'Flap 用户群和黑客松参赛者重叠度不高',
-      '38% YES 偏低了，我觉得 45% 更合理',
+      'BSC 生态进入常态化运行，Flap 能否保持热度是关键',
+      'Flap 用户群比较稳定，日均毕业量波动不大',
+      '35% YES 偏低了，我觉得 40% 更合理',
       'PreLaunch 功能如果持续吸引项目方，80 有可能',
     ],
   },
   {
-    marketId: 'fl-010',
+    marketId: 'fl-009',
     comments: [
       '200 个创建量对 Flap 来说是中等水平',
       'Tax as Funds 功能确实吸引了不少项目方来 Flap',
@@ -529,35 +513,6 @@ const SEED_COMMENTS: SeedComment[] = [
       '只要有一个 Agent 达成就算 YES，所以概率比想象中高',
       'Alpha猎手上周有过 4 连胜，差一步就到了',
       '趋势追踪者在行情好的时候连胜概率最高',
-    ],
-  },
-  // ==================== hackathon ====================
-  {
-    marketId: 'hk-001',
-    comments: [
-      '200 个项目对 BNB Chain 黑客松来说是高目标',
-      '上一次 BNB Chain 黑客松提交了大概 150 个，这次热度更高',
-      '还有 4 天截止，很多团队都是最后几天才提交的',
-      '看 DoraHacks 上已经有不少团队注册了，200 有可能',
-      'AI+Blockchain 赛道贡献了不少新项目',
-    ],
-  },
-  {
-    marketId: 'hk-003',
-    comments: [
-      'AI Agent 是今年最热的叙事，50 个 AI 项目完全有可能',
-      'ERC-8004 刚上线 BSC，很多团队在围绕它构建',
-      '不过很多 AI 项目质量参差不齐，是否算 AI+Blockchain 赛道要看官方分类',
-      'ChatGPT 类工具让 AI 项目门槛降低了很多，提交数会偏高',
-    ],
-  },
-  {
-    marketId: 'hk-005',
-    comments: [
-      'Meme 赛道在黑客松中一般不占优，评委更看重技术创新',
-      '但如果是 Meme 分析工具或者交易聚合器，有机会获奖',
-      '预测市场本身也算 Meme 相关，我们自己不就是吗',
-      '32% YES 偏低了，我觉得有 40% 的可能',
     ],
   },
 ];

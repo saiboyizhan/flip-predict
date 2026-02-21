@@ -31,7 +31,6 @@ const CATEGORY_KEYS: Record<string, string> = {
   'four-meme': 'predStyle.catFourMeme',
   'flap': 'predStyle.catFlap',
   'nfa': 'predStyle.catNfa',
-  'hackathon': 'predStyle.catHackathon',
 };
 
 const TAG_COLORS: Record<string, string> = {

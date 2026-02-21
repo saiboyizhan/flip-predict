@@ -3,7 +3,6 @@ export type MarketCategory =
   | 'four-meme'      // Four.meme Meme 币预测
   | 'flap'           // Flap.sh 发射台预测
   | 'nfa'            // NFA Agent 生态预测
-  | 'hackathon'      // 黑客松 & 社区活动
 
 export type MarketStatus = 'active' | 'pending' | 'pending_resolution' | 'closed' | 'resolved' | 'disputed'
 
