@@ -11,8 +11,8 @@ interface CategoryNavProps {
 
 const CATEGORY_IDS = [
   "all",
-  "four-meme",
   "flap",
+  "four-meme",
   "nfa",
 ];
 
