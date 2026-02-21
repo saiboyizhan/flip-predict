@@ -445,6 +445,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
               <OpenOrders marketId={market.id} />
               <LiquidityPanel
                 marketId={market.id}
+                onChainMarketId={market.onChainMarketId}
                 status={market.status}
                 onLiquidityChange={handleTradeComplete}
               />

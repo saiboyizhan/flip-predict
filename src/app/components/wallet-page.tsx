@@ -1,15 +1,14 @@
-import { motion, AnimatePresence } from "motion/react";
-import { useState, useEffect, useRef } from "react";
-import { Wallet, Copy, ExternalLink, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, Link2, CheckCircle2, AlertCircle, Loader2, Plus, Minus, X, Zap, RefreshCw } from "lucide-react";
+import { motion } from "motion/react";
+import { useState, useEffect } from "react";
+import { Wallet, Copy, ExternalLink, ArrowUpRight, ArrowDownRight, Clock, Link2, CheckCircle2, AlertCircle, Loader2, Zap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAccount, useBalance, useDisconnect, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
-import { formatUnits, parseUnits } from "viem";
+import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
-import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, getWithdrawPermit, claimPlatformFaucet } from "../services/api";
-import { useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
+import { fetchTradeHistory, fetchUserStats } from "../services/api";
+import { useContractBalance, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
-import { PREDICTION_MARKET_ADDRESS } from "../config/contracts";
 
 interface Transaction {
   id: string;
@@ -55,53 +54,20 @@ export function WalletPage() {
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { open: openConnectModal } = useAppKit();
-  const [platformBalance, setPlatformBalance] = useState<{ available: number; locked: number; total: number } | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [userStats, setUserStats] = useState<{ totalTrades: number; winRate: number; totalProfit: number; totalWins: number } | null>(null);
-  const [loadingBalance, setLoadingBalance] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
-
-  // Deposit / Withdraw state
-  const [showDepositForm, setShowDepositForm] = useState(false);
-  const [showWithdrawForm, setShowWithdrawForm] = useState(false);
-  const [depositAmount, setDepositAmount] = useState("");
-  const [depositTxHash, setDepositTxHash] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [withdrawAddress, setWithdrawAddress] = useState(address ?? "");
-  const [depositProcessing, setDepositProcessing] = useState(false);
-  const [withdrawProcessing, setWithdrawProcessing] = useState(false);
-  const [platformFaucetLoading, setPlatformFaucetLoading] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const authToken = useAuthStore((s) => s.token);
 
-  // On-chain contract hooks (v2: non-custodial — no deposit/withdraw)
-  const contractDeposit = { deposit: (_a: string) => {}, txHash: undefined as `0x${string}` | undefined, isWriting: false, isConfirming: false, isConfirmed: false, error: null, reset: () => {} };
-  const contractWithdraw = { withdraw: (_a: string) => {}, txHash: undefined as `0x${string}` | undefined, isWriting: false, isConfirming: false, isConfirmed: false, error: null, reset: () => {} };
-  const permitWithdraw = { withdrawWithPermit: (..._a: any[]) => {}, txHash: undefined as `0x${string}` | undefined, isWriting: false, isConfirming: false, isConfirmed: false, error: null, reset: () => {} };
+  // On-chain USDT balance (v2: non-custodial — user holds USDT in own wallet)
   const {
     balanceUSDT: walletUsdtBalance,
     refetch: refetchWalletUsdtBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
-  // v2: no contract-held balance (non-custodial)
-  const predictionMarketBalanceUSDT = '0';
-  const predictionMarketBalanceLoading = false;
-  const refetchPredictionMarketBalance = () => {};
-  const {
-    allowanceRaw: usdtAllowanceRaw,
-    refetch: refetchAllowance,
-  } = useUsdtAllowance(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
-  const {
-    approve: usdtApprove,
-    txHash: approveTxHash,
-    isWriting: approveWriting,
-    isConfirming: approveConfirming,
-    isConfirmed: approveConfirmed,
-    error: approveError,
-    reset: approveReset,
-  } = useUsdtApprove();
 
-  // Testnet faucet
+  // Testnet faucet (mint test USDT on-chain)
   const mintTestUSDT = useMintTestUSDT();
   useTxNotifier(
     mintTestUSDT.txHash,
@@ -117,160 +83,14 @@ export function WalletPage() {
     }
   }, [mintTestUSDT.isConfirmed, refetchWalletUsdtBalance, mintTestUSDT.reset]);
 
-  // Refs to capture values at submission time (avoids stale closures in confirm effects)
-  const depositAmountRef = useRef(depositAmount);
-  const withdrawAmountRef = useRef(withdrawAmount);
-  const addressRef = useRef(address);
-  const pendingDepositAfterApproveRef = useRef(false);
-
-  // Keep withdraw address in sync with connected wallet
-  useEffect(() => {
-    if (address) setWithdrawAddress(address);
-  }, [address]);
-
-  // Tx lifecycle toast notifications
-  useTxNotifier(
-    contractDeposit.txHash,
-    contractDeposit.isConfirming,
-    contractDeposit.isConfirmed,
-    contractDeposit.error as Error | null,
-    "Deposit",
-  );
-  useTxNotifier(
-    contractWithdraw.txHash,
-    contractWithdraw.isConfirming,
-    contractWithdraw.isConfirmed,
-    contractWithdraw.error as Error | null,
-    "Withdraw",
-  );
-  useTxNotifier(
-    permitWithdraw.txHash,
-    permitWithdraw.isConfirming,
-    permitWithdraw.isConfirmed,
-    permitWithdraw.error as Error | null,
-    "Withdraw",
-  );
-  useTxNotifier(
-    approveTxHash,
-    approveConfirming,
-    approveConfirmed,
-    approveError as Error | null,
-    "USDT Approve",
-  );
-
-  // After USDT approval confirms, continue deposit flow automatically.
-  useEffect(() => {
-    if (!approveConfirmed || !approveTxHash || !pendingDepositAfterApproveRef.current) return;
-
-    pendingDepositAfterApproveRef.current = false;
-    refetchAllowance();
-
-    const amt = depositAmountRef.current;
-    if (parseFloat(amt) > 0) {
-      contractDeposit.deposit(amt);
-    }
-
-    approveReset();
-  }, [approveConfirmed, approveTxHash, refetchAllowance, approveReset, contractDeposit]);
-
-  useEffect(() => {
-    if (approveError) {
-      pendingDepositAfterApproveRef.current = false;
-    }
-  }, [approveError]);
-
-  // After contract deposit confirms, notify the backend API and refresh
-  useEffect(() => {
-    if (contractDeposit.isConfirmed && contractDeposit.txHash) {
-      const amt = parseFloat(depositAmountRef.current);
-      if (amt > 0) {
-        depositFunds(amt, contractDeposit.txHash)
-          .then((result) => {
-            if (result.success) {
-              setPlatformBalance(result.balance);
-            }
-          })
-          .catch((err) => {
-            console.error('[wallet] Deposit sync failed:', err?.message);
-            toast.error(t("wallet.depositSyncFailed", { defaultValue: "Platform sync pending - please refresh the page." }));
-          });
-      }
-      refetchWalletUsdtBalance();
-      refetchPredictionMarketBalance();
-      refetchBnbBalance();
-      setDepositAmount("");
-      setShowDepositForm(false);
-      contractDeposit.reset();
-    }
-  }, [contractDeposit.isConfirmed, contractDeposit.txHash, refetchWalletUsdtBalance, refetchPredictionMarketBalance, refetchBnbBalance, contractDeposit.reset]);
-
-  // After contract withdraw confirms, notify backend and refresh
-  useEffect(() => {
-    if (contractWithdraw.isConfirmed && contractWithdraw.txHash) {
-      const amt = parseFloat(withdrawAmountRef.current);
-      const addr = addressRef.current;
-      if (amt > 0 && addr) {
-        withdrawFunds(amt, addr)
-          .then((result) => {
-            if (result.success) {
-              setPlatformBalance(result.balance);
-            }
-          })
-          .catch((err) => {
-            console.error('[wallet] Withdraw sync failed:', err?.message);
-            toast.error(t("wallet.withdrawSyncFailed", { defaultValue: "Platform sync pending - please refresh the page." }));
-          });
-      }
-      refetchWalletUsdtBalance();
-      refetchPredictionMarketBalance();
-      refetchBnbBalance();
-      setWithdrawAmount("");
-      setShowWithdrawForm(false);
-      contractWithdraw.reset();
-    }
-  }, [contractWithdraw.isConfirmed, contractWithdraw.txHash, refetchWalletUsdtBalance, refetchPredictionMarketBalance, refetchBnbBalance, contractWithdraw.reset]);
-
-  // After on-chain withdrawWithPermit confirms, refresh balances
-  useEffect(() => {
-    if (permitWithdraw.isConfirmed && permitWithdraw.txHash) {
-      toast.success(t("wallet.withdrawSuccess"));
-      refetchWalletUsdtBalance();
-      refetchBnbBalance();
-      setWithdrawAmount("");
-      setShowWithdrawForm(false);
-      permitWithdraw.reset();
-    }
-  }, [permitWithdraw.isConfirmed, permitWithdraw.txHash, refetchWalletUsdtBalance, refetchBnbBalance, permitWithdraw.reset]);
-
   const walletAddress = address ?? "";
   const bnbBalance = balanceData?.value != null
     ? parseFloat(formatUnits(balanceData.value, balanceData.decimals))
     : 0;
 
-  // Fetch real data when connected AND authenticated (JWT token available)
+  // Fetch trade history and user stats when connected
   useEffect(() => {
     if (!isConnected || !address || !isAuthenticated) return;
-
-    setLoadingBalance(true);
-    const addr = address;
-    // Retry up to 3 times with increasing delays (JWT may still be propagating)
-    const retryFetchBalance = (attempt: number) => {
-      fetchBalance(addr)
-        .then((data) => {
-          setPlatformBalance(data);
-          setLoadingBalance(false);
-        })
-        .catch((err) => {
-          console.warn(`[wallet] fetchBalance attempt ${attempt} failed:`, err?.message);
-          if (attempt < 3) {
-            setTimeout(() => retryFetchBalance(attempt + 1), attempt * 1000);
-          } else {
-            setPlatformBalance(null);
-            setLoadingBalance(false);
-          }
-        });
-    };
-    retryFetchBalance(1);
 
     setLoadingHistory(true);
     fetchTradeHistory(address)
@@ -310,154 +130,14 @@ export function WalletPage() {
 
   const disconnectWallet = () => {
     disconnect();
-    // Also clear auth store state (token, balance, address, etc.)
     useAuthStore.getState().disconnect();
     toast.success(t('wallet.disconnected'));
   };
 
   const refreshBalance = () => {
     if (!address) return;
-    setLoadingBalance(true);
-    fetchBalance(address)
-      .then((data) => setPlatformBalance(data))
-      .catch(() => {})
-      .finally(() => setLoadingBalance(false));
     refetchWalletUsdtBalance();
-    refetchPredictionMarketBalance();
-    refetchAllowance();
     refetchBnbBalance();
-  };
-
-  // Contract deposit handler
-  const handleContractDeposit = () => {
-    if (!address) return;
-
-    const amt = parseFloat(depositAmount);
-    if (!amt || amt <= 0) {
-      toast.error(t('wallet.invalidAmount'));
-      return;
-    }
-
-    if (amt > parseFloat(walletUsdtBalance)) {
-      toast.error(t('wallet.insufficientUsdt', { defaultValue: 'Insufficient USDT balance in wallet' }));
-      return;
-    }
-
-    const amountWei = parseUnits(depositAmount, 18);
-    if (usdtAllowanceRaw < amountWei) {
-      pendingDepositAfterApproveRef.current = true;
-      depositAmountRef.current = depositAmount;
-      const maxUint256 = 2n ** 256n - 1n;
-      usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
-      return;
-    }
-
-    depositAmountRef.current = depositAmount;
-    contractDeposit.deposit(depositAmount);
-  };
-
-  // Permit-based withdraw: get backend signature, then call contract withdrawWithPermit
-  const [permitLoading, setPermitLoading] = useState(false);
-  const handlePermitWithdraw = async () => {
-    if (!address) return;
-    const amt = parseFloat(withdrawAmount);
-    if (!amt || amt <= 0) {
-      toast.error(t('wallet.invalidAmount'));
-      return;
-    }
-    if (platformBalance && amt > platformBalance.available) {
-      toast.error(t('wallet.insufficientBalance'));
-      return;
-    }
-
-    setPermitLoading(true);
-    try {
-      // Step 1: Get signed permit from backend (deducts DB balance)
-      const result = await getWithdrawPermit(amt);
-      if (!result.success) throw new Error('Failed to get withdraw permit');
-      setPlatformBalance(result.balance);
-
-      // Step 2: Call contract with the permit (wallet popup)
-      const { amount: amountWei, nonce, deadline, signature } = result.permit;
-      permitWithdraw.withdrawWithPermit(
-        BigInt(amountWei),
-        BigInt(nonce),
-        BigInt(deadline),
-        signature as `0x${string}`,
-      );
-    } catch (err: any) {
-      toast.error(err?.message || t('common.error'));
-    } finally {
-      setPermitLoading(false);
-    }
-  };
-
-  const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/;
-
-  // Legacy manual deposit handler
-  const handleDeposit = async () => {
-    const amt = parseFloat(depositAmount);
-    if (!amt || amt <= 0) {
-      toast.error(t('wallet.invalidAmount'));
-      return;
-    }
-    if (!depositTxHash.trim()) {
-      toast.error(t('wallet.txHash'));
-      return;
-    }
-    if (!TX_HASH_REGEX.test(depositTxHash.trim())) {
-      toast.error('Invalid transaction hash format. Must be 0x followed by 64 hex characters.');
-      return;
-    }
-
-    setDepositProcessing(true);
-    try {
-      const result = await depositFunds(amt, depositTxHash.trim());
-      if (result.success) {
-        setPlatformBalance(result.balance);
-        toast.success(t('wallet.depositSuccess'));
-        setShowDepositForm(false);
-        setDepositAmount("");
-        setDepositTxHash("");
-      }
-    } catch (err: any) {
-      toast.error(err.message || t('common.error'));
-    } finally {
-      setDepositProcessing(false);
-    }
-  };
-
-  // Legacy manual withdraw handler
-  const handleWithdraw = async () => {
-    const amt = parseFloat(withdrawAmount);
-    if (!amt || amt <= 0) {
-      toast.error(t('wallet.invalidAmount'));
-      return;
-    }
-    if (platformBalance && amt > platformBalance.available) {
-      toast.error(t('wallet.insufficientBalance'));
-      return;
-    }
-    if (!withdrawAddress.trim()) {
-      toast.error(t('wallet.destinationAddress'));
-      return;
-    }
-
-    setWithdrawProcessing(true);
-    try {
-      const result = await withdrawFunds(amt, withdrawAddress.trim());
-      if (result.success) {
-        setPlatformBalance(result.balance);
-        toast.success(t('wallet.withdrawSuccess'));
-        setShowWithdrawForm(false);
-        setWithdrawAmount("");
-        setWithdrawAddress("");
-      }
-    } catch (err: any) {
-      toast.error(err.message || t('common.error'));
-    } finally {
-      setWithdrawProcessing(false);
-    }
   };
 
   const getTransactionIcon = (type: Transaction["type"]) => {
@@ -490,9 +170,6 @@ export function WalletPage() {
     }
   };
 
-  const isContractDepositBusy = contractDeposit.isWriting || contractDeposit.isConfirming || approveWriting || approveConfirming;
-  const isPermitWithdrawBusy = permitLoading || permitWithdraw.isWriting || permitWithdraw.isConfirming;
-
   return (
     <div className="space-y-5">
       <div className="space-y-5">
@@ -503,7 +180,6 @@ export function WalletPage() {
             <h1 className="text-lg sm:text-xl font-semibold tracking-tight">{t('wallet.title')}</h1>
           </div>
 
-          {/* 连接状态 */}
           {isConnected && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-md">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -512,7 +188,7 @@ export function WalletPage() {
           )}
         </div>
 
-        {/* 未连接状态 */}
+        {/* Not connected */}
         {!isConnected ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -561,55 +237,24 @@ export function WalletPage() {
           </motion.div>
         ) : (
           <>
-            {/* 已连接状态 - 显示余额和功能 */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {/* Platform Balance */}
-              {loadingBalance ? (
-                <StatSkeleton />
-              ) : (
-                <div className="bg-card border border-border rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="text-muted-foreground text-xs font-medium">{t('wallet.platformBalance')}</div>
-                    <button
-                      onClick={refreshBalance}
-                      className="p-0.5 hover:bg-accent transition-colors rounded"
-                      title={t('wallet.refreshBalance')}
-                    >
-                      <RefreshCw className="w-3 h-3 text-muted-foreground" />
-                    </button>
-                  </div>
-                  <div className="text-xl sm:text-2xl font-semibold text-foreground">
-                    {platformBalance ? `$${platformBalance.available.toLocaleString()}` : "--"}
-                  </div>
-                  {platformBalance && platformBalance.locked > 0 && (
-                    <div className="text-muted-foreground text-xs mt-1">
-                      {t('wallet.locked', { amount: platformBalance.locked.toLocaleString() })}
-                    </div>
-                  )}
-                  {!platformBalance && (
-                    <div className="text-muted-foreground text-xs mt-1">
-                      {t('wallet.balanceUnavailable', { defaultValue: 'Click refresh to load' })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Wallet USDT Balance (available to deposit) */}
+            {/* Balance Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* Wallet USDT Balance */}
               <div className="bg-card border border-border rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-blue-500 text-xs font-medium">{t('wallet.walletUsdt', { defaultValue: 'Wallet USDT' })}</div>
                   <button
-                    onClick={() => refetchWalletUsdtBalance()}
+                    onClick={refreshBalance}
                     className="p-0.5 hover:bg-accent transition-colors rounded"
                     title={t('wallet.refreshBalance')}
                   >
-                    <RefreshCw className={`w-3 h-3 text-blue-400`} />
+                    <RefreshCw className="w-3 h-3 text-blue-400" />
                   </button>
                 </div>
                 <div className="text-xl sm:text-2xl font-semibold text-blue-500">
                   {parseFloat(walletUsdtBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
-                <div className="text-muted-foreground text-xs mt-1">{t('wallet.availableToDeposit', { defaultValue: 'Available to deposit' })}</div>
+                <div className="text-muted-foreground text-xs mt-1">{t('wallet.availableToTrade', { defaultValue: 'Available to trade' })}</div>
               </div>
 
               {/* Native BNB Balance (for gas) */}
@@ -635,265 +280,26 @@ export function WalletPage() {
               )}
             </div>
 
-            {/* Deposit / Withdraw / Faucet Buttons */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <button
-                onClick={() => { setShowDepositForm(true); setShowWithdrawForm(false); }}
-                className="py-2.5 px-4 bg-card border border-border rounded-lg hover:border-blue-500/50 hover:bg-blue-500/5 text-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4 text-blue-500" />
-                {t('wallet.deposit')}
-              </button>
-              <button
-                onClick={() => { setShowWithdrawForm(true); setShowDepositForm(false); }}
-                className="py-2.5 px-4 bg-card border border-border rounded-lg hover:border-blue-500/50 hover:bg-blue-500/5 text-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2"
-              >
-                <Minus className="w-4 h-4 text-blue-500" />
-                {t('wallet.withdraw')}
-              </button>
+            {/* Testnet Faucet */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 onClick={() => address && mintTestUSDT.mint(address as `0x${string}`, '10000')}
                 disabled={mintTestUSDT.isLoading || !address}
                 className="py-2.5 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 hover:bg-emerald-500/15 text-emerald-500 font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Zap className="w-4 h-4" />
-                {mintTestUSDT.isLoading ? t('common.loading') : t('wallet.faucet')}
-              </button>
-              <button
-                onClick={async () => {
-                  if (!address) return;
-                  setPlatformFaucetLoading(true);
-                  try {
-                    const result = await claimPlatformFaucet(address);
-                    if (result.success) {
-                      setPlatformBalance({ available: result.balance.available, locked: result.balance.locked, total: result.balance.available + result.balance.locked });
-                      toast.success(t('wallet.platformFaucetSuccess'));
-                    }
-                  } catch (err: any) {
-                    toast.error(err.message || t('common.error'));
-                  } finally {
-                    setPlatformFaucetLoading(false);
-                  }
-                }}
-                disabled={platformFaucetLoading || !address}
-                className="py-2.5 px-4 bg-blue-500/10 border border-blue-500/30 rounded-lg hover:border-blue-500/50 hover:bg-blue-500/15 text-blue-500 font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <TrendingUp className="w-4 h-4" />
-                {platformFaucetLoading ? t('common.loading') : t('wallet.platformFaucet')}
+                {mintTestUSDT.isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Zap className="w-4 h-4" />
+                )}
+                {mintTestUSDT.isLoading ? t('common.loading') : t('wallet.faucet', { defaultValue: 'Mint 10K Test USDT' })}
               </button>
             </div>
 
-            {/* Deposit Form */}
-            <AnimatePresence>
-              {showDepositForm && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="bg-card/50 border border-blue-500/30 p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-blue-400 tracking-wide uppercase">{t('wallet.deposit')}</h3>
-                      <button onClick={() => setShowDepositForm(false)} className="p-1 hover:bg-accent transition-colors">
-                        <X className="w-5 h-5 text-muted-foreground" />
-                      </button>
-                    </div>
-
-                    <div>
-                      <label className="block text-muted-foreground text-sm mb-2">
-                        {t('wallet.depositAmount', { defaultValue: 'Amount (USDT)' })}
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={depositAmount}
-                        onChange={(e) => setDepositAmount(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-lg p-3 outline-none transition-colors placeholder:text-muted-foreground"
-                      />
-                      <div className="text-muted-foreground text-xs mt-1">
-                        {t('wallet.walletBnb')}: {bnbBalance.toFixed(4)} BNB (gas) | USDT: {parseFloat(walletUsdtBalance).toFixed(4)}
-                      </div>
-                    </div>
-
-                    {/* Approve tx status */}
-                    {approveTxHash && !contractDeposit.txHash && (
-                      <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
-                        {approveConfirming ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                        ) : approveConfirmed ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-blue-400" />
-                        )}
-                        <a
-                          href={`${getBscScanUrl(chainId)}/tx/${approveTxHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
-                        >
-                          {approveTxHash.slice(0, 16)}...{approveTxHash.slice(-8)}
-                        </a>
-                        <span className="text-muted-foreground text-xs ml-auto">
-                          {approveConfirming ? t('wallet.approving') : approveConfirmed ? t('wallet.approved') : t('wallet.approveSubmitted')}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Deposit tx status */}
-                    {contractDeposit.txHash && (
-                      <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
-                        {contractDeposit.isConfirming ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                        ) : contractDeposit.isConfirmed ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-blue-400" />
-                        )}
-                        <a
-                          href={`${getBscScanUrl(chainId)}/tx/${contractDeposit.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
-                        >
-                          {contractDeposit.txHash.slice(0, 16)}...{contractDeposit.txHash.slice(-8)}
-                        </a>
-                        <span className="text-muted-foreground text-xs ml-auto">
-                          {contractDeposit.isConfirming ? t('trade.txConfirming') : contractDeposit.isConfirmed ? t('trade.txConfirmed') : t('trade.txSubmitted')}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Error display */}
-                    {(approveError || contractDeposit.error) && (
-                      <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                        {((approveError || contractDeposit.error) as Error).message?.includes("User rejected")
-                          ? t('trade.txCancelledByUser')
-                          : ((approveError || contractDeposit.error) as Error).message?.slice(0, 150) || t('trade.txFailed')}
-                      </div>
-                    )}
-
-                    <button
-                      onClick={handleContractDeposit}
-                      disabled={isContractDepositBusy}
-                      className="w-full bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-black font-bold py-3 text-base tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2"
-                    >
-                      {isContractDepositBusy ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          {approveConfirming
-                            ? t('wallet.approving')
-                            : contractDeposit.isConfirming
-                              ? t('trade.confirmingOnChain')
-                              : t('wallet.processing')}
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="w-5 h-5" />
-                          {t('wallet.depositToContract')}
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Withdraw Form */}
-            <AnimatePresence>
-              {showWithdrawForm && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="bg-card/50 border border-blue-500/30 p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-blue-400 tracking-wide uppercase">{t('wallet.withdraw')}</h3>
-                      <button onClick={() => setShowWithdrawForm(false)} className="p-1 hover:bg-accent transition-colors">
-                        <X className="w-5 h-5 text-muted-foreground" />
-                      </button>
-                    </div>
-
-                    <div>
-                      <label className="block text-muted-foreground text-sm mb-2">
-                        {t('wallet.withdrawAmount', { defaultValue: 'Amount (USDT)' })}
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={withdrawAmount}
-                          onChange={(e) => setWithdrawAmount(e.target.value)}
-                          placeholder="0.00"
-                          className="w-full bg-input-background border border-border focus:border-blue-500/60 text-foreground text-lg p-3 outline-none transition-colors placeholder:text-muted-foreground"
-                        />
-                        <div className="text-muted-foreground text-xs mt-1">
-                          {platformBalance
-                              ? `${t('wallet.platformBalance')}: $${platformBalance.available.toLocaleString()}`
-                              : ""}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Withdraw tx status */}
-                    {permitWithdraw.txHash && (
-                      <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 text-sm">
-                        {permitWithdraw.isConfirming ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                        ) : permitWithdraw.isConfirmed ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-blue-400" />
-                        )}
-                        <a
-                          href={`${getBscScanUrl(chainId)}/tx/${permitWithdraw.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 font-mono text-xs underline"
-                        >
-                          {permitWithdraw.txHash.slice(0, 16)}...{permitWithdraw.txHash.slice(-8)}
-                        </a>
-                        <span className="text-muted-foreground text-xs ml-auto">
-                          {permitWithdraw.isConfirming ? t('trade.txConfirming') : permitWithdraw.isConfirmed ? t('trade.txConfirmed') : t('trade.txSubmitted')}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Error display */}
-                    {permitWithdraw.error && (
-                      <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                        {(permitWithdraw.error as Error).message?.includes("User rejected")
-                          ? t('trade.txCancelledByUser')
-                          : (permitWithdraw.error as Error).message?.slice(0, 150) || t('trade.txFailed')}
-                      </div>
-                    )}
-
-                    <button
-                      onClick={handlePermitWithdraw}
-                      disabled={isPermitWithdrawBusy}
-                      className="w-full bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-black font-bold py-3 text-base tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2"
-                    >
-                      {isPermitWithdrawBusy ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          {permitWithdraw.isConfirming ? t('trade.confirmingOnChain') : permitLoading ? t('wallet.signingPermit', { defaultValue: 'Getting permit...' }) : t('wallet.processing')}
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="w-5 h-5" />
-                          {t('wallet.withdrawFromContract', { defaultValue: 'Withdraw USDT' })}
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Non-custodial info */}
+            <div className="text-xs text-muted-foreground bg-white/[0.02] border border-white/[0.06] rounded-lg px-4 py-3">
+              {t('wallet.nonCustodialInfo', { defaultValue: 'Non-custodial: Your USDT stays in your wallet. Trades interact directly with the on-chain smart contract. No deposit or withdrawal needed.' })}
+            </div>
 
             {/* Wallet Address */}
             <div className="bg-card border border-border rounded-lg p-4">
