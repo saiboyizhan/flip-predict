@@ -2,6 +2,8 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { calculateLMSRBuy, calculateLMSRSell, getLMSRPrices } from './lmsr';
 
+const TRADE_FEE_RATE = 0.01;
+
 export interface MultiBuyResult {
   orderId: string;
   shares: number;
@@ -60,11 +62,15 @@ export async function executeBuyMulti(
     const b = Number(market.total_liquidity) / options.length;
     const optionIndex = Number(targetOption.option_index);
 
-    const result = calculateLMSRBuy(reserves, b, optionIndex, amount);
+    // Trade fee: deduct before LMSR calculation
+    const fee = Math.round(amount * TRADE_FEE_RATE * 10000) / 10000;
+    const effectiveAmount = amount - fee;
+
+    const result = calculateLMSRBuy(reserves, b, optionIndex, effectiveAmount);
 
     const orderId = randomUUID();
     const now = Date.now();
-    const pricePerShare = amount / result.sharesOut;
+    const pricePerShare = effectiveAmount / result.sharesOut;
 
     // Deduct balance
     await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2', [amount, userAddress]);
@@ -109,6 +115,15 @@ export async function executeBuyMulti(
         END,
         shares = positions.shares + EXCLUDED.shares
     `, [randomUUID(), userAddress, marketId, `option_${optionIndex}`, result.sharesOut, pricePerShare, now, optionId]);
+
+    // Record trade fee
+    if (fee > 0) {
+      await client.query(
+        `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+         VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+        [randomUUID(), userAddress, marketId, fee, now]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -174,15 +189,20 @@ export async function executeSellMulti(
 
     const result = calculateLMSRSell(reserves, b, optionIndex, shares);
 
+    // Trade fee on sell proceeds
+    const grossAmountOut = result.amountOut;
+    const fee = Math.round(grossAmountOut * TRADE_FEE_RATE * 10000) / 10000;
+    const netAmountOut = grossAmountOut - fee;
+
     const orderId = randomUUID();
     const now = Date.now();
-    const pricePerShare = result.amountOut / shares;
+    const pricePerShare = grossAmountOut / shares;
 
-    // Credit balance
+    // Credit balance with net amount (after fee)
     await client.query(
       `INSERT INTO balances (user_address, available, locked) VALUES ($1, $2, 0)
        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + EXCLUDED.available`,
-      [userAddress, result.amountOut],
+      [userAddress, netAmountOut],
     );
 
     // Update market volume
@@ -218,11 +238,20 @@ export async function executeSellMulti(
       await client.query('UPDATE positions SET shares = $1 WHERE id = $2', [newShares, position.id]);
     }
 
+    // Record trade fee
+    if (fee > 0) {
+      await client.query(
+        `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+         VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+        [randomUUID(), userAddress, marketId, fee, now]
+      );
+    }
+
     await client.query('COMMIT');
 
     return {
       orderId,
-      amountOut: result.amountOut,
+      amountOut: netAmountOut,
       price: pricePerShare,
       newPrices,
     };

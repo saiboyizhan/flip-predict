@@ -2,6 +2,8 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { calculateBuy, calculateSell } from './amm';
 
+const TRADE_FEE_RATE = 0.01;
+
 export interface OrderResult {
   orderId: string;
   shares: number;
@@ -54,8 +56,12 @@ export async function executeBuy(
     const yesReserve = Number(market.yes_reserve);
     const noReserve = Number(market.no_reserve);
 
-    // Calculate trade via AMM
-    const result = calculateBuy(yesReserve, noReserve, side, amount);
+    // Trade fee: deduct before AMM calculation
+    const fee = Math.round(amount * TRADE_FEE_RATE * 10000) / 10000;
+    const effectiveAmount = amount - fee;
+
+    // Calculate trade via AMM (using effective amount after fee)
+    const result = calculateBuy(yesReserve, noReserve, side, effectiveAmount);
 
     const orderId = randomUUID();
     const now = Date.now();
@@ -95,6 +101,15 @@ export async function executeBuy(
         ),
         shares = positions.shares + EXCLUDED.shares
     `, [randomUUID(), userAddress, marketId, side, result.sharesOut, result.pricePerShare, now]);
+
+    // Record trade fee
+    if (fee > 0) {
+      await client.query(
+        `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+         VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+        [randomUUID(), userAddress, marketId, fee, now]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -152,15 +167,20 @@ export async function executeSell(
     // Calculate trade via AMM
     const result = calculateSell(yesReserve, noReserve, side, shares);
 
+    // Trade fee on sell proceeds
+    const grossAmountOut = result.amountOut;
+    const fee = Math.round(grossAmountOut * TRADE_FEE_RATE * 10000) / 10000;
+    const netAmountOut = grossAmountOut - fee;
+
     const orderId = randomUUID();
     const now = Date.now();
 
-    // Credit balance (safe even if balance row is missing due to legacy data inconsistency)
+    // Credit balance with net amount (after fee)
     await client.query(
       `INSERT INTO balances (user_address, available, locked)
        VALUES ($1, $2, 0)
        ON CONFLICT (user_address) DO UPDATE SET available = balances.available + EXCLUDED.available`,
-      [userAddress, result.amountOut]
+      [userAddress, netAmountOut]
     );
 
     // Update market reserves and prices
@@ -190,11 +210,20 @@ export async function executeSell(
       await client.query('UPDATE positions SET shares = $1 WHERE id = $2', [newShares, position.id]);
     }
 
+    // Record trade fee
+    if (fee > 0) {
+      await client.query(
+        `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+         VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+        [randomUUID(), userAddress, marketId, fee, now]
+      );
+    }
+
     await client.query('COMMIT');
 
     return {
       orderId,
-      amountOut: result.amountOut,
+      amountOut: netAmountOut,
       price: result.pricePerShare,
       newYesPrice: result.newYesPrice,
       newNoPrice: result.newNoPrice,

@@ -2,6 +2,8 @@ import { Pool, PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
 import { calculateBuy, calculateSell } from './amm';
 
+const TRADE_FEE_RATE = 0.01;
+
 export interface OrderBookLevel {
   price: number;
   amount: number;
@@ -172,10 +174,22 @@ export async function placeLimitOrder(
       const lockedForFilled = filled * price; // We locked at our price
       if (filledCost > lockedForFilled) filledCost = lockedForFilled;
       const excessLock = Math.max(0, lockedForFilled - filledCost); // We got better prices
+
+      // Taker fee on filled portion (deducted from excess lock first, then available)
+      const takerFee = filled > 0 ? Math.round(filledCost * TRADE_FEE_RATE * 10000) / 10000 : 0;
+      const excessAfterFee = Math.max(0, excessLock - takerFee);
+      const feeFromAvailable = Math.max(0, takerFee - excessLock);
+
       if (excessLock > 0.0001) {
         await client.query(
           'UPDATE balances SET available = available + $1, locked = locked - $2 WHERE user_address = $3',
-          [excessLock, excessLock, userAddress]
+          [excessAfterFee, excessLock, userAddress]
+        );
+      }
+      if (feeFromAvailable > 0.0001) {
+        await client.query(
+          'UPDATE balances SET available = GREATEST(available - $1, 0) WHERE user_address = $2',
+          [feeFromAvailable, userAddress]
         );
       }
       // Deduct locked for filled portion
@@ -183,6 +197,14 @@ export async function placeLimitOrder(
         await client.query(
           'UPDATE balances SET locked = locked - $1 WHERE user_address = $2',
           [filledCost, userAddress]
+        );
+      }
+      // Record taker fee
+      if (takerFee > 0.0001) {
+        await client.query(
+          `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+           VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+          [randomUUID(), userAddress, marketId, takerFee, now]
         );
       }
 
@@ -238,6 +260,7 @@ export async function placeLimitOrder(
       const matchingOrders = matchRes.rows;
 
       let remaining = amount;
+      let totalTakerFee = 0;
       for (const counterOrder of matchingOrders) {
         if (remaining <= 0) break;
 
@@ -259,8 +282,11 @@ export async function placeLimitOrder(
         );
         await updatePosition(client, counterOrder.user_address, marketId, side, matchAmount, matchPrice);
 
-        // Seller gets paid
-        await creditAvailableBalance(client, userAddress, matchAmount * matchPrice);
+        // Seller (taker) gets paid minus fee
+        const grossProceeds = matchAmount * matchPrice;
+        const matchFee = Math.round(grossProceeds * TRADE_FEE_RATE * 10000) / 10000;
+        await creditAvailableBalance(client, userAddress, grossProceeds - matchFee);
+        totalTakerFee += matchFee;
 
         // Record trade
         const tradeId = randomUUID();
@@ -273,6 +299,15 @@ export async function placeLimitOrder(
         filled += matchAmount;
         totalCost += matchAmount * matchPrice;
         remaining -= matchAmount;
+      }
+
+      // Record taker fee for sell matches
+      if (totalTakerFee > 0.0001) {
+        await client.query(
+          `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+           VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+          [randomUUID(), userAddress, marketId, totalTakerFee, now]
+        );
       }
 
       // Place remaining as open order
@@ -337,6 +372,10 @@ export async function placeMarketOrder(
       const balance = balanceRes.rows[0];
       if (!balance || Number(balance.available) < amount) throw new Error('Insufficient balance');
 
+      // Trade fee: deduct upfront from budget
+      const buyFee = Math.round(amount * TRADE_FEE_RATE * 10000) / 10000;
+      await client.query('UPDATE balances SET available = available - $1 WHERE user_address = $2', [buyFee, userAddress]);
+
       // Eat through sell orders (asks) from lowest price, excluding own orders
       const askRes = await client.query(`
         SELECT * FROM open_orders
@@ -347,7 +386,7 @@ export async function placeMarketOrder(
       `, [marketId, side, userAddress]);
       const askOrders = askRes.rows;
 
-      let remainingBudget = amount; // amount is in USDT terms
+      let remainingBudget = amount - buyFee; // effective budget after fee
 
       for (const askOrder of askOrders) {
         if (remainingBudget <= 0.0001) break;
@@ -404,6 +443,15 @@ export async function placeMarketOrder(
         totalCost += remainingBudget;
 
         trades.push({ price: ammResult.pricePerShare, amount: ammResult.sharesOut, counterpartyOrderId: 'amm' });
+      }
+
+      // Record buy fee
+      if (buyFee > 0.0001) {
+        await client.query(
+          `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+           VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+          [randomUUID(), userAddress, marketId, buyFee, now]
+        );
       }
 
     } else {
@@ -491,6 +539,20 @@ export async function placeMarketOrder(
         totalCost += ammResult.amountOut;
 
         trades.push({ price: ammResult.pricePerShare, amount: remaining, counterpartyOrderId: 'amm' });
+      }
+
+      // Sell fee on total proceeds
+      const sellFee = Math.round(totalCost * TRADE_FEE_RATE * 10000) / 10000;
+      if (sellFee > 0.0001) {
+        await client.query(
+          'UPDATE balances SET available = GREATEST(available - $1, 0) WHERE user_address = $2',
+          [sellFee, userAddress]
+        );
+        await client.query(
+          `INSERT INTO fee_records (id, user_address, market_id, type, amount, created_at)
+           VALUES ($1, $2, $3, 'trade_fee', $4, $5)`,
+          [randomUUID(), userAddress, marketId, sellFee, now]
+        );
       }
     }
 

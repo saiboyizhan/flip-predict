@@ -5,6 +5,9 @@ import crypto from 'crypto';
 
 const router = Router();
 
+// Trade fee rate (1%) applied to all trades
+export const TRADE_FEE_RATE = 0.01;
+
 // GET /api/fees/:address — user fee records (auth required)
 router.get('/:address', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {

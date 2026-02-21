@@ -165,17 +165,20 @@ router.post('/deposit', authMiddleware, async (req: AuthRequest, res: Response) 
     return;
   }
 
-  // On-chain verification: best-effort, non-blocking.
-  // The on-chain contract deposit already succeeded (USDT transferred),
-  // so we always credit the platform balance. Verification is logged for auditing only.
+  // On-chain verification: mandatory when configured.
+  // Reject deposits with invalid/mismatched transactions to prevent fake txHash injection.
   if (USDT_ADDRESS && (getDepositReceiverAddress() || getPredictionMarketAddress())) {
     try {
       const verificationResult = await verifyDepositTransaction(normalizedTxHash, userAddress, amount);
       if (!verificationResult.ok) {
-        console.warn(`[wallet] Deposit verification warning for ${normalizedTxHash}: ${verificationResult.error}`);
+        console.warn(`[wallet] Deposit verification REJECTED ${normalizedTxHash}: ${verificationResult.error}`);
+        res.status(verificationResult.statusCode).json({ error: verificationResult.error });
+        return;
       }
     } catch (err: any) {
-      console.warn('[wallet] Deposit verification RPC unavailable, proceeding anyway:', err.message);
+      console.error('[wallet] Deposit verification RPC error:', err.message);
+      res.status(503).json({ error: 'Deposit verification service unavailable, please try again later' });
+      return;
     }
   }
 
