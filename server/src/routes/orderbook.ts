@@ -1,11 +1,107 @@
 import { Router, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
-import { broadcastOrderBookUpdate } from '../ws';
+import { calculateBuy, calculateSell, getPrice } from '../engine/amm';
 
 const router = Router();
 
-// GET /api/orderbook/:marketId/:side — aggregated orderbook for a market side
+/**
+ * Generate synthetic orderbook from AMM (CPMM) reserves.
+ * Asks = cost to buy token at increasing sizes (price goes up)
+ * Bids = payout for selling token at increasing sizes (price goes down)
+ */
+function generateSyntheticOrderbook(
+  yesReserve: number,
+  noReserve: number,
+  side: 'yes' | 'no'
+) {
+  const FEE_BPS = 100; // 1% fee (matches contract)
+  const feeMul = 1 - FEE_BPS / 10000; // 0.99
+
+  // Step sizes as percentage of the smaller reserve (adaptive to liquidity)
+  const minReserve = Math.min(yesReserve, noReserve);
+  const stepPcts = [0.01, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40];
+  const asks: { price: number; amount: number; count: number }[] = [];
+  const bids: { price: number; amount: number; count: number }[] = [];
+
+  // --- Asks: simulate buying `side` at increasing USDT amounts ---
+  let cumShares = 0;
+  let yR = yesReserve;
+  let nR = noReserve;
+  for (const pct of stepPcts) {
+    const usdtIn = minReserve * pct;
+    const effectiveIn = usdtIn * feeMul;
+    try {
+      const result = calculateBuy(yR, nR, side, effectiveIn);
+      const avgPrice = usdtIn / result.sharesOut; // actual cost per share (including fee)
+      asks.push({
+        price: Math.round(avgPrice * 100) / 100,
+        amount: Math.round(result.sharesOut * 100) / 100,
+        count: 1,
+      });
+      cumShares += result.sharesOut;
+      yR = result.newYesReserve;
+      nR = result.newNoReserve;
+    } catch {
+      break; // reserve depleted
+    }
+  }
+
+  // --- Bids: simulate selling `side` at increasing share amounts ---
+  yR = yesReserve;
+  nR = noReserve;
+  for (const pct of stepPcts) {
+    const sharesToSell = minReserve * pct;
+    try {
+      const result = calculateSell(yR, nR, side, sharesToSell);
+      const payout = result.amountOut * feeMul; // after fee
+      const avgPrice = payout / sharesToSell;
+      bids.push({
+        price: Math.round(avgPrice * 100) / 100,
+        amount: Math.round(sharesToSell * 100) / 100,
+        count: 1,
+      });
+      yR = result.newYesReserve;
+      nR = result.newNoReserve;
+    } catch {
+      break;
+    }
+  }
+
+  // Bids should be sorted descending by price
+  bids.sort((a, b) => b.price - a.price);
+  // Asks should be sorted ascending by price
+  asks.sort((a, b) => a.price - b.price);
+
+  // Deduplicate same-price levels
+  const dedup = (levels: typeof asks) => {
+    const map = new Map<number, { price: number; amount: number; count: number }>();
+    for (const l of levels) {
+      const existing = map.get(l.price);
+      if (existing) {
+        existing.amount += l.amount;
+        existing.count += l.count;
+      } else {
+        map.set(l.price, { ...l });
+      }
+    }
+    return Array.from(map.values());
+  };
+
+  const dedupAsks = dedup(asks).sort((a, b) => a.price - b.price);
+  const dedupBids = dedup(bids).sort((a, b) => b.price - a.price);
+
+  const bestBid = dedupBids[0]?.price ?? 0;
+  const bestAsk = dedupAsks[0]?.price ?? 1;
+  const spread = Math.round((bestAsk - bestBid) * 100) / 100;
+  const midPrice = dedupBids.length > 0 && dedupAsks.length > 0
+    ? Math.round(((bestBid + bestAsk) / 2) * 100) / 100
+    : Math.round(getPrice(yesReserve, noReserve)[side === 'yes' ? 'yesPrice' : 'noPrice'] * 100) / 100;
+
+  return { bids: dedupBids, asks: dedupAsks, spread, midPrice };
+}
+
+// GET /api/orderbook/:marketId/:side — synthetic orderbook from AMM reserves
 router.get('/:marketId/:side', async (req, res: Response) => {
   const { marketId, side } = req.params;
   if (!marketId || (side !== 'yes' && side !== 'no')) {
@@ -15,49 +111,36 @@ router.get('/:marketId/:side', async (req, res: Response) => {
 
   try {
     const db = getDb();
-
-    // Bids = buy orders (grouped by price, descending)
-    const bidsRes = await db.query(
-      `SELECT price, SUM(amount - filled) AS amount, COUNT(*)::int AS count
-       FROM open_orders
-       WHERE market_id = $1 AND side = $2 AND order_side = 'buy' AND status = 'open' AND amount > filled
-       GROUP BY price ORDER BY price DESC LIMIT 50`,
-      [marketId, side]
+    const marketRes = await db.query(
+      'SELECT yes_reserve, no_reserve, status FROM markets WHERE id = $1',
+      [marketId]
     );
+    if (!marketRes.rows[0]) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+    const { yes_reserve, no_reserve, status } = marketRes.rows[0];
+    if (status !== 'active') {
+      res.json({ bids: [], asks: [], spread: 0, midPrice: 0 });
+      return;
+    }
 
-    // Asks = sell orders (grouped by price, ascending)
-    const asksRes = await db.query(
-      `SELECT price, SUM(amount - filled) AS amount, COUNT(*)::int AS count
-       FROM open_orders
-       WHERE market_id = $1 AND side = $2 AND order_side = 'sell' AND status = 'open' AND amount > filled
-       GROUP BY price ORDER BY price ASC LIMIT 50`,
-      [marketId, side]
-    );
+    const yesR = Number(yes_reserve);
+    const noR = Number(no_reserve);
+    if (yesR <= 0 || noR <= 0) {
+      res.json({ bids: [], asks: [], spread: 0, midPrice: 0 });
+      return;
+    }
 
-    const bids = bidsRes.rows.map(r => ({
-      price: Number(r.price),
-      amount: Number(r.amount),
-      count: r.count,
-    }));
-    const asks = asksRes.rows.map(r => ({
-      price: Number(r.price),
-      amount: Number(r.amount),
-      count: r.count,
-    }));
-
-    const bestBid = bids[0]?.price ?? 0;
-    const bestAsk = asks[0]?.price ?? 1;
-    const spread = bestAsk - bestBid;
-    const midPrice = bids.length > 0 && asks.length > 0 ? (bestBid + bestAsk) / 2 : 0;
-
-    res.json({ bids, asks, spread, midPrice });
+    const orderbook = generateSyntheticOrderbook(yesR, noR, side as 'yes' | 'no');
+    res.json(orderbook);
   } catch (err) {
     console.error('Orderbook fetch error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /api/orderbook/open — user's open orders
+// GET /api/orderbook/open — user's open limit orders
 router.get('/open', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const db = getDb();
@@ -73,110 +156,13 @@ router.get('/open', authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/orderbook/limit — place a limit order
+// POST /api/orderbook/limit — place a limit order (off-chain, future feature)
 router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const { marketId, side, orderSide, price, amount } = req.body;
-  const userAddress = req.userAddress!;
-
-  if (!marketId || !side || !orderSide || price == null || amount == null) {
-    res.status(400).json({ error: 'marketId, side, orderSide, price, and amount are required' });
-    return;
-  }
-
-  const p = Number(price);
-  const a = Number(amount);
-  if (p < 0.01 || p > 0.99) {
-    res.status(400).json({ error: 'Price must be between 0.01 and 0.99' });
-    return;
-  }
-  if (a <= 0 || a > 1_000_000) {
-    res.status(400).json({ error: 'Amount must be between 0 and 1,000,000' });
-    return;
-  }
-
-  try {
-    const db = getDb();
-
-    // Verify market exists and is active
-    const marketRes = await db.query('SELECT id, status FROM markets WHERE id = $1', [marketId]);
-    if (!marketRes.rows[0]) {
-      res.status(404).json({ error: 'Market not found' });
-      return;
-    }
-    if (marketRes.rows[0].status !== 'active') {
-      res.status(400).json({ error: 'Market is not active' });
-      return;
-    }
-
-    // For buy orders, lock funds from balance
-    if (orderSide === 'buy') {
-      const cost = p * a;
-      const balRes = await db.query('SELECT available FROM balances WHERE user_address = $1', [userAddress]);
-      const available = Number(balRes.rows[0]?.available ?? 0);
-      if (available < cost) {
-        res.status(400).json({ error: 'Insufficient balance' });
-        return;
-      }
-      await db.query(
-        'UPDATE balances SET available = available - $1, locked = locked + $1 WHERE user_address = $2',
-        [cost, userAddress]
-      );
-    }
-
-    // For sell orders, lock shares from position
-    if (orderSide === 'sell') {
-      const posRes = await db.query(
-        'SELECT shares FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
-        [userAddress, marketId, side]
-      );
-      const shares = Number(posRes.rows[0]?.shares ?? 0);
-      if (shares < a) {
-        res.status(400).json({ error: 'Insufficient shares' });
-        return;
-      }
-      await db.query(
-        'UPDATE positions SET shares = shares - $1 WHERE user_address = $2 AND market_id = $3 AND side = $4',
-        [a, userAddress, marketId, side]
-      );
-    }
-
-    const orderId = `lo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await db.query(
-      `INSERT INTO open_orders (id, user_address, market_id, side, order_side, price, amount, filled, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'open', $8)`,
-      [orderId, userAddress, marketId, side, orderSide, p, a, Date.now()]
-    );
-
-    // Broadcast orderbook update
-    try {
-      const bidsRes = await db.query(
-        `SELECT price, SUM(amount - filled) AS amount, COUNT(*)::int AS count
-         FROM open_orders WHERE market_id = $1 AND side = $2 AND order_side = 'buy' AND status = 'open' AND amount > filled
-         GROUP BY price ORDER BY price DESC LIMIT 50`,
-        [marketId, side]
-      );
-      const asksRes = await db.query(
-        `SELECT price, SUM(amount - filled) AS amount, COUNT(*)::int AS count
-         FROM open_orders WHERE market_id = $1 AND side = $2 AND order_side = 'sell' AND status = 'open' AND amount > filled
-         GROUP BY price ORDER BY price ASC LIMIT 50`,
-        [marketId, side]
-      );
-      broadcastOrderBookUpdate(marketId, side, {
-        bids: bidsRes.rows.map(r => ({ price: Number(r.price), amount: Number(r.amount), count: r.count })),
-        asks: asksRes.rows.map(r => ({ price: Number(r.price), amount: Number(r.amount), count: r.count })),
-      });
-    } catch { /* non-critical */ }
-
-    res.json({ order: { orderId } });
-  } catch (err) {
-    console.error('Limit order error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+  res.status(501).json({ error: 'Limit orders not yet supported — use AMM trading' });
 });
 
-// POST /api/orderbook/market — place a market order (AMM)
+// POST /api/orderbook/market — market order goes through AMM
 router.post('/market', authMiddleware, async (req: AuthRequest, res: Response) => {
-  // Market orders go through the AMM, redirect to /api/orders
   res.status(400).json({ error: 'Use /api/orders for AMM market orders' });
 });
 
@@ -198,7 +184,6 @@ router.delete('/:orderId', authMiddleware, async (req: AuthRequest, res: Respons
     const order = orderRes.rows[0];
     const remaining = Number(order.amount) - Number(order.filled);
 
-    // Unlock funds/shares
     if (order.order_side === 'buy') {
       const refund = Number(order.price) * remaining;
       await db.query(
@@ -213,7 +198,6 @@ router.delete('/:orderId', authMiddleware, async (req: AuthRequest, res: Respons
     }
 
     await db.query("UPDATE open_orders SET status = 'cancelled' WHERE id = $1", [orderId]);
-
     res.json({ success: true });
   } catch (err) {
     console.error('Cancel order error:', err);
