@@ -30,6 +30,7 @@ import socialRoutes from './routes/social';
 import profileRoutes from './routes/profile';
 import copyTradingRoutes from './routes/copy-trading';
 
+import orderbookRoutes from './routes/orderbook';
 import favoritesRoutes from './routes/favorites';
 import { authMiddleware, AuthRequest } from './routes/middleware/auth';
 import { adminMiddleware } from './routes/middleware/admin';
@@ -149,6 +150,7 @@ async function main() {
   app.use('/api/markets', publicReadLimiter, marketCreationRoutes);
   app.use('/api/markets', publicReadLimiter, marketsRoutes);
   app.use('/api/orders', tradingLimiter, tradingRoutes); // legacy fallback
+  app.use('/api/orderbook', tradingLimiter, orderbookRoutes);
   app.use('/api', portfolioRoutes);
   app.use('/api/settlement', publicReadLimiter, settlementRoutes);
   app.use('/api/agents', publicReadLimiter, agentRoutes);
