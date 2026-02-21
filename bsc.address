@@ -1,24 +1,24 @@
 {
   "projectName": "Flip Predict",
-  "network": "BSC Testnet",
+  "network": "BSC Testnet (Chain ID 97)",
   "contracts": [
     {
-      "name": "PredictionMarket",
-      "address": "0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da",
-      "explorerLink": "https://testnet.bscscan.com/address/0x1c2702Ce1A66Ca1225f85AFC75925795e8DA58Da",
-      "description": "Core market contract: deposit, withdraw, resolve, claim winnings, split/merge positions"
+      "name": "PredictionMarket v2",
+      "address": "0xd1d9E6cB7f488AA7D9db68F89734aa94f0e6ef4B",
+      "explorerLink": "https://testnet.bscscan.com/address/0xd1d9E6cB7f488AA7D9db68F89734aa94f0e6ef4B",
+      "description": "Non-custodial CPMM prediction market with ERC1155 positions, LP support, arbitration"
     },
     {
       "name": "NFA (Non-Fungible Agent)",
-      "address": "0x1a303032E49b7A0C395C938d73ff09cecE295081",
-      "explorerLink": "https://testnet.bscscan.com/address/0x1a303032E49b7A0C395C938d73ff09cecE295081",
+      "address": "0x61b03D736606Ff898E9CADC564b84Bd2d6fc6CFF",
+      "explorerLink": "https://testnet.bscscan.com/address/0x61b03D736606Ff898E9CADC564b84Bd2d6fc6CFF",
       "description": "ERC-721 AI trading agents (BAP-578 standard) with on-chain strategy config and metadata"
     },
     {
       "name": "MockUSDT",
-      "address": "0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F",
-      "explorerLink": "https://testnet.bscscan.com/address/0x21fC50C7D2d174EF6d4c9B07Ba36Bfc4cD45233F",
-      "description": "Test USDT token for testnet trading (ERC-20, 18 decimals)"
+      "address": "0xf1669057F6eaF2216525eea54a32fC1abF967fb5",
+      "explorerLink": "https://testnet.bscscan.com/address/0xf1669057F6eaF2216525eea54a32fC1abF967fb5",
+      "description": "Test USDT token for testnet trading (ERC-20, 18 decimals, public mint)"
     }
   ],
   "frontendUrl": "https://flippredict.net",

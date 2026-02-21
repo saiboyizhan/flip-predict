@@ -13,8 +13,12 @@ async function main() {
     console.log("Deploying on BSC Mainnet");
     usdtAddress = "0x55d398326f99059fF775485246999027B3197955";
   } else if (chainId === 97n) {
-    console.log("Deploying on BSC Testnet");
-    usdtAddress = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd";
+    console.log("Deploying on BSC Testnet — deploying MockUSDT...");
+    const MockUSDT = await ethers.getContractFactory("MockUSDT");
+    const mockUSDT = await MockUSDT.deploy();
+    await mockUSDT.waitForDeployment();
+    usdtAddress = await mockUSDT.getAddress();
+    console.log("MockUSDT deployed to:", usdtAddress);
   } else {
     console.log("Local/test network detected. Deploying MockUSDT...");
     const MockUSDT = await ethers.getContractFactory("MockUSDT");
