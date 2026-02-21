@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Droplets, Plus, Minus, Loader2, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -97,25 +97,33 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
 
   // After approve confirms, add liquidity
   const [pendingAdd, setPendingAdd] = useState(false);
-  if (approveConfirmed && pendingAdd && marketIdBigint) {
-    setPendingAdd(false);
-    approveReset();
-    addLiquidity(marketIdBigint, amount);
-  }
+  useEffect(() => {
+    if (approveConfirmed && pendingAdd && marketIdBigint) {
+      setPendingAdd(false);
+      approveReset();
+      addLiquidity(marketIdBigint, amount);
+    }
+  }, [approveConfirmed, pendingAdd, marketIdBigint, amount, approveReset, addLiquidity]);
 
-  // Refresh after add/remove confirms
-  if (addConfirmed && addTxHash) {
-    addReset();
-    refetchLp();
-    toast.success(t('lp.addSuccess', 'Liquidity added successfully'));
-    onLiquidityChange?.();
-  }
-  if (removeConfirmed && removeTxHash) {
-    removeReset();
-    refetchLp();
-    toast.success(t('lp.removeSuccess', 'Liquidity removed successfully'));
-    onLiquidityChange?.();
-  }
+  // Refresh after add confirms
+  useEffect(() => {
+    if (addConfirmed && addTxHash) {
+      addReset();
+      refetchLp();
+      toast.success(t('lp.addSuccess', 'Liquidity added successfully'));
+      onLiquidityChange?.();
+    }
+  }, [addConfirmed, addTxHash, addReset, refetchLp, t, onLiquidityChange]);
+
+  // Refresh after remove confirms
+  useEffect(() => {
+    if (removeConfirmed && removeTxHash) {
+      removeReset();
+      refetchLp();
+      toast.success(t('lp.removeSuccess', 'Liquidity removed successfully'));
+      onLiquidityChange?.();
+    }
+  }, [removeConfirmed, removeTxHash, removeReset, refetchLp, t, onLiquidityChange]);
 
   const isActive = status === "active";
   const isBusy = addWriting || addConfirming || removeWriting || removeConfirming || approveWriting || approveConfirming;
