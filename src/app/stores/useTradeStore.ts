@@ -1,52 +1,15 @@
 import { create } from 'zustand'
 import i18n from '@/app/i18n'
-import type { Pool } from '@/app/engine/amm'
-import {
-  createPoolFromPrices,
-  getPrice,
-  calculateBuy,
-  calculateSell,
-  getEstimatedReturn,
-} from '@/app/engine/amm'
 import {
   calculateLMSRBuyPreview,
   calculateLMSRSellPreview,
-  getLMSRPrices,
 } from '@/app/engine/lmsr'
 import { useMarketStore } from './useMarketStore'
-import { usePortfolioStore } from './usePortfolioStore'
 import { useNotificationStore } from './useNotificationStore'
 import { useAgentStore } from './useAgentStore'
 import { createOrder, sellOrder } from '@/app/services/api'
 
-// Match server's initial liquidity (markets are created with 10000)
 const DEFAULT_LIQUIDITY = 10000
-
-/**
- * Build a Pool from actual server reserves when available.
- * Falls back to reconstructing from price + totalLiquidity.
- */
-function buildPool(market: {
-  yesPrice: number
-  noPrice?: number
-  yesReserve?: number
-  noReserve?: number
-  totalLiquidity?: number
-}): Pool {
-  // Prefer actual reserves from server
-  if (market.yesReserve && market.noReserve && market.yesReserve > 0 && market.noReserve > 0) {
-    return {
-      yesReserve: market.yesReserve,
-      noReserve: market.noReserve,
-      k: market.yesReserve * market.noReserve,
-      totalLiquidity: market.totalLiquidity || (market.yesReserve + market.noReserve),
-    }
-  }
-  // Fallback: reconstruct from price
-  const yesPrice = Math.max(0.01, Math.min(0.99, market.yesPrice))
-  const liquidity = market.totalLiquidity || DEFAULT_LIQUIDITY
-  return createPoolFromPrices(yesPrice, liquidity)
-}
 
 interface APITradeResult {
   success: boolean
@@ -63,7 +26,6 @@ interface APISellResult {
 }
 
 interface TradeState {
-  pools: Record<string, Pool>
   selectedOutcome: 'YES' | 'NO'
   amount: number
   selectedOptionId: string | null
@@ -71,12 +33,6 @@ interface TradeState {
   setOutcome: (outcome: 'YES' | 'NO') => void
   setAmount: (amount: number) => void
   setSelectedOptionId: (optionId: string | null) => void
-  getOrCreatePool: (marketId: string) => Pool
-  refreshPool: (marketId: string) => Pool
-  executeBuy: (marketId: string, side: 'yes' | 'no', amount: number) => { success: boolean; shares: number; avgPrice: number; priceImpact: number }
-  executeSell: (marketId: string, side: 'yes' | 'no', shares: number) => { success: boolean; payout: number; avgPrice: number; priceImpact: number }
-  executeAPIBuy: (marketId: string, side: 'yes' | 'no', amount: number) => Promise<APITradeResult>
-  executeAPISell: (marketId: string, side: 'yes' | 'no', shares: number) => Promise<APISellResult>
   executeAPIBuyMulti: (marketId: string, optionId: string, amount: number) => Promise<APITradeResult>
   executeAPISellMulti: (marketId: string, optionId: string, shares: number) => Promise<APISellResult>
   getLMSRPreview: (marketId: string, optionIndex: number, amount: number, mode: 'buy' | 'sell') => { shares: number; avgPrice: number; priceImpact: number; potentialProfit: number }
@@ -84,283 +40,15 @@ interface TradeState {
 }
 
 export const useTradeStore = create<TradeState>((set, get) => ({
-  pools: {},
   selectedOutcome: 'YES',
   amount: 0,
   selectedOptionId: null,
 
   setOutcome: (outcome) => set({ selectedOutcome: outcome }),
-
   setAmount: (amount) => set({ amount: Math.max(0, amount) }),
-
   setSelectedOptionId: (optionId) => set({ selectedOptionId: optionId }),
 
-  getOrCreatePool: (marketId: string) => {
-    const { pools } = get()
-    if (pools[marketId]) return pools[marketId]
-
-    const market = useMarketStore.getState().getMarketById(marketId)
-    if (!market) {
-      const pool = createPoolFromPrices(0.5, DEFAULT_LIQUIDITY)
-      set({ pools: { ...get().pools, [marketId]: pool } })
-      return pool
-    }
-
-    const pool = buildPool(market)
-    set({ pools: { ...get().pools, [marketId]: pool } })
-    return pool
-  },
-
-  // Force-rebuild pool from current market store data (call after trades or WS updates)
-  refreshPool: (marketId: string) => {
-    const market = useMarketStore.getState().getMarketById(marketId)
-    if (!market) return get().getOrCreatePool(marketId)
-
-    const pool = buildPool(market)
-    set({ pools: { ...get().pools, [marketId]: pool } })
-    return pool
-  },
-
-  executeBuy: (marketId, side, amount) => {
-    if (amount <= 0) return { success: false, shares: 0, avgPrice: 0, priceImpact: 0 }
-
-    const pool = get().getOrCreatePool(marketId)
-
-    try {
-      const result = calculateBuy(pool, side, amount)
-
-      // Update pool state
-      set({ pools: { ...get().pools, [marketId]: result.newPool } })
-
-      // Update market prices and volume in MarketStore
-      const marketState = useMarketStore.getState()
-      const newYesPrice = getPrice(result.newPool, 'yes')
-      const newNoPrice = getPrice(result.newPool, 'no')
-      const market = marketState.getMarketById(marketId)
-      const currentVolume = market ? market.volume : 0
-
-      marketState.updateMarketPrices(marketId, newYesPrice, newNoPrice, currentVolume + amount)
-
-      // Add position to portfolio store (merges if same market+side exists)
-      const portfolioState = usePortfolioStore.getState()
-      portfolioState.addPosition(marketId, market?.title || '', side, result.shares, result.avgPrice)
-      portfolioState.updatePositionPrice(marketId, newYesPrice, newNoPrice)
-
-      // Send notification
-      useNotificationStore.getState().addNotification(
-        'trade',
-        i18n.t('tradeNotification.buySuccess'),
-        i18n.t('tradeNotification.buyDesc', { shares: result.shares.toFixed(2), side: side.toUpperCase() })
-      )
-
-      return {
-        success: true,
-        shares: result.shares,
-        avgPrice: result.avgPrice,
-        priceImpact: result.priceImpact,
-      }
-    } catch {
-      return { success: false, shares: 0, avgPrice: 0, priceImpact: 0 }
-    }
-  },
-
-  executeSell: (marketId, side, shares) => {
-    if (shares <= 0) return { success: false, payout: 0, avgPrice: 0, priceImpact: 0 }
-
-    const pool = get().getOrCreatePool(marketId)
-
-    try {
-      const result = calculateSell(pool, side, shares)
-
-      // Update pool state
-      set({ pools: { ...get().pools, [marketId]: result.newPool } })
-
-      // Update market prices in MarketStore
-      const marketState = useMarketStore.getState()
-      const newYesPrice = getPrice(result.newPool, 'yes')
-      const newNoPrice = getPrice(result.newPool, 'no')
-      const market = marketState.getMarketById(marketId)
-      const currentVolume = market ? market.volume : 0
-
-      marketState.updateMarketPrices(marketId, newYesPrice, newNoPrice, currentVolume + result.payout)
-
-      // Update portfolio: reduce or remove position
-      const portfolioState = usePortfolioStore.getState()
-      const existingPos = portfolioState.positions.find(
-        (p) => p.marketId === marketId && p.side === side,
-      )
-      if (existingPos) {
-        const remaining = existingPos.shares - shares
-        if (remaining <= 0.001) {
-          portfolioState.removePosition(existingPos.id)
-        } else {
-          usePortfolioStore.setState({
-            positions: usePortfolioStore.getState().positions.map((p) =>
-              p.id === existingPos.id ? { ...p, shares: remaining, timestamp: Date.now() } : p,
-            ),
-          })
-        }
-      }
-      portfolioState.updatePositionPrice(marketId, newYesPrice, newNoPrice)
-
-      // Send notification
-      useNotificationStore.getState().addNotification(
-        'trade',
-        i18n.t('tradeNotification.sellSuccess'),
-        i18n.t('tradeNotification.sellDesc', { shares: shares.toFixed(2), side: side.toUpperCase(), amount: result.payout.toFixed(2) })
-      )
-
-      return {
-        success: true,
-        payout: result.payout,
-        avgPrice: result.avgPrice,
-        priceImpact: result.priceImpact,
-      }
-    } catch {
-      return { success: false, payout: 0, avgPrice: 0, priceImpact: 0 }
-    }
-  },
-
-  executeAPIBuy: async (marketId, side, amount) => {
-    const marketState = useMarketStore.getState()
-
-    // In production, fail fast instead of creating local-only phantom trades.
-    if (!marketState.apiMode) {
-      if (import.meta.env.PROD) {
-        return { success: false, shares: 0, price: 0, error: 'API_UNAVAILABLE' }
-      }
-      const result = get().executeBuy(marketId, side, amount)
-      return { success: result.success, shares: result.shares, price: result.avgPrice }
-    }
-
-    try {
-      const res = await createOrder({ marketId, side, amount })
-
-      // Update market store with new prices from server
-      const marketData = useMarketStore.getState().getMarketById(marketId)
-      useMarketStore.getState().updateMarketPrices(
-        marketId,
-        res.newYesPrice,
-        res.newNoPrice,
-        (marketData?.volume || 0) + amount
-      )
-
-      // Rebuild local pool from server's actual reserves (or fallback to price)
-      const newPool = (res.newYesReserve && res.newNoReserve && res.newYesReserve > 0 && res.newNoReserve > 0)
-        ? {
-            yesReserve: res.newYesReserve,
-            noReserve: res.newNoReserve,
-            k: res.newYesReserve * res.newNoReserve,
-            totalLiquidity: res.newYesReserve + res.newNoReserve,
-          }
-        : createPoolFromPrices(
-            Math.max(0.01, Math.min(0.99, res.newYesPrice)),
-            marketData?.totalLiquidity || DEFAULT_LIQUIDITY
-          )
-      set({ pools: { ...get().pools, [marketId]: newPool } })
-
-      // Add position to portfolio (also atomic)
-      const portfolioState = usePortfolioStore.getState()
-      portfolioState.addPosition(marketId, marketData?.title || '', side, res.shares, res.price)
-      portfolioState.updatePositionPrice(marketId, res.newYesPrice, res.newNoPrice)
-
-      useNotificationStore.getState().addNotification(
-        'trade',
-        i18n.t('tradeNotification.buySuccess'),
-        i18n.t('tradeNotification.buyDesc', { shares: res.shares.toFixed(2), side: side.toUpperCase() }),
-      )
-
-      // WS price_update will sync the final state from server; no rollback needed
-      return { success: true, shares: res.shares, price: res.price }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Trade failed, please try again'
-      // Trigger mint modal if user has no agent
-      if (message.includes('AGENT_REQUIRED')) {
-        useAgentStore.getState().setShowMintModal(true)
-        return { success: false, shares: 0, price: 0, error: 'AGENT_REQUIRED' }
-      }
-      // Refetch market to ensure local state is in sync after failure
-      useMarketStore.getState().fetchFromAPI().catch(() => {})
-      return { success: false, shares: 0, price: 0, error: message }
-    }
-  },
-
-  executeAPISell: async (marketId, side, shares) => {
-    const marketState = useMarketStore.getState()
-
-    if (!marketState.apiMode) {
-      if (import.meta.env.PROD) {
-        return { success: false, amountOut: 0, price: 0, error: 'API_UNAVAILABLE' }
-      }
-      const result = get().executeSell(marketId, side, shares)
-      return { success: result.success, amountOut: result.payout, price: result.avgPrice }
-    }
-
-    try {
-      const res = await sellOrder({ marketId, side, shares })
-
-      // Update market store with new prices
-      const marketData = useMarketStore.getState().getMarketById(marketId)
-      useMarketStore.getState().updateMarketPrices(
-        marketId,
-        res.newYesPrice,
-        res.newNoPrice,
-        (marketData?.volume || 0) + res.amountOut
-      )
-
-      // Rebuild local pool from server's actual reserves (or fallback to price)
-      const newPool = (res.newYesReserve && res.newNoReserve && res.newYesReserve > 0 && res.newNoReserve > 0)
-        ? {
-            yesReserve: res.newYesReserve,
-            noReserve: res.newNoReserve,
-            k: res.newYesReserve * res.newNoReserve,
-            totalLiquidity: res.newYesReserve + res.newNoReserve,
-          }
-        : createPoolFromPrices(
-            Math.max(0.01, Math.min(0.99, res.newYesPrice)),
-            marketData?.totalLiquidity || DEFAULT_LIQUIDITY
-          )
-      set({ pools: { ...get().pools, [marketId]: newPool } })
-
-      // Refresh portfolio after sell
-      const portfolioState = usePortfolioStore.getState()
-      const existingPos = portfolioState.positions.find(
-        (p) => p.marketId === marketId && p.side === side,
-      )
-      if (existingPos) {
-        const remaining = existingPos.shares - shares
-        if (remaining <= 0.001) {
-          portfolioState.removePosition(existingPos.id)
-        } else {
-          usePortfolioStore.setState({
-            positions: usePortfolioStore.getState().positions.map((p) =>
-              p.id === existingPos.id ? { ...p, shares: remaining, timestamp: Date.now() } : p,
-            ),
-          })
-        }
-      }
-      portfolioState.updatePositionPrice(marketId, res.newYesPrice, res.newNoPrice)
-
-      useNotificationStore.getState().addNotification(
-        'trade',
-        i18n.t('tradeNotification.sellSuccess'),
-        i18n.t('tradeNotification.sellDesc', { shares: shares.toFixed(2), side: side.toUpperCase(), amount: res.amountOut.toFixed(2) }),
-      )
-
-      // WS price_update will sync the final state from server; no rollback needed
-      return { success: true, amountOut: res.amountOut, price: res.price }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Sell failed, please try again'
-      if (message.includes('AGENT_REQUIRED')) {
-        useAgentStore.getState().setShowMintModal(true)
-        return { success: false, amountOut: 0, price: 0, error: 'AGENT_REQUIRED' }
-      }
-      // Refetch market to ensure local state is in sync after failure
-      useMarketStore.getState().fetchFromAPI().catch(() => {})
-      return { success: false, amountOut: 0, price: 0, error: message }
-    }
-  },
-
+  // Multi-option markets still use backend API (LMSR)
   executeAPIBuyMulti: async (marketId, optionId, amount) => {
     try {
       const res = await createOrder({ marketId, amount, optionId })
@@ -458,12 +146,8 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
   reset: () =>
     set({
-      pools: {},
       selectedOutcome: 'YES',
       amount: 0,
       selectedOptionId: null,
     }),
 }))
-
-// Re-export AMM functions for use in components
-export { calculateBuy, calculateSell, getEstimatedReturn, getPrice }

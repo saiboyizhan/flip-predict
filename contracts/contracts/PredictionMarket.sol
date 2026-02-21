@@ -6,15 +6,12 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IBinanceOracle.sol";
 
-/// @title PredictionMarket - CTF-style binary prediction market on BSC
-/// @notice Polymarket/Gnosis CTF model: splitPosition mints YES+NO tokens,
-///         mergePositions burns them back, free transfer, redeem on resolution.
-/// @dev Uses USDT (ERC-20) for collateral. ERC1155 tokens represent positions.
-///      YES tokenId = marketId * 2, NO tokenId = marketId * 2 + 1.
+/// @title PredictionMarket v2 - Non-custodial CPMM prediction market on BSC
+/// @notice Users trade directly with on-chain AMM. No deposit/withdraw needed.
+/// @dev CPMM (x*y=k) with LP support. ERC1155 YES/NO tokens.
 contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
 
     enum ResolutionPhase { NONE, PROPOSED, CHALLENGED, FINALIZED }
@@ -22,30 +19,37 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     struct Market {
         string title;
         uint256 endTime;
-        uint256 totalCollateral;  // Total USDT locked in this market
+        uint256 totalCollateral;
         bool resolved;
-        bool outcome; // true = Yes wins, false = No wins
+        bool outcome;
         bool exists;
         bool cancelled;
         // Oracle fields
         bool oracleEnabled;
-        address priceFeed;        // Oracle adapter address
-        int256 targetPrice;       // Target price (8 decimals)
-        uint8 resolutionType;     // 0=manual, 1=price_above, 2=price_below
-        int256 resolvedPrice;     // Actual price at resolution
+        address priceFeed;
+        int256 targetPrice;
+        uint8 resolutionType;
+        int256 resolvedPrice;
         // Arbitration fields
         ResolutionPhase resolutionPhase;
         address proposer;
         bool proposedOutcome;
         uint256 challengeWindowEnd;
         uint256 challengeCount;
+        // AMM reserves
+        uint256 yesReserve;
+        uint256 noReserve;
+        uint256 totalLpShares;
+        uint256 initialLiquidity;
     }
 
     IERC20 public usdtToken;
 
-    mapping(address => uint256) public balances;
     mapping(uint256 => Market) internal markets;
     uint256 public nextMarketId;
+
+    // LP shares: marketId => user => shares
+    mapping(uint256 => mapping(address => uint256)) public lpShares;
 
     // User market creation
     uint256 public marketCreationFee;
@@ -55,23 +59,30 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     address public nfaContract;
 
     uint256 public accumulatedFees;
-    uint256 public nextWithdrawRequestId;
-    mapping(uint256 => bool) public usedWithdrawNonces;
 
     mapping(address => uint256) public dailyMarketCount;
     mapping(address => uint256) public lastMarketCreationDay;
     mapping(uint256 => address) public marketCreator;
     mapping(uint256 => mapping(address => bool)) public hasChallenged;
 
-    // Agent sub-ledger (multiple agents share nfaContract address)
+    // Agent sub-ledger
     mapping(uint256 => mapping(uint256 => uint256)) public agentYesBalance;
     mapping(uint256 => mapping(uint256 => uint256)) public agentNoBalance;
 
-    event Deposit(address indexed user, uint256 amount);
-    event Withdraw(address indexed user, uint256 amount);
+    // Constants
+    uint256 public constant MIN_RESERVE = 1e18;         // 1 USDT minimum reserve
+    uint256 public constant FEE_BPS = 100;               // 1% = 100 basis points
+    uint256 public constant BPS_DENOMINATOR = 10000;
+    uint256 public constant LP_FEE_SHARE = 8000;         // 80% of fee to LP
+    uint256 public constant PROTOCOL_FEE_SHARE = 2000;   // 20% of fee to protocol
+    uint256 public constant MIN_INITIAL_LIQUIDITY = 50e18; // 50 USDT minimum
+
+    // Events
     event MarketCreated(uint256 indexed marketId, string title, uint256 endTime);
     event MarketResolved(uint256 indexed marketId, bool outcome);
-    event PositionTaken(uint256 indexed marketId, address indexed user, bool isYes, uint256 amount);
+    event Trade(uint256 indexed marketId, address indexed user, bool isBuy, bool side, uint256 amount, uint256 shares, uint256 fee);
+    event LiquidityAdded(uint256 indexed marketId, address indexed user, uint256 amount, uint256 lpSharesMinted);
+    event LiquidityRemoved(uint256 indexed marketId, address indexed user, uint256 sharesBurned, uint256 usdtOut);
     event WinningsClaimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event RefundClaimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event OracleMarketCreated(uint256 indexed marketId, address priceFeed, int256 targetPrice, uint8 resolutionType);
@@ -88,122 +99,398 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     event ResolutionChallenged(uint256 indexed marketId, address indexed challenger, uint256 challengeCount, uint256 newWindowEnd);
     event ResolutionFinalized(uint256 indexed marketId, bool outcome);
     event StrictArbitrationModeUpdated(bool enabled);
-    event WithdrawRequested(address indexed user, uint256 amount, uint256 indexed requestId);
-    event WithdrawnWithPermit(address indexed user, uint256 amount, uint256 nonce);
-    // CTF events
     event PositionSplit(uint256 indexed marketId, address indexed user, uint256 amount);
     event PositionsMerged(uint256 indexed marketId, address indexed user, uint256 amount);
-    event WinningsRedeemed(uint256 indexed marketId, address indexed user, uint256 amount);
 
     constructor(address _usdtToken) ERC1155("") Ownable(msg.sender) {
         require(_usdtToken != address(0), "Invalid USDT address");
         usdtToken = IERC20(_usdtToken);
-        marketCreationFee = 10 * 1e18; // 10 USDT (18 decimals)
+        marketCreationFee = 10 * 1e18;
         maxMarketsPerDay = 3;
         strictArbitrationMode = true;
     }
 
-    // --- Token ID Helpers ---
+    // ============================================================
+    //                      TOKEN ID HELPERS
+    // ============================================================
 
-    /// @notice Get the YES token ID for a market
-    /// @param marketId The market ID
-    /// @return YES token ID = marketId * 2
     function getYesTokenId(uint256 marketId) public pure returns (uint256) {
         return marketId * 2;
     }
 
-    /// @notice Get the NO token ID for a market
-    /// @param marketId The market ID
-    /// @return NO token ID = marketId * 2 + 1
     function getNoTokenId(uint256 marketId) public pure returns (uint256) {
         return marketId * 2 + 1;
     }
 
-    // --- Deposit / Withdraw ---
+    // ============================================================
+    //                      CPMM TRADING
+    // ============================================================
 
-    /// @notice Deposit USDT into the prediction market balance
-    /// @param amount Amount of USDT to deposit (18 decimals)
-    function deposit(uint256 amount) external nonReentrant whenNotPaused {
+    /// @notice Buy YES or NO shares using USDT directly from wallet
+    /// @param marketId The market to trade on
+    /// @param buyYes true = buy YES, false = buy NO
+    /// @param amount USDT amount to spend (before fee)
+    /// @return sharesOut Number of outcome shares received
+    function buy(
+        uint256 marketId,
+        bool buyYes,
+        uint256 amount
+    ) external nonReentrant whenNotPaused returns (uint256 sharesOut) {
         require(amount > 0, "Amount must be > 0");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        require(block.timestamp < m.endTime, "Market ended");
+        require(m.yesReserve > 0 && m.noReserve > 0, "No liquidity");
+
+        // Transfer USDT from user
         require(usdtToken.transferFrom(msg.sender, address(this), amount), "USDT transfer failed");
-        balances[msg.sender] += amount;
-        emit Deposit(msg.sender, amount);
+
+        // Deduct fee
+        uint256 fee = (amount * FEE_BPS) / BPS_DENOMINATOR;
+        uint256 netAmount = amount - fee;
+
+        // Distribute fee: 80% to LP reserves, 20% to protocol
+        uint256 lpFee = (fee * LP_FEE_SHARE) / BPS_DENOMINATOR;
+        uint256 protocolFee = fee - lpFee;
+        accumulatedFees += protocolFee;
+
+        // Add LP fee back to reserves proportionally
+        if (m.totalLpShares > 0) {
+            uint256 totalRes = m.yesReserve + m.noReserve;
+            m.yesReserve += (lpFee * m.yesReserve) / totalRes;
+            m.noReserve += (lpFee * m.noReserve) / totalRes;
+        } else {
+            // No LP providers — all fee to protocol
+            accumulatedFees += lpFee;
+        }
+
+        // CPMM: x * y = k
+        uint256 k = m.yesReserve * m.noReserve;
+
+        if (buyYes) {
+            // Buying YES: deposit into NO reserve, withdraw from YES reserve
+            // Conceptually: mint netAmount YES+NO, add NO to pool, get YES out
+            uint256 newNoReserve = m.noReserve + netAmount;
+            uint256 newYesReserve = k / newNoReserve;
+            sharesOut = netAmount + (m.yesReserve - newYesReserve);
+            m.yesReserve = newYesReserve;
+            m.noReserve = newNoReserve;
+        } else {
+            // Buying NO: deposit into YES reserve, withdraw from NO reserve
+            uint256 newYesReserve = m.yesReserve + netAmount;
+            uint256 newNoReserve = k / newYesReserve;
+            sharesOut = netAmount + (m.noReserve - newNoReserve);
+            m.noReserve = newNoReserve;
+            m.yesReserve = newYesReserve;
+        }
+
+        require(sharesOut > 0, "Zero shares output");
+        require(m.yesReserve >= MIN_RESERVE && m.noReserve >= MIN_RESERVE, "Trade too large");
+
+        // Track collateral and mint tokens
+        m.totalCollateral += netAmount;
+        if (buyYes) {
+            _mint(msg.sender, getYesTokenId(marketId), sharesOut, "");
+        } else {
+            _mint(msg.sender, getNoTokenId(marketId), sharesOut, "");
+        }
+
+        emit Trade(marketId, msg.sender, true, buyYes, amount, sharesOut, fee);
     }
 
-    /// @notice Withdraw USDT -- restricted to owner (relayer).
-    /// All user withdrawals go through the backend /api/wallet/withdraw -> adminWithdraw.
-    /// Public withdraw was removed because off-chain AMM balances diverge from on-chain
-    /// balances, allowing users to double-withdraw via BscScan.
-    function withdraw(uint256 amount) external onlyOwner nonReentrant whenNotPaused {
+    /// @notice Sell YES or NO shares back to the AMM for USDT
+    /// @param marketId The market to trade on
+    /// @param sellYes true = sell YES, false = sell NO
+    /// @param shares Number of outcome shares to sell
+    /// @return usdtOut USDT amount received (after fee)
+    function sell(
+        uint256 marketId,
+        bool sellYes,
+        uint256 shares
+    ) external nonReentrant whenNotPaused returns (uint256 usdtOut) {
+        require(shares > 0, "Shares must be > 0");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        require(block.timestamp < m.endTime, "Market ended");
+        require(m.yesReserve > 0 && m.noReserve > 0, "No liquidity");
+
+        // Verify user has shares
+        uint256 tokenId = sellYes ? getYesTokenId(marketId) : getNoTokenId(marketId);
+        require(balanceOf(msg.sender, tokenId) >= shares, "Insufficient shares");
+
+        // CPMM sell: quadratic formula
+        // amountOut = (b - sqrt(b^2 - 4*c)) / 2
+        uint256 b = m.yesReserve + m.noReserve + shares;
+        uint256 c;
+        if (sellYes) {
+            c = shares * m.noReserve;
+        } else {
+            c = shares * m.yesReserve;
+        }
+        // b^2 - 4c: since b = R_y + R_n + shares and c = shares * R_opposite,
+        // discriminant is always positive for valid inputs
+        uint256 discriminant = b * b - 4 * c;
+        uint256 sqrtDisc = Math.sqrt(discriminant);
+        uint256 grossOut = (b - sqrtDisc) / 2;
+
+        require(grossOut > 0, "Zero output");
+
+        // Update reserves
+        if (sellYes) {
+            m.yesReserve = m.yesReserve + shares - grossOut;
+            m.noReserve = m.noReserve - grossOut;
+        } else {
+            m.noReserve = m.noReserve + shares - grossOut;
+            m.yesReserve = m.yesReserve - grossOut;
+        }
+
+        require(m.yesReserve >= MIN_RESERVE && m.noReserve >= MIN_RESERVE, "Trade too large");
+
+        // Deduct fee from output
+        uint256 fee = (grossOut * FEE_BPS) / BPS_DENOMINATOR;
+        usdtOut = grossOut - fee;
+
+        // Distribute fee
+        uint256 lpFee = (fee * LP_FEE_SHARE) / BPS_DENOMINATOR;
+        uint256 protocolFee = fee - lpFee;
+        accumulatedFees += protocolFee;
+
+        if (m.totalLpShares > 0) {
+            uint256 totalRes = m.yesReserve + m.noReserve;
+            m.yesReserve += (lpFee * m.yesReserve) / totalRes;
+            m.noReserve += (lpFee * m.noReserve) / totalRes;
+        } else {
+            accumulatedFees += lpFee;
+        }
+
+        // Burn shares and transfer USDT
+        _burn(msg.sender, tokenId, shares);
+        m.totalCollateral -= grossOut;
+        require(usdtToken.transfer(msg.sender, usdtOut), "USDT transfer failed");
+
+        emit Trade(marketId, msg.sender, false, sellYes, usdtOut, shares, fee);
+    }
+
+    /// @notice Get current price for a market
+    function getPrice(uint256 marketId) external view returns (uint256 yesPrice, uint256 noPrice) {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        if (m.yesReserve == 0 && m.noReserve == 0) {
+            return (5e17, 5e17); // 0.5 / 0.5 default
+        }
+        uint256 total = m.yesReserve + m.noReserve;
+        yesPrice = (m.noReserve * 1e18) / total;
+        noPrice = 1e18 - yesPrice;
+    }
+
+    /// @notice Get AMM reserves for a market
+    function getReserves(uint256 marketId) external view returns (uint256 yesReserve, uint256 noReserve) {
+        Market storage m = markets[marketId];
+        return (m.yesReserve, m.noReserve);
+    }
+
+    // ============================================================
+    //                      LIQUIDITY PROVIDER
+    // ============================================================
+
+    /// @notice Add liquidity to a market's AMM pool
+    /// @param marketId The market to provide liquidity for
+    /// @param amount USDT amount to add
+    /// @return newShares LP shares minted
+    function addLiquidity(
+        uint256 marketId,
+        uint256 amount
+    ) external nonReentrant whenNotPaused returns (uint256 newShares) {
         require(amount > 0, "Amount must be > 0");
-        require(balances[msg.sender] >= amount, "Insufficient balance");
-        balances[msg.sender] -= amount;
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        require(block.timestamp < m.endTime, "Market ended");
+        require(m.yesReserve > 0 && m.noReserve > 0, "Market not initialized");
+
+        require(usdtToken.transferFrom(msg.sender, address(this), amount), "USDT transfer failed");
+
+        uint256 poolValue = m.yesReserve + m.noReserve;
+
+        // Calculate LP shares proportional to pool value
+        if (m.totalLpShares == 0) {
+            newShares = amount;
+        } else {
+            newShares = (m.totalLpShares * amount) / poolValue;
+        }
+        require(newShares > 0, "Zero LP shares");
+
+        // Add to reserves proportionally (maintains current price)
+        uint256 addYes = (amount * m.yesReserve) / poolValue;
+        uint256 addNo = amount - addYes;
+
+        m.yesReserve += addYes;
+        m.noReserve += addNo;
+        m.totalLpShares += newShares;
+        m.totalCollateral += amount;
+        lpShares[marketId][msg.sender] += newShares;
+
+        emit LiquidityAdded(marketId, msg.sender, amount, newShares);
+    }
+
+    /// @notice Remove liquidity from a market's AMM pool
+    /// @param marketId The market to remove liquidity from
+    /// @param sharesToBurn Number of LP shares to burn
+    /// @return usdtOut USDT amount returned
+    function removeLiquidity(
+        uint256 marketId,
+        uint256 sharesToBurn
+    ) external nonReentrant whenNotPaused returns (uint256 usdtOut) {
+        require(sharesToBurn > 0, "Shares must be > 0");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(lpShares[marketId][msg.sender] >= sharesToBurn, "Insufficient LP shares");
+
+        uint256 poolValue = m.yesReserve + m.noReserve;
+
+        // Calculate withdrawal proportional to shares
+        usdtOut = (sharesToBurn * poolValue) / m.totalLpShares;
+        require(usdtOut > 0, "Zero output");
+
+        // Calculate proportional reserve removal
+        uint256 removeYes = (usdtOut * m.yesReserve) / poolValue;
+        uint256 removeNo = usdtOut - removeYes;
+
+        // Safety: reserves must stay above minimum
+        uint256 minReserve = m.initialLiquidity / 2;
+        if (minReserve < MIN_RESERVE) minReserve = MIN_RESERVE;
+        require(m.yesReserve - removeYes >= minReserve, "Would deplete YES reserve");
+        require(m.noReserve - removeNo >= minReserve, "Would deplete NO reserve");
+
+        m.yesReserve -= removeYes;
+        m.noReserve -= removeNo;
+        m.totalLpShares -= sharesToBurn;
+        m.totalCollateral -= usdtOut;
+        lpShares[marketId][msg.sender] -= sharesToBurn;
+
+        require(usdtToken.transfer(msg.sender, usdtOut), "USDT transfer failed");
+
+        emit LiquidityRemoved(marketId, msg.sender, sharesToBurn, usdtOut);
+    }
+
+    /// @notice Get LP info for a market
+    function getLpInfo(uint256 marketId, address user) external view returns (
+        uint256 totalShares,
+        uint256 userLpShares,
+        uint256 poolValue,
+        uint256 userValue,
+        uint256 yesReserve,
+        uint256 noReserve
+    ) {
+        Market storage m = markets[marketId];
+        totalShares = m.totalLpShares;
+        yesReserve = m.yesReserve;
+        noReserve = m.noReserve;
+        poolValue = yesReserve + noReserve;
+        userLpShares = lpShares[marketId][user];
+        if (totalShares > 0) {
+            userValue = (userLpShares * poolValue) / totalShares;
+        }
+    }
+
+    // ============================================================
+    //                      CTF: SPLIT / MERGE (PUBLIC)
+    // ============================================================
+
+    /// @notice Split USDT into YES + NO tokens (1:1:1)
+    function splitPosition(uint256 marketId, uint256 amount) external nonReentrant whenNotPaused {
+        require(amount > 0, "Amount must be > 0");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        require(block.timestamp < m.endTime, "Market ended");
+
+        require(usdtToken.transferFrom(msg.sender, address(this), amount), "USDT transfer failed");
+        m.totalCollateral += amount;
+
+        _mint(msg.sender, getYesTokenId(marketId), amount, "");
+        _mint(msg.sender, getNoTokenId(marketId), amount, "");
+
+        emit PositionSplit(marketId, msg.sender, amount);
+    }
+
+    /// @notice Merge YES + NO tokens back into USDT (1:1:1)
+    function mergePositions(uint256 marketId, uint256 amount) external nonReentrant whenNotPaused {
+        require(amount > 0, "Amount must be > 0");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+
+        uint256 yesId = getYesTokenId(marketId);
+        uint256 noId = getNoTokenId(marketId);
+        require(balanceOf(msg.sender, yesId) >= amount, "Insufficient YES tokens");
+        require(balanceOf(msg.sender, noId) >= amount, "Insufficient NO tokens");
+
+        _burn(msg.sender, yesId, amount);
+        _burn(msg.sender, noId, amount);
+        m.totalCollateral -= amount;
+
         require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
-        emit Withdraw(msg.sender, amount);
+
+        emit PositionsMerged(marketId, msg.sender, amount);
     }
 
-    /// @notice Relayer withdrawal: owner sends USDT from the contract pool to a user.
-    /// Used by the off-chain backend to process withdrawals for users whose profits
-    /// exist only in the DB (off-chain AMM trading profits are not reflected in on-chain balances).
-    /// @param user Recipient address
-    /// @param amount Amount of USDT to send (18 decimals)
-    function adminWithdraw(address user, uint256 amount) external onlyOwner nonReentrant {
-        require(user != address(0), "Invalid address");
-        require(amount > 0, "Amount must be > 0");
-        require(usdtToken.transfer(user, amount), "USDT transfer failed");
-        emit Withdraw(user, amount);
+    // ============================================================
+    //                      CLAIM WINNINGS (PUBLIC)
+    // ============================================================
+
+    /// @notice Claim winnings from a resolved market — USDT sent directly to user
+    function claimWinnings(uint256 marketId) external nonReentrant whenNotPaused {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(m.resolved, "Market not resolved");
+        require(!m.cancelled, "Market cancelled, use claimRefund");
+
+        uint256 winningTokenId = m.outcome ? getYesTokenId(marketId) : getNoTokenId(marketId);
+        uint256 winnerAmount = balanceOf(msg.sender, winningTokenId);
+        require(winnerAmount > 0, "No winning position");
+
+        uint256 winnerSupply = totalSupply(winningTokenId);
+        _burn(msg.sender, winningTokenId, winnerAmount);
+
+        uint256 reward = (winnerAmount * m.totalCollateral) / winnerSupply;
+        m.totalCollateral -= reward;
+
+        require(usdtToken.transfer(msg.sender, reward), "USDT transfer failed");
+        emit WinningsClaimed(marketId, msg.sender, reward);
     }
 
-    /// @notice NFA contract withdraws its own balance back to itself.
-    /// Required because withdraw() is onlyOwner (relayer model).
-    function nfaWithdraw(uint256 amount) external nonReentrant whenNotPaused {
-        require(msg.sender == nfaContract, "Only NFA contract");
-        require(amount > 0, "Amount must be > 0");
-        require(balances[msg.sender] >= amount, "Insufficient balance");
-        balances[msg.sender] -= amount;
-        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
-        emit Withdraw(msg.sender, amount);
+    /// @notice Claim refund for a cancelled market — USDT sent directly to user
+    function claimRefund(uint256 marketId) external nonReentrant whenNotPaused {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(m.cancelled, "Market not cancelled");
+
+        uint256 yesId = getYesTokenId(marketId);
+        uint256 noId = getNoTokenId(marketId);
+        uint256 userYes = balanceOf(msg.sender, yesId);
+        uint256 userNo = balanceOf(msg.sender, noId);
+        uint256 totalTokens = userYes + userNo;
+        require(totalTokens > 0, "No position");
+
+        if (userYes > 0) _burn(msg.sender, yesId, userYes);
+        if (userNo > 0) _burn(msg.sender, noId, userNo);
+
+        uint256 totalAllTokens = totalSupply(yesId) + totalSupply(noId) + totalTokens;
+        uint256 refundAmount = (totalTokens * m.totalCollateral) / totalAllTokens;
+        m.totalCollateral -= refundAmount;
+
+        require(usdtToken.transfer(msg.sender, refundAmount), "USDT transfer failed");
+        emit RefundClaimed(marketId, msg.sender, refundAmount);
     }
 
-    /// @notice User submits on-chain withdraw request. Keeper processes actual USDT transfer.
-    /// @dev No on-chain balance check -- DB balance is the authority. Only emits event for gas efficiency.
-    /// @param amount Amount of USDT the user wants to withdraw (18 decimals)
-    function requestWithdraw(uint256 amount) external nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
-        uint256 requestId = nextWithdrawRequestId++;
-        emit WithdrawRequested(msg.sender, amount, requestId);
-    }
+    // ============================================================
+    //                      MARKET MANAGEMENT
+    // ============================================================
 
-    /// @notice Withdraw USDT with admin-signed permit. One-step: user gets USDT immediately.
-    /// @dev Backend deducts DB balance, signs a permit, user calls this to claim USDT.
-    ///      Includes address(this) in hash to prevent cross-contract replay.
-    /// @param amount Amount of USDT to withdraw (18 decimals)
-    /// @param nonce Unique nonce (prevents replay)
-    /// @param deadline Timestamp after which the permit expires
-    /// @param adminSignature Admin's EIP-191 signature over (user, amount, nonce, deadline, contract)
-    function withdrawWithPermit(
-        uint256 amount,
-        uint256 nonce,
-        uint256 deadline,
-        bytes calldata adminSignature
-    ) external nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
-        require(block.timestamp <= deadline, "Permit expired");
-        require(!usedWithdrawNonces[nonce], "Nonce already used");
-        usedWithdrawNonces[nonce] = true;
-
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, amount, nonce, deadline, address(this)));
-        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
-        address signer = ECDSA.recover(ethSignedHash, adminSignature);
-        require(signer == owner(), "Invalid admin signature");
-
-        require(usdtToken.transfer(msg.sender, amount), "USDT transfer failed");
-        emit WithdrawnWithPermit(msg.sender, amount, nonce);
-    }
-
-    // --- Market Management ---
-
-    /// @notice Create a new manually-resolved prediction market (owner only)
+    /// @notice Create a new manually-resolved market (owner only, no AMM)
     function createMarket(
         string calldata title,
         uint256 endTime
@@ -218,7 +505,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         return marketId;
     }
 
-    /// @notice Create a new oracle-resolved prediction market (owner only)
+    /// @notice Create a new oracle-resolved market (owner only)
     function createOracleMarket(
         string calldata title,
         uint256 endTime,
@@ -243,267 +530,324 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         return marketId;
     }
 
+    /// @notice Create a user-generated market with CPMM liquidity
+    /// @dev Caller must approve this contract for (marketCreationFee + initialLiquidity) USDT
+    function createUserMarket(
+        string calldata title,
+        uint256 endTime,
+        uint256 initialLiq
+    ) external nonReentrant whenNotPaused returns (uint256) {
+        require(bytes(title).length >= 10, "Title too short");
+        require(bytes(title).length <= 200, "Title too long");
+        require(endTime > block.timestamp + 1 hours, "End time too soon");
+        require(endTime <= block.timestamp + 90 days, "End time too far");
+        require(initialLiq >= MIN_INITIAL_LIQUIDITY, "Initial liquidity too low");
+
+        // Daily rate limit
+        uint256 today = block.timestamp / 86400;
+        if (lastMarketCreationDay[msg.sender] != today) {
+            dailyMarketCount[msg.sender] = 0;
+            lastMarketCreationDay[msg.sender] = today;
+        }
+        require(dailyMarketCount[msg.sender] < maxMarketsPerDay, "Daily market limit reached");
+        dailyMarketCount[msg.sender]++;
+
+        // Transfer creation fee + initial liquidity from user
+        uint256 totalTransfer = marketCreationFee + initialLiq;
+        require(usdtToken.transferFrom(msg.sender, address(this), totalTransfer), "USDT transfer failed");
+        accumulatedFees += marketCreationFee;
+
+        // Create market
+        uint256 marketId = nextMarketId++;
+        Market storage m = markets[marketId];
+        m.title = title;
+        m.endTime = endTime;
+        m.exists = true;
+
+        // Initialize AMM reserves (50/50)
+        m.yesReserve = initialLiq;
+        m.noReserve = initialLiq;
+        m.initialLiquidity = initialLiq;
+        m.totalCollateral = initialLiq * 2; // Both reserves are backed
+        m.totalLpShares = initialLiq;
+
+        marketCreator[marketId] = msg.sender;
+        lpShares[marketId][msg.sender] = initialLiq; // Creator gets initial LP shares
+
+        emit MarketCreated(marketId, title, endTime);
+        emit UserMarketCreated(marketId, msg.sender, title, marketCreationFee);
+        emit LiquidityAdded(marketId, msg.sender, initialLiq, initialLiq);
+        return marketId;
+    }
+
+    // ============================================================
+    //                      RESOLUTION
+    // ============================================================
+
     /// @notice Manually resolve a non-oracle market (owner only)
-    function resolveMarket(
-        uint256 marketId,
-        bool outcome
-    ) external onlyOwner {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Already resolved");
-        require(!market.oracleEnabled, "Use resolveByOracle for oracle markets");
+    function resolveMarket(uint256 marketId, bool outcome) external onlyOwner {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Already resolved");
+        require(!m.oracleEnabled, "Use resolveByOracle for oracle markets");
         require(!strictArbitrationMode, "Direct manual resolve disabled");
-        require(block.timestamp >= market.endTime, "Market not ended");
+        require(block.timestamp >= m.endTime, "Market not ended");
         require(
-            market.resolutionPhase != ResolutionPhase.PROPOSED &&
-            market.resolutionPhase != ResolutionPhase.CHALLENGED,
+            m.resolutionPhase != ResolutionPhase.PROPOSED &&
+            m.resolutionPhase != ResolutionPhase.CHALLENGED,
             "Active arbitration in progress"
         );
-        market.resolved = true;
-        market.outcome = outcome;
+        m.resolved = true;
+        m.outcome = outcome;
         emit MarketResolved(marketId, outcome);
     }
 
-    /// @notice Resolve an oracle-enabled market by reading the price feed
+    /// @notice Resolve an oracle-enabled market
     function resolveByOracle(uint256 marketId) external {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Already resolved");
-        require(market.oracleEnabled, "Not oracle market");
-        require(block.timestamp >= market.endTime, "Market not ended");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Already resolved");
+        require(m.oracleEnabled, "Not oracle market");
+        require(block.timestamp >= m.endTime, "Market not ended");
 
-        (, int256 currentPrice, , uint256 updatedAt, ) = AggregatorV2V3Interface(market.priceFeed).latestRoundData();
+        (, int256 currentPrice, , uint256 updatedAt, ) = AggregatorV2V3Interface(m.priceFeed).latestRoundData();
         require(currentPrice > 0, "Invalid oracle price");
         require(block.timestamp - updatedAt < 1 hours, "Stale oracle price");
 
         bool outcome;
-        if (market.resolutionType == 1) {
-            outcome = currentPrice >= market.targetPrice;
+        if (m.resolutionType == 1) {
+            outcome = currentPrice >= m.targetPrice;
         } else {
-            outcome = currentPrice <= market.targetPrice;
+            outcome = currentPrice <= m.targetPrice;
         }
 
-        market.resolved = true;
-        market.outcome = outcome;
-        market.resolvedPrice = currentPrice;
+        m.resolved = true;
+        m.outcome = outcome;
+        m.resolvedPrice = currentPrice;
         emit MarketResolved(marketId, outcome);
         emit OracleResolution(marketId, currentPrice, outcome);
     }
 
-    // --- Arbitration State Machine ---
+    // --- Arbitration ---
 
-    /// @notice Propose a resolution outcome (market creator or owner)
     function proposeResolution(uint256 marketId, bool _outcome) external {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Already resolved");
-        require(block.timestamp >= market.endTime, "Market not ended");
-        require(market.resolutionPhase == ResolutionPhase.NONE, "Proposal already exists");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Already resolved");
+        require(block.timestamp >= m.endTime, "Market not ended");
+        require(m.resolutionPhase == ResolutionPhase.NONE, "Proposal already exists");
         require(
             msg.sender == owner() || msg.sender == marketCreator[marketId],
             "Only owner or market creator"
         );
-        market.resolutionPhase = ResolutionPhase.PROPOSED;
-        market.proposer = msg.sender;
-        market.proposedOutcome = _outcome;
-        market.challengeWindowEnd = block.timestamp + 6 hours;
-        emit ResolutionProposed(marketId, msg.sender, _outcome, market.challengeWindowEnd);
+        m.resolutionPhase = ResolutionPhase.PROPOSED;
+        m.proposer = msg.sender;
+        m.proposedOutcome = _outcome;
+        m.challengeWindowEnd = block.timestamp + 6 hours;
+        emit ResolutionProposed(marketId, msg.sender, _outcome, m.challengeWindowEnd);
     }
 
-    /// @notice Challenge an active resolution proposal
     function challengeResolution(uint256 marketId) external {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
         require(
-            market.resolutionPhase == ResolutionPhase.PROPOSED ||
-            market.resolutionPhase == ResolutionPhase.CHALLENGED,
+            m.resolutionPhase == ResolutionPhase.PROPOSED ||
+            m.resolutionPhase == ResolutionPhase.CHALLENGED,
             "No active proposal"
         );
-        require(block.timestamp < market.challengeWindowEnd, "Challenge window closed");
-        require(msg.sender != market.proposer, "Proposer cannot challenge");
-        require(market.challengeCount < MAX_CHALLENGES, "Max challenges reached");
+        require(block.timestamp < m.challengeWindowEnd, "Challenge window closed");
+        require(msg.sender != m.proposer, "Proposer cannot challenge");
+        require(m.challengeCount < MAX_CHALLENGES, "Max challenges reached");
         require(!hasChallenged[marketId][msg.sender], "Already challenged this market");
-        market.resolutionPhase = ResolutionPhase.CHALLENGED;
-        market.challengeCount++;
+        m.resolutionPhase = ResolutionPhase.CHALLENGED;
+        m.challengeCount++;
         hasChallenged[marketId][msg.sender] = true;
-        market.challengeWindowEnd = block.timestamp + 3 hours;
-        emit ResolutionChallenged(marketId, msg.sender, market.challengeCount, market.challengeWindowEnd);
+        m.challengeWindowEnd = block.timestamp + 3 hours;
+        emit ResolutionChallenged(marketId, msg.sender, m.challengeCount, m.challengeWindowEnd);
     }
 
-    /// @notice Finalize resolution after challenge window closes (owner only)
-    function finalizeResolution(uint256 marketId, bool _outcome) external onlyOwner {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Already resolved");
-        require(
-            market.resolutionPhase == ResolutionPhase.PROPOSED ||
-            market.resolutionPhase == ResolutionPhase.CHALLENGED,
-            "No active proposal"
-        );
-        require(block.timestamp >= market.challengeWindowEnd, "Challenge window not closed");
-        market.resolved = true;
-        market.outcome = _outcome;
-        market.resolutionPhase = ResolutionPhase.FINALIZED;
+    /// @notice Finalize unchallenged resolution (public — uses proposedOutcome)
+    function finalizeResolution(uint256 marketId) external {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Already resolved");
+        require(m.resolutionPhase == ResolutionPhase.PROPOSED, "Not in PROPOSED phase");
+        require(block.timestamp >= m.challengeWindowEnd, "Challenge window not closed");
+        m.resolved = true;
+        m.outcome = m.proposedOutcome;
+        m.resolutionPhase = ResolutionPhase.FINALIZED;
+        emit MarketResolved(marketId, m.proposedOutcome);
+        emit ResolutionFinalized(marketId, m.proposedOutcome);
+    }
+
+    /// @notice Admin finalize after challenge (owner only — can override outcome)
+    function adminFinalizeResolution(uint256 marketId, bool _outcome) external onlyOwner {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Already resolved");
+        require(m.resolutionPhase == ResolutionPhase.CHALLENGED, "Not in CHALLENGED phase");
+        require(block.timestamp >= m.challengeWindowEnd, "Challenge window not closed");
+        m.resolved = true;
+        m.outcome = _outcome;
+        m.resolutionPhase = ResolutionPhase.FINALIZED;
         emit MarketResolved(marketId, _outcome);
         emit ResolutionFinalized(marketId, _outcome);
     }
 
-    // --- CTF: Split / Merge ---
+    // ============================================================
+    //                      CANCEL / REFUND
+    // ============================================================
 
-    /// @notice Split collateral into YES + NO tokens (1:1:1)
-    /// @dev Restricted to owner (Relayer) to prevent bypassing off-chain AMM.
-    /// @param marketId The market to split into
-    /// @param amount Amount of USDT (from balance) to split
-    function splitPosition(uint256 marketId, uint256 amount) external onlyOwner nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Market already resolved");
-        require(block.timestamp < market.endTime, "Market ended");
-        require(balances[msg.sender] >= amount, "Insufficient balance");
-
-        balances[msg.sender] -= amount;
-        market.totalCollateral += amount;
-
-        _mint(msg.sender, getYesTokenId(marketId), amount, "");
-        _mint(msg.sender, getNoTokenId(marketId), amount, "");
-
-        emit PositionSplit(marketId, msg.sender, amount);
+    function cancelMarket(uint256 marketId) external onlyOwner {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        m.resolved = true;
+        m.cancelled = true;
+        emit MarketCancelled(marketId);
     }
 
-    /// @notice Merge YES + NO tokens back into collateral (1:1:1)
-    /// @dev Restricted to owner (Relayer) to prevent bypassing off-chain AMM.
-    /// @param marketId The market to merge from
-    /// @param amount Amount of YES+NO token pairs to merge
-    function mergePositions(uint256 marketId, uint256 amount) external onlyOwner nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Market already resolved");
+    // ============================================================
+    //                      AGENT FUNCTIONS
+    // ============================================================
 
-        uint256 yesId = getYesTokenId(marketId);
-        uint256 noId = getNoTokenId(marketId);
-        require(balanceOf(msg.sender, yesId) >= amount, "Insufficient YES tokens");
-        require(balanceOf(msg.sender, noId) >= amount, "Insufficient NO tokens");
-
-        _burn(msg.sender, yesId, amount);
-        _burn(msg.sender, noId, amount);
-
-        market.totalCollateral -= amount;
-        balances[msg.sender] += amount;
-
-        emit PositionsMerged(marketId, msg.sender, amount);
-    }
-
-    /// @notice Agent version of splitPosition (called by NFA contract only)
-    function agentSplitPosition(uint256 agentTokenId, uint256 marketId, uint256 amount) external nonReentrant whenNotPaused {
+    /// @notice Agent buys shares via NFA contract (uses CPMM)
+    function agentBuy(
+        uint256 agentTokenId,
+        uint256 marketId,
+        bool buyYes,
+        uint256 amount
+    ) external nonReentrant whenNotPaused returns (uint256 sharesOut) {
         require(msg.sender == nfaContract, "Only NFA contract");
         require(amount > 0, "Amount must be > 0");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Market already resolved");
-        require(block.timestamp < market.endTime, "Market ended");
-        require(balances[msg.sender] >= amount, "Insufficient balance");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        require(block.timestamp < m.endTime, "Market ended");
+        require(m.yesReserve > 0 && m.noReserve > 0, "No liquidity");
 
-        balances[msg.sender] -= amount;
-        market.totalCollateral += amount;
+        // NFA contract must have approved USDT
+        require(usdtToken.transferFrom(nfaContract, address(this), amount), "USDT transfer failed");
 
-        // Mint to nfaContract address
-        _mint(nfaContract, getYesTokenId(marketId), amount, "");
-        _mint(nfaContract, getNoTokenId(marketId), amount, "");
+        uint256 fee = (amount * FEE_BPS) / BPS_DENOMINATOR;
+        uint256 netAmount = amount - fee;
+        accumulatedFees += fee; // Simplified: all fee to protocol for agent trades
 
-        // Track in agent sub-ledger
-        agentYesBalance[marketId][agentTokenId] += amount;
-        agentNoBalance[marketId][agentTokenId] += amount;
+        uint256 k = m.yesReserve * m.noReserve;
 
-        emit PositionSplit(marketId, nfaContract, amount);
-    }
-
-    // --- Trading ---
-
-    /// @notice Take a YES or NO position on a market using deposited balance
-    /// @dev Restricted to owner (Relayer) to prevent bypassing off-chain AMM pricing.
-    ///      Users trade via the backend AMM; only the Relayer syncs state on-chain.
-    function takePosition(
-        uint256 marketId,
-        bool isYes,
-        uint256 amount
-    ) external onlyOwner nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Market already resolved");
-        require(block.timestamp < market.endTime, "Market ended");
-        require(balances[msg.sender] >= amount, "Insufficient balance");
-
-        balances[msg.sender] -= amount;
-        market.totalCollateral += amount;
-
-        if (isYes) {
-            _mint(msg.sender, getYesTokenId(marketId), amount, "");
+        if (buyYes) {
+            uint256 newNoReserve = m.noReserve + netAmount;
+            uint256 newYesReserve = k / newNoReserve;
+            sharesOut = netAmount + (m.yesReserve - newYesReserve);
+            m.yesReserve = newYesReserve;
+            m.noReserve = newNoReserve;
         } else {
-            _mint(msg.sender, getNoTokenId(marketId), amount, "");
+            uint256 newYesReserve = m.yesReserve + netAmount;
+            uint256 newNoReserve = k / newYesReserve;
+            sharesOut = netAmount + (m.noReserve - newNoReserve);
+            m.noReserve = newNoReserve;
+            m.yesReserve = newYesReserve;
         }
 
-        emit PositionTaken(marketId, msg.sender, isYes, amount);
+        require(sharesOut > 0, "Zero shares output");
+        require(m.yesReserve >= MIN_RESERVE && m.noReserve >= MIN_RESERVE, "Trade too large");
+
+        m.totalCollateral += netAmount;
+        if (buyYes) {
+            _mint(nfaContract, getYesTokenId(marketId), sharesOut, "");
+            agentYesBalance[marketId][agentTokenId] += sharesOut;
+        } else {
+            _mint(nfaContract, getNoTokenId(marketId), sharesOut, "");
+            agentNoBalance[marketId][agentTokenId] += sharesOut;
+        }
+
+        emit AgentPositionTaken(marketId, agentTokenId, buyYes, amount);
+        emit Trade(marketId, nfaContract, true, buyYes, amount, sharesOut, fee);
     }
 
-    // --- Claim Winnings ---
+    /// @notice Agent claim winnings
+    function agentClaimWinnings(uint256 agentTokenId, uint256 marketId) external nonReentrant whenNotPaused {
+        require(msg.sender == nfaContract, "Only NFA contract");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(m.resolved, "Market not resolved");
+        require(!m.cancelled, "Market cancelled");
 
-    /// @notice Claim winnings from a resolved (non-cancelled) market
-    /// @dev Restricted to owner (Relayer). Settlement is handled off-chain by keeper.
-    function claimWinnings(uint256 marketId) external onlyOwner nonReentrant whenNotPaused {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(market.resolved, "Market not resolved");
-        require(!market.cancelled, "Market cancelled, use claimRefund");
-
+        uint256 winnerAmount;
         uint256 winningTokenId;
-        if (market.outcome) {
+
+        if (m.outcome) {
+            winnerAmount = agentYesBalance[marketId][agentTokenId];
             winningTokenId = getYesTokenId(marketId);
         } else {
+            winnerAmount = agentNoBalance[marketId][agentTokenId];
             winningTokenId = getNoTokenId(marketId);
         }
-
-        uint256 winnerAmount = balanceOf(msg.sender, winningTokenId);
         require(winnerAmount > 0, "No winning position");
 
         uint256 winnerSupply = totalSupply(winningTokenId);
 
-        // Burn all winning tokens
-        _burn(msg.sender, winningTokenId, winnerAmount);
+        if (m.outcome) {
+            agentYesBalance[marketId][agentTokenId] = 0;
+        } else {
+            agentNoBalance[marketId][agentTokenId] = 0;
+        }
 
-        // payout = tokens * totalCollateral / winnerSupply
-        uint256 reward = (winnerAmount * market.totalCollateral) / winnerSupply;
-        market.totalCollateral -= reward;
+        _burn(nfaContract, winningTokenId, winnerAmount);
+        uint256 reward = (winnerAmount * m.totalCollateral) / winnerSupply;
+        m.totalCollateral -= reward;
 
-        balances[msg.sender] += reward;
-        emit WinningsClaimed(marketId, msg.sender, reward);
+        require(usdtToken.transfer(nfaContract, reward), "USDT transfer failed");
+        emit WinningsClaimed(marketId, nfaContract, reward);
     }
 
-    // --- View ---
+    /// @notice Agent claim refund for cancelled market
+    function agentClaimRefund(uint256 agentTokenId, uint256 marketId) external nonReentrant whenNotPaused {
+        require(msg.sender == nfaContract, "Only NFA contract");
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(m.cancelled, "Market not cancelled");
 
-    /// @notice Get full market data
-    function getMarket(
-        uint256 marketId
-    )
-        external
-        view
-        returns (
-            string memory title,
-            uint256 endTime,
-            uint256 totalYes,
-            uint256 totalNo,
-            bool resolved,
-            bool outcome,
-            bool cancelled,
-            bool oracleEnabled,
-            address priceFeed,
-            int256 targetPrice,
-            uint8 resolutionType,
-            int256 resolvedPrice
-        )
-    {
+        uint256 yesAmount = agentYesBalance[marketId][agentTokenId];
+        uint256 noAmount = agentNoBalance[marketId][agentTokenId];
+        uint256 totalTokens = yesAmount + noAmount;
+        require(totalTokens > 0, "No position");
+
+        agentYesBalance[marketId][agentTokenId] = 0;
+        agentNoBalance[marketId][agentTokenId] = 0;
+
+        uint256 yesId = getYesTokenId(marketId);
+        uint256 noId = getNoTokenId(marketId);
+
+        if (yesAmount > 0) _burn(nfaContract, yesId, yesAmount);
+        if (noAmount > 0) _burn(nfaContract, noId, noAmount);
+
+        uint256 totalAllTokens = totalSupply(yesId) + totalSupply(noId) + totalTokens;
+        uint256 refundAmount = (totalTokens * m.totalCollateral) / totalAllTokens;
+        m.totalCollateral -= refundAmount;
+
+        require(usdtToken.transfer(nfaContract, refundAmount), "USDT transfer failed");
+        emit AgentRefundClaimed(marketId, agentTokenId, refundAmount);
+    }
+
+    // ============================================================
+    //                      VIEW FUNCTIONS
+    // ============================================================
+
+    function getMarket(uint256 marketId) external view returns (
+        string memory title,
+        uint256 endTime,
+        uint256 totalYes,
+        uint256 totalNo,
+        bool resolved,
+        bool outcome,
+        bool cancelled,
+        bool oracleEnabled,
+        address priceFeed,
+        int256 targetPrice,
+        uint8 resolutionType,
+        int256 resolvedPrice
+    ) {
         Market storage m = markets[marketId];
         require(m.exists, "Market does not exist");
         title = m.title;
@@ -520,238 +864,45 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         resolvedPrice = m.resolvedPrice;
     }
 
-    /// @notice Check if a market has been cancelled
+    function getMarketAmm(uint256 marketId) external view returns (
+        uint256 yesReserve,
+        uint256 noReserve,
+        uint256 totalLpShares_,
+        uint256 initialLiquidity,
+        uint256 totalCollateral
+    ) {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        yesReserve = m.yesReserve;
+        noReserve = m.noReserve;
+        totalLpShares_ = m.totalLpShares;
+        initialLiquidity = m.initialLiquidity;
+        totalCollateral = m.totalCollateral;
+    }
+
     function isMarketCancelled(uint256 marketId) external view returns (bool) {
         require(markets[marketId].exists, "Market does not exist");
         return markets[marketId].cancelled;
     }
 
-    /// @notice Get a user's position on a market (reads ERC1155 balances)
-    function getPosition(
-        uint256 marketId,
-        address user
-    ) external view returns (uint256 yesAmount, uint256 noAmount, bool claimed) {
+    function getPosition(uint256 marketId, address user) external view returns (uint256 yesAmount, uint256 noAmount, bool claimed) {
         yesAmount = balanceOf(user, getYesTokenId(marketId));
         noAmount = balanceOf(user, getNoTokenId(marketId));
-        claimed = false; // In CTF model, claimed = (balance == 0 after resolution)
+        claimed = false;
     }
 
-    // --- Admin ---
-
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    // --- User Market Creation ---
-
-    /// @notice Create a user-generated market with a USDT creation fee
-    /// @dev Caller must approve this contract for at least marketCreationFee USDT before calling
-    function createUserMarket(
-        string calldata title,
-        uint256 endTime,
-        uint256 initialLiquidity
-    ) external nonReentrant whenNotPaused returns (uint256) {
-        require(bytes(title).length >= 10, "Title too short");
-        require(bytes(title).length <= 200, "Title too long");
-        require(endTime > block.timestamp + 1 hours, "End time too soon");
-        require(endTime <= block.timestamp + 90 days, "End time too far");
-
-        // Daily rate limit
-        uint256 today = block.timestamp / 86400;
-        if (lastMarketCreationDay[msg.sender] != today) {
-            dailyMarketCount[msg.sender] = 0;
-            lastMarketCreationDay[msg.sender] = today;
-        }
-        require(dailyMarketCount[msg.sender] < maxMarketsPerDay, "Daily market limit reached");
-        dailyMarketCount[msg.sender]++;
-
-        // Collect creation fee in USDT
-        require(usdtToken.transferFrom(msg.sender, address(this), marketCreationFee), "Fee transfer failed");
-        accumulatedFees += marketCreationFee;
-
-        // Create market
-        uint256 marketId = nextMarketId++;
-        Market storage m = markets[marketId];
-        m.title = title;
-        m.endTime = endTime;
-        m.exists = true;
-
-        marketCreator[marketId] = msg.sender;
-
-        // Initial liquidity: split into YES + NO tokens (CTF 1:1:1 -- 1 USDT = 1 YES + 1 NO)
-        if (initialLiquidity > 0) {
-            require(balances[msg.sender] >= initialLiquidity, "Insufficient balance for liquidity");
-            balances[msg.sender] -= initialLiquidity;
-            markets[marketId].totalCollateral += initialLiquidity;
-
-            _mint(msg.sender, getYesTokenId(marketId), initialLiquidity, "");
-            _mint(msg.sender, getNoTokenId(marketId), initialLiquidity, "");
-        }
-
-        emit MarketCreated(marketId, title, endTime);
-        emit UserMarketCreated(marketId, msg.sender, title, marketCreationFee);
-        return marketId;
-    }
-
-    // --- Agent Position ---
-
-    /// @notice Take a position on behalf of an NFA agent (called by NFA contract only)
-    function agentTakePosition(
-        uint256 agentTokenId,
-        uint256 marketId,
-        bool isYes,
-        uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(msg.sender == nfaContract, "Only NFA contract");
-        require(amount > 0, "Amount must be > 0");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Market already resolved");
-        require(block.timestamp < market.endTime, "Market ended");
-        require(balances[msg.sender] >= amount, "Insufficient balance");
-
-        balances[msg.sender] -= amount;
-        market.totalCollateral += amount;
-
-        if (isYes) {
-            _mint(nfaContract, getYesTokenId(marketId), amount, "");
-            agentYesBalance[marketId][agentTokenId] += amount;
-        } else {
-            _mint(nfaContract, getNoTokenId(marketId), amount, "");
-            agentNoBalance[marketId][agentTokenId] += amount;
-        }
-
-        emit AgentPositionTaken(marketId, agentTokenId, isYes, amount);
-    }
-
-    /// @notice Claim agent winnings from a resolved market (called by NFA contract only)
-    function agentClaimWinnings(uint256 agentTokenId, uint256 marketId) external nonReentrant whenNotPaused {
-        require(msg.sender == nfaContract, "Only NFA contract");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(market.resolved, "Market not resolved");
-        require(!market.cancelled, "Market cancelled");
-
-        uint256 winnerAmount;
-        uint256 winningTokenId;
-
-        if (market.outcome) {
-            winnerAmount = agentYesBalance[marketId][agentTokenId];
-            winningTokenId = getYesTokenId(marketId);
-        } else {
-            winnerAmount = agentNoBalance[marketId][agentTokenId];
-            winningTokenId = getNoTokenId(marketId);
-        }
-
-        require(winnerAmount > 0, "No winning position");
-
-        uint256 winnerSupply = totalSupply(winningTokenId);
-
-        // Clear agent sub-ledger
-        if (market.outcome) {
-            agentYesBalance[marketId][agentTokenId] = 0;
-        } else {
-            agentNoBalance[marketId][agentTokenId] = 0;
-        }
-
-        // Burn from nfaContract
-        _burn(nfaContract, winningTokenId, winnerAmount);
-
-        // payout = tokens * totalCollateral / winnerSupply
-        uint256 reward = (winnerAmount * market.totalCollateral) / winnerSupply;
-        market.totalCollateral -= reward;
-
-        balances[nfaContract] += reward;
-        emit WinningsClaimed(marketId, nfaContract, reward);
-    }
-
-    // --- Cancel Market (refund mechanism) ---
-
-    /// @notice Cancel a market and enable refunds for all participants (owner only)
-    function cancelMarket(uint256 marketId) external onlyOwner {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(!market.resolved, "Market already resolved");
-        market.resolved = true;
-        market.cancelled = true;
-        emit MarketCancelled(marketId);
-    }
-
-    /// @notice Claim refund for a cancelled market (burn all tokens, get proportional collateral)
-    function claimRefund(uint256 marketId) external nonReentrant whenNotPaused {
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(market.cancelled, "Market not cancelled");
-
-        uint256 yesId = getYesTokenId(marketId);
-        uint256 noId = getNoTokenId(marketId);
-        uint256 userYes = balanceOf(msg.sender, yesId);
-        uint256 userNo = balanceOf(msg.sender, noId);
-        uint256 totalTokens = userYes + userNo;
-        require(totalTokens > 0, "No position");
-
-        // Burn user's tokens
-        if (userYes > 0) _burn(msg.sender, yesId, userYes);
-        if (userNo > 0) _burn(msg.sender, noId, userNo);
-
-        // Refund proportional to tokens held
-        uint256 totalAllTokens = totalSupply(yesId) + totalSupply(noId) + totalTokens; // supply after burn + burned amount
-        uint256 refundAmount = (totalTokens * market.totalCollateral) / totalAllTokens;
-        market.totalCollateral -= refundAmount;
-
-        balances[msg.sender] += refundAmount;
-        emit RefundClaimed(marketId, msg.sender, refundAmount);
-    }
-
-    /// @notice Claim agent refund for a cancelled market (called by NFA contract only)
-    function agentClaimRefund(uint256 agentTokenId, uint256 marketId) external nonReentrant whenNotPaused {
-        require(msg.sender == nfaContract, "Only NFA contract");
-        Market storage market = markets[marketId];
-        require(market.exists, "Market does not exist");
-        require(market.cancelled, "Market not cancelled");
-
-        uint256 yesAmount = agentYesBalance[marketId][agentTokenId];
-        uint256 noAmount = agentNoBalance[marketId][agentTokenId];
-        uint256 totalTokens = yesAmount + noAmount;
-        require(totalTokens > 0, "No position");
-
-        // Clear sub-ledger
-        agentYesBalance[marketId][agentTokenId] = 0;
-        agentNoBalance[marketId][agentTokenId] = 0;
-
-        uint256 yesId = getYesTokenId(marketId);
-        uint256 noId = getNoTokenId(marketId);
-
-        // Burn from nfaContract
-        if (yesAmount > 0) _burn(nfaContract, yesId, yesAmount);
-        if (noAmount > 0) _burn(nfaContract, noId, noAmount);
-
-        // Refund proportional to tokens held
-        uint256 totalAllTokens = totalSupply(yesId) + totalSupply(noId) + totalTokens;
-        uint256 refundAmount = (totalTokens * market.totalCollateral) / totalAllTokens;
-        market.totalCollateral -= refundAmount;
-
-        balances[nfaContract] += refundAmount;
-        emit AgentRefundClaimed(marketId, agentTokenId, refundAmount);
-    }
-
-    // --- View: Agent Position ---
-
-    /// @notice Get an agent's position on a market
-    function getAgentPosition(
-        uint256 marketId,
-        uint256 agentTokenId
-    ) external view returns (uint256 yesAmount, uint256 noAmount, bool claimed) {
+    function getAgentPosition(uint256 marketId, uint256 agentTokenId) external view returns (uint256 yesAmount, uint256 noAmount, bool claimed) {
         yesAmount = agentYesBalance[marketId][agentTokenId];
         noAmount = agentNoBalance[marketId][agentTokenId];
-        claimed = false; // In CTF, claimed = sub-ledger zeroed
+        claimed = false;
     }
 
-    // --- Admin: User Market Settings ---
+    // ============================================================
+    //                      ADMIN
+    // ============================================================
+
+    function pause() external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
 
     function setNFAContract(address _nfa) external onlyOwner {
         require(_nfa != address(0), "Invalid NFA address");
@@ -769,8 +920,6 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         emit MaxMarketsPerDayUpdated(_max);
     }
 
-    /// @notice Enable/disable strict arbitration mode for manual markets.
-    /// @dev When enabled, direct resolveMarket is disabled and users must use propose/challenge/finalize.
     function setStrictArbitrationMode(bool enabled) external onlyOwner {
         strictArbitrationMode = enabled;
         emit StrictArbitrationModeUpdated(enabled);
@@ -784,11 +933,10 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         emit FeesWithdrawn(msg.sender, amount);
     }
 
-    // No receive() -- contract does not accept native BNB, all payments in USDT
+    // ============================================================
+    //                      ERC1155 OVERRIDE
+    // ============================================================
 
-    // --- ERC1155 Override ---
-
-    /// @notice Required for multiple inheritance (ERC1155Supply)
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC1155) returns (bool) {
         return super.supportsInterface(interfaceId);
     }

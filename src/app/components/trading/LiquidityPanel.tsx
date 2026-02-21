@@ -1,15 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Droplets, Plus, Minus, Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Droplets, Plus, Minus, Loader2, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { getLpInfo, addLiquidity, removeLiquidity } from "@/app/services/api";
-import type { LpInfo } from "@/app/services/api";
-import { useAuthStore } from "@/app/stores/useAuthStore";
+import { useAccount } from "wagmi";
+import { parseUnits, formatUnits } from "viem";
+import {
+  useAddLiquidity,
+  useRemoveLiquidity,
+  useContractLpInfo,
+  useContractBalance,
+  useUsdtAllowance,
+  useUsdtApprove,
+  useTxNotifier,
+} from "@/app/hooks/useContracts";
+import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
 
 interface LiquidityPanelProps {
   marketId: string;
+  onChainMarketId?: string;
   status: string;
   onLiquidityChange?: () => void;
 }
@@ -20,49 +30,125 @@ function formatUsd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-export function LiquidityPanel({ marketId, status, onLiquidityChange }: LiquidityPanelProps) {
+export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityChange }: LiquidityPanelProps) {
   const { t } = useTranslation();
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const [lpInfo, setLpInfo] = useState<LpInfo | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const { address } = useAccount();
   const [mode, setMode] = useState<"add" | "remove">("add");
   const [amount, setAmount] = useState("");
   const [expanded, setExpanded] = useState(false);
 
-  const fetchLp = useCallback(() => {
-    setLoading(true);
-    getLpInfo(marketId)
-      .then(setLpInfo)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [marketId]);
+  const marketIdBigint = useMemo(() => {
+    if (!onChainMarketId) return undefined;
+    try { return BigInt(onChainMarketId); } catch { return undefined; }
+  }, [onChainMarketId]);
 
-  useEffect(() => { fetchLp(); }, [fetchLp]);
+  // Read on-chain LP info
+  const {
+    totalShares,
+    userLpShares,
+    poolValue,
+    userValue,
+    yesReserve,
+    noReserve,
+    isLoading: lpLoading,
+    refetch: refetchLp,
+  } = useContractLpInfo(marketIdBigint, address as `0x${string}` | undefined);
+
+  // USDT wallet balance
+  const { balanceUSDT: walletBalance } = useContractBalance(address as `0x${string}` | undefined);
+
+  // USDT approval
+  const { allowanceRaw } = useUsdtAllowance(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
+  const {
+    approve: usdtApprove,
+    txHash: approveTxHash,
+    isWriting: approveWriting,
+    isConfirming: approveConfirming,
+    isConfirmed: approveConfirmed,
+    error: approveError,
+    reset: approveReset,
+  } = useUsdtApprove();
+
+  // Add liquidity hook
+  const {
+    addLiquidity,
+    txHash: addTxHash,
+    isWriting: addWriting,
+    isConfirming: addConfirming,
+    isConfirmed: addConfirmed,
+    error: addError,
+    reset: addReset,
+  } = useAddLiquidity();
+
+  // Remove liquidity hook
+  const {
+    removeLiquidity,
+    txHash: removeTxHash,
+    isWriting: removeWriting,
+    isConfirming: removeConfirming,
+    isConfirmed: removeConfirmed,
+    error: removeError,
+    reset: removeReset,
+  } = useRemoveLiquidity();
+
+  useTxNotifier(approveTxHash, approveConfirming, approveConfirmed, approveError as Error | null, "USDT Approve");
+  useTxNotifier(addTxHash, addConfirming, addConfirmed, addError as Error | null, "Add Liquidity");
+  useTxNotifier(removeTxHash, removeConfirming, removeConfirmed, removeError as Error | null, "Remove Liquidity");
+
+  // After approve confirms, add liquidity
+  const [pendingAdd, setPendingAdd] = useState(false);
+  if (approveConfirmed && pendingAdd && marketIdBigint) {
+    setPendingAdd(false);
+    approveReset();
+    addLiquidity(marketIdBigint, amount);
+  }
+
+  // Refresh after add/remove confirms
+  if (addConfirmed && addTxHash) {
+    addReset();
+    refetchLp();
+    toast.success(t('lp.addSuccess', 'Liquidity added successfully'));
+    onLiquidityChange?.();
+  }
+  if (removeConfirmed && removeTxHash) {
+    removeReset();
+    refetchLp();
+    toast.success(t('lp.removeSuccess', 'Liquidity removed successfully'));
+    onLiquidityChange?.();
+  }
 
   const isActive = status === "active";
+  const isBusy = addWriting || addConfirming || removeWriting || removeConfirming || approveWriting || approveConfirming;
 
-  const handleSubmit = async () => {
+  const poolValueNum = Number(formatUnits(poolValue, 18));
+  const yesReserveNum = Number(formatUnits(yesReserve, 18));
+  const noReserveNum = Number(formatUnits(noReserve, 18));
+  const userSharesNum = Number(formatUnits(userLpShares, 18));
+  const userValueNum = Number(formatUnits(userValue, 18));
+  const totalSharesNum = Number(formatUnits(totalShares, 18));
+  const shareOfPool = totalSharesNum > 0 ? userSharesNum / totalSharesNum : 0;
+
+  const handleSubmit = () => {
     const val = Number(amount);
-    if (!val || val <= 0) return;
-    setSubmitting(true);
-    try {
-      if (mode === "add") {
-        const res = await addLiquidity(marketId, val);
-        toast.success(t('lp.addSuccess', `Added liquidity, received ${res.lpShares.toFixed(2)} LP shares`));
-      } else {
-        const res = await removeLiquidity(marketId, val);
-        toast.success(t('lp.removeSuccess', `Removed ${res.sharesRemoved.toFixed(2)} shares, received $${res.usdtOut.toFixed(2)}`));
+    if (!val || val <= 0 || !marketIdBigint) return;
+
+    if (mode === "add") {
+      const amountWei = parseUnits(amount, 18);
+      // Check allowance
+      if (allowanceRaw < amountWei) {
+        setPendingAdd(true);
+        const maxUint256 = 2n ** 256n - 1n;
+        usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
+        return;
       }
-      setAmount("");
-      fetchLp();
-      onLiquidityChange?.();
-    } catch (err: any) {
-      toast.error(err.message || "Failed");
-    } finally {
-      setSubmitting(false);
+      addLiquidity(marketIdBigint, amount);
+    } else {
+      const sharesWei = parseUnits(amount, 18);
+      removeLiquidity(marketIdBigint, sharesWei);
     }
   };
+
+  if (!onChainMarketId) return null;
 
   return (
     <div className="bg-card border border-white/[0.08] rounded-xl overflow-hidden">
@@ -74,59 +160,56 @@ export function LiquidityPanel({ marketId, status, onLiquidityChange }: Liquidit
         <div className="flex items-center gap-2">
           <Droplets className="w-4 h-4 text-blue-400" />
           <span className="text-sm font-semibold">{t('lp.title', 'Liquidity Pool')}</span>
+          <Zap className="w-3 h-3 text-blue-400" />
         </div>
         <div className="flex items-center gap-2">
-          {lpInfo && (
-            <span className="text-xs text-muted-foreground font-mono">
-              {formatUsd(lpInfo.poolValue)}
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground font-mono">{formatUsd(poolValueNum)}</span>
           <span className="text-muted-foreground text-xs">{expanded ? "▲" : "▼"}</span>
         </div>
       </button>
 
       {expanded && (
         <div className="px-4 pb-4 space-y-3">
-          {loading && !lpInfo ? (
+          {lpLoading ? (
             <div className="flex justify-center py-4">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
-          ) : lpInfo ? (
+          ) : (
             <>
               {/* Pool Stats */}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/[0.03] rounded-lg px-3 py-2">
                   <div className="text-muted-foreground">{t('lp.poolValue', 'Pool Value')}</div>
-                  <div className="font-mono font-semibold">{formatUsd(lpInfo.poolValue)}</div>
+                  <div className="font-mono font-semibold">{formatUsd(poolValueNum)}</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-lg px-3 py-2">
-                  <div className="text-muted-foreground">{t('lp.lpProviders', 'LP Providers')}</div>
-                  <div className="font-mono font-semibold">{lpInfo.providers.length}</div>
+                  <div className="text-muted-foreground">{t('lp.totalLpShares', 'Total LP Shares')}</div>
+                  <div className="font-mono font-semibold">{totalSharesNum.toFixed(2)}</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-lg px-3 py-2">
                   <div className="text-muted-foreground">YES Reserve</div>
-                  <div className="font-mono font-semibold text-emerald-400">{formatUsd(lpInfo.yesReserve)}</div>
+                  <div className="font-mono font-semibold text-emerald-400">{formatUsd(yesReserveNum)}</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-lg px-3 py-2">
                   <div className="text-muted-foreground">NO Reserve</div>
-                  <div className="font-mono font-semibold text-red-400">{formatUsd(lpInfo.noReserve)}</div>
+                  <div className="font-mono font-semibold text-red-400">{formatUsd(noReserveNum)}</div>
                 </div>
               </div>
 
               {/* User LP Position */}
-              {lpInfo.userShares > 0 && (
+              {userSharesNum > 0 && (
                 <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">{t('lp.yourShares', 'Your LP Shares')}</span>
-                    <span className="font-mono font-semibold">{lpInfo.userShares.toFixed(2)}</span>
+                    <span className="font-mono font-semibold">{userSharesNum.toFixed(2)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs mt-1">
                     <span className="text-muted-foreground">{t('lp.yourValue', 'Your Value')}</span>
-                    <span className="font-mono font-semibold text-blue-400">{formatUsd(lpInfo.userValue)}</span>
+                    <span className="font-mono font-semibold text-blue-400">{formatUsd(userValueNum)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs mt-1">
                     <span className="text-muted-foreground">{t('lp.poolShare', 'Pool Share')}</span>
-                    <span className="font-mono font-semibold">{(lpInfo.shareOfPool * 100).toFixed(1)}%</span>
+                    <span className="font-mono font-semibold">{(shareOfPool * 100).toFixed(1)}%</span>
                   </div>
                 </div>
               )}
@@ -137,7 +220,7 @@ export function LiquidityPanel({ marketId, status, onLiquidityChange }: Liquidit
               </div>
 
               {/* Add/Remove Form */}
-              {isActive && isAuthenticated && (
+              {isActive && address && (
                 <div className="space-y-2">
                   <div className="flex gap-1">
                     <button
@@ -164,55 +247,40 @@ export function LiquidityPanel({ marketId, status, onLiquidityChange }: Liquidit
                     </button>
                   </div>
 
+                  {mode === "add" && (
+                    <div className="text-xs text-muted-foreground">
+                      Wallet: <span className="text-blue-400 font-mono">{parseFloat(walletBalance).toFixed(2)} USDT</span>
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <input
                       type="number"
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
-                      placeholder={mode === "add" ? "USDT amount" : "LP shares"}
+                      placeholder={mode === "add" ? "USDT amount" : "LP shares to burn"}
                       className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500/40"
                     />
                     <button
                       onClick={handleSubmit}
-                      disabled={submitting || !amount || Number(amount) <= 0}
+                      disabled={isBusy || !amount || Number(amount) <= 0}
                       className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                      {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.confirm', 'Confirm')}
+                      {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.confirm', 'Confirm')}
                     </button>
                   </div>
 
-                  {mode === "remove" && lpInfo.userShares > 0 && (
+                  {mode === "remove" && userSharesNum > 0 && (
                     <button
-                      onClick={() => setAmount(lpInfo.userShares.toFixed(4))}
+                      onClick={() => setAmount(userSharesNum.toFixed(4))}
                       className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
                     >
-                      {t('lp.removeAll', 'Remove all')} ({lpInfo.userShares.toFixed(2)} shares)
+                      {t('lp.removeAll', 'Remove all')} ({userSharesNum.toFixed(2)} shares)
                     </button>
                   )}
                 </div>
               )}
-
-              {/* Top Providers */}
-              {lpInfo.providers.length > 0 && (
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1.5">{t('lp.topProviders', 'Top Providers')}</div>
-                  <div className="space-y-1">
-                    {lpInfo.providers.slice(0, 5).map((p) => (
-                      <div key={p.address} className="flex items-center justify-between text-xs">
-                        <span className="font-mono text-muted-foreground">
-                          {p.address.slice(0, 6)}...{p.address.slice(-4)}
-                        </span>
-                        <span className="font-mono">
-                          {formatUsd(p.value)} <span className="text-muted-foreground">({(p.shareOfPool * 100).toFixed(1)}%)</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
-          ) : (
-            <div className="text-xs text-muted-foreground py-2">{t('lp.unavailable', 'LP info unavailable')}</div>
           )}
         </div>
       )}

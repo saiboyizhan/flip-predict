@@ -6,8 +6,8 @@ import { useAccount, useBalance, useDisconnect, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
 import { formatUnits, parseUnits } from "viem";
 import { useTranslation } from "react-i18next";
-import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, getWithdrawPermit, claimPlatformFaucet } from "../services/api";
-import { useDeposit, useWithdraw, useWithdrawWithPermit, useContractBalance, usePredictionMarketBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
+import { fetchBalance, fetchTradeHistory, fetchUserStats, depositFunds, withdrawFunds, getWithdrawPermit, claimPlatformFaucet } from "../services/api";
+import { useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 import { PREDICTION_MARKET_ADDRESS } from "../config/contracts";
 
@@ -75,19 +75,18 @@ export function WalletPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const authToken = useAuthStore((s) => s.token);
 
-  // On-chain contract hooks
-  const contractDeposit = useDeposit();
-  const contractWithdraw = useWithdraw();
-  const permitWithdraw = useWithdrawWithPermit();
+  // On-chain contract hooks (v2: non-custodial — no deposit/withdraw)
+  const contractDeposit = { deposit: (_a: string) => {}, txHash: undefined as `0x${string}` | undefined, isWriting: false, isConfirming: false, isConfirmed: false, error: null, reset: () => {} };
+  const contractWithdraw = { withdraw: (_a: string) => {}, txHash: undefined as `0x${string}` | undefined, isWriting: false, isConfirming: false, isConfirmed: false, error: null, reset: () => {} };
+  const permitWithdraw = { withdrawWithPermit: (..._a: any[]) => {}, txHash: undefined as `0x${string}` | undefined, isWriting: false, isConfirming: false, isConfirmed: false, error: null, reset: () => {} };
   const {
     balanceUSDT: walletUsdtBalance,
     refetch: refetchWalletUsdtBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
-  const {
-    balanceUSDT: predictionMarketBalanceUSDT,
-    isLoading: predictionMarketBalanceLoading,
-    refetch: refetchPredictionMarketBalance,
-  } = usePredictionMarketBalance(address as `0x${string}` | undefined);
+  // v2: no contract-held balance (non-custodial)
+  const predictionMarketBalanceUSDT = '0';
+  const predictionMarketBalanceLoading = false;
+  const refetchPredictionMarketBalance = () => {};
   const {
     allowanceRaw: usdtAllowanceRaw,
     refetch: refetchAllowance,

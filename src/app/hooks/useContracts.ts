@@ -1,8 +1,6 @@
 /**
- * Custom hooks for PredictionMarket smart contract interactions.
- *
- * Each hook wraps wagmi's useWriteContract / useReadContract and provides
- * a simple interface with loading, error, and txHash state.
+ * Custom hooks for PredictionMarket v2 smart contract interactions.
+ * Non-custodial: buy/sell/addLiquidity/removeLiquidity directly on-chain.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -21,12 +19,13 @@ import {
   ERC20_ABI,
   MOCK_USDT_MINT_ABI,
 } from '@/app/config/contracts';
+import { toast } from 'sonner';
 
 // ----------------------------------------------------------------
-// useDeposit  --  calls contract.deposit() with USDT amount
+// useBuy  --  calls contract.buy(marketId, buyYes, amount)
 // ----------------------------------------------------------------
 
-export function useDeposit() {
+export function useBuy() {
   const {
     writeContract,
     data: txHash,
@@ -41,21 +40,21 @@ export function useDeposit() {
     error: confirmError,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const deposit = useCallback(
-    (amountUSDT: string) => {
+  const buy = useCallback(
+    (marketId: bigint, buyYes: boolean, amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
-        functionName: 'deposit',
-        args: [parseUnits(amountUSDT, 18)],
+        functionName: 'buy',
+        args: [marketId, buyYes, parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
   );
 
   return {
-    deposit,
+    buy,
     txHash,
     isWriting,
     isConfirming,
@@ -66,10 +65,10 @@ export function useDeposit() {
 }
 
 // ----------------------------------------------------------------
-// useWithdraw  --  calls contract.withdraw(amount)
+// useSell  --  calls contract.sell(marketId, sellYes, shares)
 // ----------------------------------------------------------------
 
-export function useWithdraw() {
+export function useSell() {
   const {
     writeContract,
     data: txHash,
@@ -84,21 +83,21 @@ export function useWithdraw() {
     error: confirmError,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const withdraw = useCallback(
-    (amountUSDT: string) => {
+  const sell = useCallback(
+    (marketId: bigint, sellYes: boolean, sharesWei: bigint) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
-        functionName: 'withdraw',
-        args: [parseUnits(amountUSDT, 18)],
+        functionName: 'sell',
+        args: [marketId, sellYes, sharesWei],
       });
     },
     [writeContract, reset],
   );
 
   return {
-    withdraw,
+    sell,
     txHash,
     isWriting,
     isConfirming,
@@ -109,11 +108,10 @@ export function useWithdraw() {
 }
 
 // ----------------------------------------------------------------
-// useWithdrawWithPermit  --  calls contract.withdrawWithPermit(amount, nonce, deadline, sig)
-//   One-step instant withdrawal: backend signs permit, user calls contract, USDT arrives immediately.
+// useAddLiquidity  --  calls contract.addLiquidity(marketId, amount)
 // ----------------------------------------------------------------
 
-export function useWithdrawWithPermit() {
+export function useAddLiquidity() {
   const {
     writeContract,
     data: txHash,
@@ -128,21 +126,21 @@ export function useWithdrawWithPermit() {
     error: confirmError,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const withdrawWithPermit = useCallback(
-    (amountWei: bigint, nonce: bigint, deadline: bigint, signature: `0x${string}`) => {
+  const addLiquidity = useCallback(
+    (marketId: bigint, amountUSDT: string) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
-        functionName: 'withdrawWithPermit',
-        args: [amountWei, nonce, deadline, signature],
+        functionName: 'addLiquidity',
+        args: [marketId, parseUnits(amountUSDT, 18)],
       });
     },
     [writeContract, reset],
   );
 
   return {
-    withdrawWithPermit,
+    addLiquidity,
     txHash,
     isWriting,
     isConfirming,
@@ -153,10 +151,10 @@ export function useWithdrawWithPermit() {
 }
 
 // ----------------------------------------------------------------
-// useTakePosition  --  calls contract.takePosition(marketId, isYes, amount)
+// useRemoveLiquidity  --  calls contract.removeLiquidity(marketId, shares)
 // ----------------------------------------------------------------
 
-export function useTakePosition() {
+export function useRemoveLiquidity() {
   const {
     writeContract,
     data: txHash,
@@ -171,21 +169,21 @@ export function useTakePosition() {
     error: confirmError,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const takePosition = useCallback(
-    (marketId: bigint, isYes: boolean, amountUSDT: string) => {
+  const removeLiquidity = useCallback(
+    (marketId: bigint, sharesWei: bigint) => {
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
-        functionName: 'takePosition',
-        args: [marketId, isYes, parseUnits(amountUSDT, 18)],
+        functionName: 'removeLiquidity',
+        args: [marketId, sharesWei],
       });
     },
     [writeContract, reset],
   );
 
   return {
-    takePosition,
+    removeLiquidity,
     txHash,
     isWriting,
     isConfirming,
@@ -291,7 +289,7 @@ export function useCreateUserMarket() {
     (
       title: string,
       endTimeUnix: bigint,
-      initialLiquidityWei: bigint = 0n,
+      initialLiquidityWei: bigint,
     ) => {
       reset();
       setCreatedMarketId(null);
@@ -342,7 +340,7 @@ export function useMarketCreationFee() {
 }
 
 // ----------------------------------------------------------------
-// useContractBalance  --  reads USDT balanceOf(address) from ERC-20
+// useContractBalance  --  reads USDT balanceOf(address) from wallet
 // ----------------------------------------------------------------
 
 export function useContractBalance(address?: `0x${string}`) {
@@ -350,34 +348,6 @@ export function useContractBalance(address?: `0x${string}`) {
     address: USDT_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: {
-      enabled: !!address,
-    },
-  });
-
-  const balanceUSDT = data != null ? formatUnits(data as bigint, 18) : '0';
-
-  return {
-    /** Raw balance in wei (bigint) */
-    balanceRaw: (data as bigint) ?? 0n,
-    /** Formatted balance in USDT (string) */
-    balanceUSDT,
-    isLoading,
-    error,
-    refetch,
-  };
-}
-
-// ----------------------------------------------------------------
-// usePredictionMarketBalance  --  reads PredictionMarket.balances(user)
-// ----------------------------------------------------------------
-
-export function usePredictionMarketBalance(address?: `0x${string}`) {
-  const { data, isLoading, error, refetch } = useReadContract({
-    address: PREDICTION_MARKET_ADDRESS,
-    abi: PREDICTION_MARKET_ABI,
-    functionName: 'balances',
     args: address ? [address] : undefined,
     query: {
       enabled: !!address,
@@ -477,7 +447,6 @@ export function useContractMarket(marketId?: bigint) {
     },
   });
 
-  // data is a tuple: [title, endTime, totalYes, totalNo, resolved, outcome, ...]
   type MarketTuple = readonly [string, bigint, bigint, bigint, boolean, boolean, boolean, boolean, `0x${string}`, bigint, number, bigint];
   const d = data as MarketTuple | undefined;
   const market = d
@@ -498,6 +467,64 @@ export function useContractMarket(marketId?: bigint) {
     : null;
 
   return { market, isLoading, error, refetch };
+}
+
+// ----------------------------------------------------------------
+// useContractPrice  --  reads getPrice(marketId) from contract
+// ----------------------------------------------------------------
+
+export function useContractPrice(marketId?: bigint) {
+  const { data, isLoading, error, refetch } = useReadContract({
+    address: PREDICTION_MARKET_ADDRESS,
+    abi: PREDICTION_MARKET_ABI,
+    functionName: 'getPrice',
+    args: marketId != null ? [marketId] : undefined,
+    query: {
+      enabled: marketId != null,
+    },
+  });
+
+  type PriceTuple = readonly [bigint, bigint];
+  const d = data as PriceTuple | undefined;
+
+  return {
+    yesPrice: d ? Number(formatUnits(d[0], 18)) : 0.5,
+    noPrice: d ? Number(formatUnits(d[1], 18)) : 0.5,
+    isLoading,
+    error,
+    refetch,
+  };
+}
+
+// ----------------------------------------------------------------
+// useContractLpInfo  --  reads getLpInfo(marketId, user) from contract
+// ----------------------------------------------------------------
+
+export function useContractLpInfo(marketId?: bigint, user?: `0x${string}`) {
+  const { data, isLoading, error, refetch } = useReadContract({
+    address: PREDICTION_MARKET_ADDRESS,
+    abi: PREDICTION_MARKET_ABI,
+    functionName: 'getLpInfo',
+    args: marketId != null && user ? [marketId, user] : undefined,
+    query: {
+      enabled: marketId != null && !!user,
+    },
+  });
+
+  type LpTuple = readonly [bigint, bigint, bigint, bigint, bigint, bigint];
+  const d = data as LpTuple | undefined;
+
+  return {
+    totalShares: d ? d[0] : 0n,
+    userLpShares: d ? d[1] : 0n,
+    poolValue: d ? d[2] : 0n,
+    userValue: d ? d[3] : 0n,
+    yesReserve: d ? d[4] : 0n,
+    noReserve: d ? d[5] : 0n,
+    isLoading,
+    error,
+    refetch,
+  };
 }
 
 // ----------------------------------------------------------------
@@ -673,9 +700,7 @@ export function useTokenBalance(account?: `0x${string}`, tokenId?: bigint) {
   });
 
   return {
-    /** Raw token balance in wei (bigint) */
     balanceRaw: (data as bigint) ?? 0n,
-    /** Formatted token balance (string) */
     balanceUSDT: data != null ? formatUnits(data as bigint, 18) : '0',
     isLoading,
     error,
@@ -684,22 +709,19 @@ export function useTokenBalance(account?: `0x${string}`, tokenId?: bigint) {
 }
 
 // ----------------------------------------------------------------
-// Helper: useTxToast  --  shows toast on tx lifecycle (optional)
+// Helper: getBscScanUrl
 // ----------------------------------------------------------------
 
-import { toast } from 'sonner';
-
-/** Returns the BSCScan base URL based on chain ID */
 export function getBscScanUrl(chainId?: number): string {
   return chainId === 97
     ? 'https://testnet.bscscan.com'
     : 'https://bscscan.com';
 }
 
-/**
- * Watches a txHash through confirmation and fires toasts.
- * Returns nothing, purely side-effect.
- */
+// ----------------------------------------------------------------
+// useTxNotifier  --  watches a txHash and fires toasts
+// ----------------------------------------------------------------
+
 export function useTxNotifier(
   txHash: `0x${string}` | undefined,
   isConfirming: boolean,

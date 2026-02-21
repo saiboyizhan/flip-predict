@@ -11,13 +11,12 @@ import { initDatabase } from './db';
 import { setupWebSocket, getWebSocketStatus } from './ws';
 import authRoutes from './routes/auth';
 import marketsRoutes from './routes/markets';
-import tradingRoutes from './routes/trading';
 import portfolioRoutes from './routes/portfolio';
-import orderbookRoutes from './routes/orderbook';
 import settlementRoutes from './routes/settlement';
 import agentRoutes from './routes/agents';
 import { startKeeper } from './engine/keeper';
 import { startAutoTrader } from './engine/agent-autotrader';
+import { startEventListener, stopEventListener } from './engine/event-listener';
 
 import marketCreationRoutes from './routes/market-creation';
 import leaderboardRoutes from './routes/leaderboard';
@@ -25,14 +24,12 @@ import commentsRoutes from './routes/comments';
 import notificationRoutes from './routes/notifications';
 import rewardRoutes from './routes/rewards';
 import feeRoutes from './routes/fees';
-import walletRoutes from './routes/wallet';
 import achievementRoutes from './routes/achievements';
 import socialRoutes from './routes/social';
 import profileRoutes from './routes/profile';
 import copyTradingRoutes from './routes/copy-trading';
 
 import favoritesRoutes from './routes/favorites';
-import liquidityRoutes from './routes/liquidity';
 import { authMiddleware, AuthRequest } from './routes/middleware/auth';
 import { adminMiddleware } from './routes/middleware/admin';
 import { BSC_CHAIN_ID, BSC_NETWORK, logNetworkConfigSummary } from './config/network';
@@ -59,25 +56,9 @@ const authLimiter = isTestEnv ? noopLimiter : rateLimit({
   message: { error: 'Too many auth requests, please try again later.' },
 });
 
-const tradingLimiter = isTestEnv ? noopLimiter : rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many trading requests, please try again later.' },
-});
-
 const publicReadLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' },
-});
-
-const walletLimiter = isTestEnv ? noopLimiter : rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
@@ -158,9 +139,7 @@ async function main() {
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/markets', publicReadLimiter, marketCreationRoutes);
   app.use('/api/markets', publicReadLimiter, marketsRoutes);
-  app.use('/api/orders', tradingLimiter, tradingRoutes);
   app.use('/api', portfolioRoutes);
-  app.use('/api/orderbook', publicReadLimiter, orderbookRoutes);
   app.use('/api/settlement', publicReadLimiter, settlementRoutes);
   app.use('/api/agents', publicReadLimiter, agentRoutes);
   app.use('/api/leaderboard', publicReadLimiter, leaderboardRoutes);
@@ -168,14 +147,12 @@ async function main() {
   app.use('/api/notifications', publicReadLimiter, notificationRoutes);
   app.use('/api/rewards', publicReadLimiter, rewardRoutes);
   app.use('/api/fees', feeRoutes);
-  app.use('/api/wallet', walletLimiter, walletRoutes);
   app.use('/api/achievements', publicReadLimiter, achievementRoutes);
   app.use('/api/social', publicReadLimiter, socialRoutes);
   app.use('/api/profile', publicReadLimiter, profileRoutes);
   app.use('/api/copy-trading', copyTradingLimiter, copyTradingRoutes);
 
   app.use('/api/favorites', publicReadLimiter, favoritesRoutes);
-  app.use('/api/markets', tradingLimiter, liquidityRoutes);
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -190,44 +167,7 @@ async function main() {
     });
   });
 
-  // Testnet faucet: credit platform balance (testnet only)
-  const faucetRateLimit = new Map<string, number>();
-  // Cleanup stale faucet rate limit entries every hour to prevent memory leak
-  const faucetCleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, timestamp] of faucetRateLimit) {
-      if (now - timestamp > 3600000) { // 1 hour
-        faucetRateLimit.delete(key);
-      }
-    }
-  }, 3600000); // Run every hour
-  app.post('/api/faucet', authMiddleware, async (req: AuthRequest, res) => {
-    try {
-      const address = req.userAddress!.toLowerCase();
-      const { amount } = req.body;
-
-      // Rate limit: one faucet request per address per 60 seconds
-      const lastRequest = faucetRateLimit.get(address);
-      if (lastRequest && Date.now() - lastRequest < 60000) {
-        res.status(429).json({ error: 'Faucet rate limited. Try again in 1 minute.' });
-        return;
-      }
-
-      const MAX_FAUCET = 10000;
-      const credit = Math.min(Math.max(Number(amount) || 1000, 1), MAX_FAUCET);
-      await pool.query(
-        `INSERT INTO balances (user_address, available, locked)
-         VALUES ($1, $2, 0)
-         ON CONFLICT (user_address) DO UPDATE SET available = balances.available + $2`,
-        [address, credit]
-      );
-      faucetRateLimit.set(address, Date.now());
-      const bal = await pool.query('SELECT available, locked FROM balances WHERE user_address = $1', [address]);
-      res.json({ success: true, balance: bal.rows[0] });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
+  // Faucet removed in v2 — users hold USDT in their own wallets
 
   // Admin: cleanup all seed/fake data
   app.post('/api/admin/cleanup-seed', async (req, res) => {
@@ -385,6 +325,7 @@ async function main() {
     console.log(`WebSocket available on ws://localhost:${PORT}`);
     const keeperInterval = startKeeper(pool, 30000);
     const autoTraderInterval = startAutoTrader(pool, 60000);
+    startEventListener(pool);
 
 
 
@@ -393,7 +334,7 @@ async function main() {
       console.log('Shutting down gracefully...');
       clearInterval(keeperInterval);
       clearInterval(autoTraderInterval);
-      clearInterval(faucetCleanupInterval);
+      stopEventListener();
 
 
       server.close(() => {

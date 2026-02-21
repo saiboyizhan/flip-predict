@@ -5,9 +5,9 @@ import { useState, useMemo, useEffect } from "react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
 import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight, Droplets } from "lucide-react";
+import { toast } from "sonner";
 import { PositionCard } from "./PositionCard";
 import { usePortfolioStore } from "@/app/stores/usePortfolioStore";
-import { useTradeStore } from "@/app/stores/useTradeStore";
 import { getLpInfo } from "@/app/services/api";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 
@@ -58,22 +58,12 @@ export function PositionList({ history = [] }: PositionListProps) {
 
   const positions = usePortfolioStore((s) => s.positions);
   const removePosition = usePortfolioStore((s) => s.removePosition);
-  const executeAPISell = useTradeStore((s) => s.executeAPISell);
-  const [sellingIds, setSellingIds] = useState<Set<string>>(new Set());
+  // v2: Selling is done on-chain via TradePanel, not from portfolio list
+  const [sellingIds] = useState<Set<string>>(new Set());
 
-  const handleSell = async (positionId: string) => {
-    if (sellingIds.has(positionId)) return;
-    const position = positions.find((p) => p.id === positionId);
-    if (!position) return;
-    setSellingIds((prev) => new Set(prev).add(positionId));
-    try {
-      const result = await executeAPISell(position.marketId, position.side, position.shares);
-      if (result.success) {
-        removePosition(positionId);
-      }
-    } finally {
-      setSellingIds((prev) => { const next = new Set(prev); next.delete(positionId); return next; });
-    }
+  const handleSell = async (_positionId: string) => {
+    // In v2, users sell via the market's TradePanel (on-chain)
+    toast.info('Navigate to the market page to sell your position on-chain');
   };
 
   // Fetch LP positions for all markets the user has positions in

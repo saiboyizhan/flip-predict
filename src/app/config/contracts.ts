@@ -1,11 +1,11 @@
 /**
- * PredictionMarket Smart Contract Configuration
+ * PredictionMarket v2 Smart Contract Configuration
  *
- * ABI subset covering deposit, withdraw, takePosition, claimWinnings,
- * balances, getMarket, getPosition, and key events.
+ * Non-custodial CPMM: buy/sell/addLiquidity/removeLiquidity directly on-chain.
+ * No deposit/withdraw needed — users interact with AMM via USDT approval.
  */
 
-// BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
+// BSC Testnet deployed address (fallback when env var not set)
 const DEFAULT_PM_ADDRESS = '0xe5E4408c0484738C1aAF9BCa0Fe57dBaE0F9c4f7'
 
 export const PREDICTION_MARKET_ADDRESS = (
@@ -17,10 +17,7 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
   console.warn('[contracts] VITE_PREDICTION_MARKET_ADDRESS not set — on-chain features will not work.');
 }
 
-// -----------------------------------------------------------------
 // BSC USDT (BEP-20) — 18 decimals
-// -----------------------------------------------------------------
-// BSC Testnet MockUSDT address
 const DEFAULT_USDT_ADDRESS = '0xb9e59AbC61DeF3dB4e37aF4DAE38CDBca5175a32'
 
 export const USDT_ADDRESS = (
@@ -100,32 +97,123 @@ export const ERC20_ABI = [
 ] as const;
 
 export const PREDICTION_MARKET_ABI = [
-  // --- Write functions ---
+  // ============================================================
+  //                  CPMM TRADING (v2 — non-custodial)
+  // ============================================================
   {
-    name: 'deposit',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'amount', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'withdraw',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'amount', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'takePosition',
+    name: 'buy',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'marketId', type: 'uint256' },
-      { name: 'isYes', type: 'bool' },
+      { name: 'buyYes', type: 'bool' },
       { name: 'amount', type: 'uint256' },
     ],
-    outputs: [],
+    outputs: [{ name: 'sharesOut', type: 'uint256' }],
   },
+  {
+    name: 'sell',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'sellYes', type: 'bool' },
+      { name: 'shares', type: 'uint256' },
+    ],
+    outputs: [{ name: 'usdtOut', type: 'uint256' }],
+  },
+
+  // ============================================================
+  //                  LIQUIDITY PROVIDER
+  // ============================================================
+  {
+    name: 'addLiquidity',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: 'newShares', type: 'uint256' }],
+  },
+  {
+    name: 'removeLiquidity',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'sharesToBurn', type: 'uint256' },
+    ],
+    outputs: [{ name: 'usdtOut', type: 'uint256' }],
+  },
+
+  // ============================================================
+  //                  PRICE & RESERVES
+  // ============================================================
+  {
+    name: 'getPrice',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [
+      { name: 'yesPrice', type: 'uint256' },
+      { name: 'noPrice', type: 'uint256' },
+    ],
+  },
+  {
+    name: 'getReserves',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [
+      { name: 'yesReserve', type: 'uint256' },
+      { name: 'noReserve', type: 'uint256' },
+    ],
+  },
+  {
+    name: 'getMarketAmm',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [
+      { name: 'yesReserve', type: 'uint256' },
+      { name: 'noReserve', type: 'uint256' },
+      { name: 'totalLpShares_', type: 'uint256' },
+      { name: 'initialLiquidity', type: 'uint256' },
+      { name: 'totalCollateral', type: 'uint256' },
+    ],
+  },
+  {
+    name: 'getLpInfo',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'user', type: 'address' },
+    ],
+    outputs: [
+      { name: 'totalShares', type: 'uint256' },
+      { name: 'userLpShares', type: 'uint256' },
+      { name: 'poolValue', type: 'uint256' },
+      { name: 'userValue', type: 'uint256' },
+      { name: 'yesReserve', type: 'uint256' },
+      { name: 'noReserve', type: 'uint256' },
+    ],
+  },
+  {
+    name: 'lpShares',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'user', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+
+  // ============================================================
+  //                  CLAIM WINNINGS / REFUND
+  // ============================================================
   {
     name: 'claimWinnings',
     type: 'function',
@@ -133,8 +221,17 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [],
   },
+  {
+    name: 'claimRefund',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [],
+  },
 
-  // --- User market creation ---
+  // ============================================================
+  //                  USER MARKET CREATION
+  // ============================================================
   {
     name: 'createUserMarket',
     type: 'function',
@@ -142,19 +239,38 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [
       { name: 'title', type: 'string' },
       { name: 'endTime', type: 'uint256' },
-      { name: 'initialLiquidity', type: 'uint256' },
+      { name: 'initialLiq', type: 'uint256' },
     ],
     outputs: [{ name: '', type: 'uint256' }],
   },
 
-  // --- Read functions ---
+  // ============================================================
+  //                  CTF: SPLIT / MERGE
+  // ============================================================
   {
-    name: 'balances',
+    name: 'splitPosition',
     type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'user', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
   },
+  {
+    name: 'mergePositions',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+
+  // ============================================================
+  //                  MARKET & POSITION VIEWS
+  // ============================================================
   {
     name: 'getMarket',
     type: 'function',
@@ -189,8 +305,17 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'claimed', type: 'bool' },
     ],
   },
+  {
+    name: 'isMarketCancelled',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 
-  // --- Public state variables ---
+  // ============================================================
+  //                  PUBLIC STATE VARIABLES
+  // ============================================================
   {
     name: 'marketCreationFee',
     type: 'function',
@@ -205,31 +330,120 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
-
-  // --- Cancel / Refund (round 4) ---
   {
-    name: 'cancelMarket',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'claimRefund',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'isMarketCancelled',
+    name: 'accumulatedFees',
     type: 'function',
     stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+
+  // ============================================================
+  //                  TOKEN ID HELPERS & ERC1155
+  // ============================================================
+  {
+    name: 'getYesTokenId',
+    type: 'function',
+    stateMutability: 'pure',
     inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'getNoTokenId',
+    type: 'function',
+    stateMutability: 'pure',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'id', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'safeTransferFrom',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'id', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'data', type: 'bytes' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'totalSupply',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'id', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+
+  // ============================================================
+  //                  ARBITRATION
+  // ============================================================
+  {
+    name: 'proposeResolution',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: '_outcome', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'challengeResolution',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    name: 'finalizeResolution',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    name: 'adminFinalizeResolution',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: '_outcome', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'MAX_CHALLENGES',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'hasChallenged',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'challenger', type: 'address' },
+    ],
     outputs: [{ name: '', type: 'bool' }],
   },
 
-  // --- Agent positions (round 4) ---
+  // ============================================================
+  //                  AGENT
+  // ============================================================
   {
     name: 'getAgentPosition',
     type: 'function',
@@ -245,54 +459,40 @@ export const PREDICTION_MARKET_ABI = [
     ],
   },
 
-  // --- Accumulated fees view ---
+  // ============================================================
+  //                  EVENTS
+  // ============================================================
   {
-    name: 'accumulatedFees',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-
-  // --- Withdraw request (user-initiated on-chain request) ---
-  {
-    name: 'requestWithdraw',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'amount', type: 'uint256' }],
-    outputs: [],
-  },
-  // --- Withdraw with admin permit (one-step instant withdrawal) ---
-  {
-    name: 'withdrawWithPermit',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'nonce', type: 'uint256' },
-      { name: 'deadline', type: 'uint256' },
-      { name: 'adminSignature', type: 'bytes' },
-    ],
-    outputs: [],
-  },
-
-  // --- Events ---
-  {
-    name: 'WithdrawRequested',
+    name: 'Trade',
     type: 'event',
     inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'user', type: 'address', indexed: true },
+      { name: 'isBuy', type: 'bool', indexed: false },
+      { name: 'side', type: 'bool', indexed: false },
       { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'requestId', type: 'uint256', indexed: true },
+      { name: 'shares', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
     ],
   },
   {
-    name: 'WithdrawnWithPermit',
+    name: 'LiquidityAdded',
     type: 'event',
     inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'user', type: 'address', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'nonce', type: 'uint256', indexed: false },
+      { name: 'lpSharesMinted', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    name: 'LiquidityRemoved',
+    type: 'event',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'sharesBurned', type: 'uint256', indexed: false },
+      { name: 'usdtOut', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -310,32 +510,6 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'outcome', type: 'bool', indexed: false },
-    ],
-  },
-  {
-    name: 'Deposit',
-    type: 'event',
-    inputs: [
-      { name: 'user', type: 'address', indexed: true },
-      { name: 'amount', type: 'uint256', indexed: false },
-    ],
-  },
-  {
-    name: 'Withdraw',
-    type: 'event',
-    inputs: [
-      { name: 'user', type: 'address', indexed: true },
-      { name: 'amount', type: 'uint256', indexed: false },
-    ],
-  },
-  {
-    name: 'PositionTaken',
-    type: 'event',
-    inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
-      { name: 'user', type: 'address', indexed: true },
-      { name: 'isYes', type: 'bool', indexed: false },
-      { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -364,128 +538,6 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'creationFee', type: 'uint256', indexed: false },
     ],
   },
-
-  // --- CTF ERC1155 write functions ---
-  {
-    name: 'splitPosition',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'marketId', type: 'uint256' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'mergePositions',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'marketId', type: 'uint256' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-
-  // --- CTF ERC1155 read functions ---
-  {
-    name: 'getYesTokenId',
-    type: 'function',
-    stateMutability: 'pure',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'getNoTokenId',
-    type: 'function',
-    stateMutability: 'pure',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-
-  // --- ERC1155 standard functions ---
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'account', type: 'address' },
-      { name: 'id', type: 'uint256' },
-    ],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'safeTransferFrom',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'from', type: 'address' },
-      { name: 'to', type: 'address' },
-      { name: 'id', type: 'uint256' },
-      { name: 'amount', type: 'uint256' },
-      { name: 'data', type: 'bytes' },
-    ],
-    outputs: [],
-  },
-
-  // --- ERC1155Supply ---
-  {
-    name: 'totalSupply',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'id', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-
-  // --- Arbitration functions ---
-  {
-    name: 'proposeResolution',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'marketId', type: 'uint256' },
-      { name: '_outcome', type: 'bool' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'challengeResolution',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'finalizeResolution',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'marketId', type: 'uint256' },
-      { name: '_outcome', type: 'bool' },
-    ],
-    outputs: [],
-  },
-
-  // --- Arbitration read ---
-  {
-    name: 'MAX_CHALLENGES',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'hasChallenged',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'marketId', type: 'uint256' },
-      { name: 'challenger', type: 'address' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-
-  // --- CTF events ---
   {
     name: 'PositionSplit',
     type: 'event',
@@ -504,8 +556,6 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
-
-  // --- Arbitration events ---
   {
     name: 'ResolutionProposed',
     type: 'event',
@@ -534,8 +584,6 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'outcome', type: 'bool', indexed: false },
     ],
   },
-
-  // --- Refund & Agent events ---
   {
     name: 'RefundClaimed',
     type: 'event',

@@ -531,28 +531,11 @@ export function startKeeper(db: Pool, intervalMs: number = 30000): NodeJS.Timeou
   console.info(`Keeper started (${intervalMs / 1000}s interval)`);
   let isRunning = false;
 
-  // Lazy import to avoid circular dependency
-  let _processWithdrawals: (() => Promise<any>) | null = null;
-  async function getProcessWithdrawals() {
-    if (!_processWithdrawals) {
-      const mod = await import('../routes/wallet');
-      _processWithdrawals = mod.processWithdrawals;
-    }
-    return _processWithdrawals;
-  }
-
   const run = async () => {
     if (isRunning) return;
     isRunning = true;
     try {
       await checkAndResolveMarkets(db);
-      // Process pending withdrawals each cycle
-      try {
-        const proc = await getProcessWithdrawals();
-        await proc();
-      } catch (wErr: any) {
-        console.error('Withdrawal processor error:', wErr.message);
-      }
     } catch (err) {
       console.error('Keeper error:', err);
     } finally {
