@@ -11,6 +11,7 @@ import { initDatabase } from './db';
 import { setupWebSocket, getWebSocketStatus } from './ws';
 import authRoutes from './routes/auth';
 import marketsRoutes from './routes/markets';
+import tradingRoutes from './routes/trading'; // legacy fallback for markets without on-chain ID
 import portfolioRoutes from './routes/portfolio';
 import settlementRoutes from './routes/settlement';
 import agentRoutes from './routes/agents';
@@ -54,6 +55,14 @@ const authLimiter = isTestEnv ? noopLimiter : rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth requests, please try again later.' },
+});
+
+const tradingLimiter = isTestEnv ? noopLimiter : rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many trading requests, please try again later.' },
 });
 
 const publicReadLimiter = isTestEnv ? noopLimiter : rateLimit({
@@ -139,6 +148,7 @@ async function main() {
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/markets', publicReadLimiter, marketCreationRoutes);
   app.use('/api/markets', publicReadLimiter, marketsRoutes);
+  app.use('/api/orders', tradingLimiter, tradingRoutes); // legacy fallback
   app.use('/api', portfolioRoutes);
   app.use('/api/settlement', publicReadLimiter, settlementRoutes);
   app.use('/api/agents', publicReadLimiter, agentRoutes);

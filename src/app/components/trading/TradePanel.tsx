@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { useTradeStore } from "@/app/stores/useTradeStore";
+import { createOrder, sellOrder } from "@/app/services/api";
 import { useBuy, useSell, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl, useContractPrice } from "@/app/hooks/useContracts";
 import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
 import { parseUnits, formatUnits } from "viem";
@@ -225,12 +226,47 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     }
   }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, walletBalance, usdtAllowanceRaw, usdtApprove, buy, sell, t]);
 
+  // Legacy API fallback for binary markets without on-chain ID
+  const handleLegacyAPITrade = useCallback(async () => {
+    setIsSubmitting(true);
+    try {
+      let result: any;
+      if (tradeMode === "buy") {
+        result = await createOrder({ marketId, side, amount: numAmount });
+        if (result) {
+          setShowSuccess(true);
+          toast.success(t('trade.buySuccess', { shares: result.shares.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }));
+          setAmount("100");
+          setTimeout(() => setShowSuccess(false), 1500);
+          onTradeComplete?.();
+        }
+      } else {
+        result = await sellOrder({ marketId, side, shares: numAmount });
+        if (result) {
+          setShowSuccess(true);
+          toast.success(t('trade.sellSuccess', { shares: numAmount.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }));
+          setAmount("10");
+          setTimeout(() => setShowSuccess(false), 1500);
+          onTradeComplete?.();
+        }
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t('trade.error'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [marketId, side, numAmount, tradeMode, t, onTradeComplete]);
+
   const executeTradeInternal = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;
 
-    // Binary markets always use on-chain
+    // Binary markets: on-chain if has chain ID, otherwise fallback to API
     if (!isMulti) {
-      handleOnChainTrade();
+      if (onChainMarketId && marketIdBigint) {
+        handleOnChainTrade();
+      } else {
+        handleLegacyAPITrade();
+      }
       return;
     }
 
