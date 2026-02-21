@@ -72,13 +72,29 @@ function isTxHash(value: unknown): value is string {
   return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
 }
 
+async function getContractCreationFee(): Promise<bigint> {
+  if (!PREDICTION_MARKET_CONTRACT_ADDRESS) return 0n;
+  const provider = getMarketCreationProvider();
+  const contract = new ethers.Contract(
+    PREDICTION_MARKET_CONTRACT_ADDRESS,
+    ['function marketCreationFee() view returns (uint256)'],
+    provider,
+  );
+  try {
+    const fee: bigint = await contract.marketCreationFee();
+    return fee;
+  } catch {
+    return 0n;
+  }
+}
+
 async function verifyCreateMarketTxOnChain(params: {
   txHash: string;
   expectedCreator: string;
   expectedMarketId: number;
   expectedEndTimeMs: number;
   expectedTitle: string;
-}): Promise<{ ok: true; blockNumber: number } | { ok: false; statusCode: number; error: string }> {
+}): Promise<{ ok: true; blockNumber: number; creationFeeWei: bigint } | { ok: false; statusCode: number; error: string }> {
   if (!PREDICTION_MARKET_CONTRACT_ADDRESS) {
     return { ok: false, statusCode: 503, error: 'Market creation verification is not configured' };
   }
@@ -148,6 +164,7 @@ async function verifyCreateMarketTxOnChain(params: {
     }
 
     let foundCreatedEvent = false;
+    let eventCreationFee = 0n;
     for (const log of receipt.logs) {
       if ((log.address || '').toLowerCase() !== PREDICTION_MARKET_CONTRACT_ADDRESS) continue;
       if (!log.topics?.length || log.topics[0] !== createdEventTopic) continue;
@@ -157,6 +174,7 @@ async function verifyCreateMarketTxOnChain(params: {
         const eventCreator = String(decoded[1] || '').toLowerCase();
         if (eventCreator === expectedCreator && eventMarketId === expectedMarketId) {
           foundCreatedEvent = true;
+          eventCreationFee = decoded[3] as bigint;
           break;
         }
       } catch {
@@ -168,7 +186,13 @@ async function verifyCreateMarketTxOnChain(params: {
       return { ok: false, statusCode: 400, error: 'createTxHash does not prove the provided onChainMarketId' };
     }
 
-    return { ok: true, blockNumber: receipt.blockNumber };
+    // Verify creation fee meets the contract minimum
+    const minFee = await getContractCreationFee();
+    if (minFee > 0n && eventCreationFee < minFee) {
+      return { ok: false, statusCode: 400, error: `Creation fee ${eventCreationFee.toString()} is below contract minimum ${minFee.toString()}` };
+    }
+
+    return { ok: true, blockNumber: receipt.blockNumber, creationFeeWei: eventCreationFee };
   } catch (err) {
     console.error('Create market tx verification error:', err);
     return { ok: false, statusCode: 503, error: 'Market creation verification service unavailable' };
@@ -289,6 +313,8 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       res.status(createTxVerification.statusCode).json({ error: createTxVerification.error });
       return;
     }
+    // Use on-chain fee from event instead of client-reported value
+    const verifiedCreationFee = Number(ethers.formatUnits(createTxVerification.creationFeeWei, 18));
 
     const resolutionTimeMs = Number.isFinite(parsedResolutionTime)
       ? Math.floor(parsedResolutionTime)
@@ -379,7 +405,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       await client.query(`
         INSERT INTO user_created_markets (id, market_id, creator_address, creation_fee, create_tx_hash, created_at)
         VALUES ($1, $2, $3, $4, $5, $6)
-      `, [generateId(), marketId, userAddress, recordedCreationFee, normalizedCreateTxHash, now]);
+      `, [generateId(), marketId, userAddress, verifiedCreationFee, normalizedCreateTxHash, now]);
 
       // Also create market_resolution entry
       await client.query(
@@ -401,7 +427,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       committed = true;
 
       const marketResult = await db.query('SELECT * FROM markets WHERE id = $1', [marketId]);
-      res.json({ market: marketResult.rows[0], fee: recordedCreationFee, message: 'Market submitted for review' });
+      res.json({ market: marketResult.rows[0], fee: verifiedCreationFee, message: 'Market submitted for review' });
     } catch (txErr) {
       if (!committed) {
         await client.query('ROLLBACK');
@@ -526,7 +552,10 @@ router.post('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthReq
     const db = getDb();
     const { id } = req.params;
 
-    const marketResult = await db.query('SELECT id, status FROM markets WHERE id = $1', [id]);
+    const marketResult = await db.query(
+      'SELECT id, status, title, end_time, on_chain_market_id FROM markets WHERE id = $1',
+      [id],
+    );
     if (marketResult.rows.length === 0) {
       res.status(404).json({ error: 'Market not found' });
       return;
@@ -536,6 +565,28 @@ router.post('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthReq
     if (market.status !== 'pending_approval') {
       res.status(400).json({ error: `Market is not pending approval (current status: ${market.status})` });
       return;
+    }
+
+    // Re-verify on-chain tx before approving
+    const ucmResult = await db.query(
+      'SELECT create_tx_hash, creator_address FROM user_created_markets WHERE market_id = $1',
+      [id],
+    );
+    const ucm = ucmResult.rows[0] as any;
+    if (ucm?.create_tx_hash && market.on_chain_market_id != null) {
+      const reVerify = await verifyCreateMarketTxOnChain({
+        txHash: ucm.create_tx_hash,
+        expectedCreator: ucm.creator_address,
+        expectedMarketId: Number(market.on_chain_market_id),
+        expectedEndTimeMs: Number(market.end_time),
+        expectedTitle: market.title,
+      });
+      if (!reVerify.ok) {
+        res.status(400).json({
+          error: `On-chain re-verification failed: ${reVerify.error}`,
+        });
+        return;
+      }
     }
 
     await db.query('UPDATE markets SET status = $1 WHERE id = $2', ['active', id]);

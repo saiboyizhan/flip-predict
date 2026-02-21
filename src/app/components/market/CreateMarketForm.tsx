@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { motion } from "motion/react";
-import { Plus, Clock, AlertTriangle, Eye, Trash2 } from "lucide-react";
+import { Plus, Clock, AlertTriangle, Eye, Trash2, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
@@ -55,6 +55,36 @@ interface PendingMarketPayload {
   resolutionTimeUtc: number;
 }
 
+const RECOVERY_KEY = 'flip_predict_market_recovery';
+const RECOVERY_TTL_MS = 24 * 3600000; // 24 hours
+
+interface RecoveryData {
+  payload: PendingMarketPayload;
+  txHash: string;
+  onChainMarketId: string;
+  feeUSDT: string;
+  savedAt: number;
+}
+
+function saveRecovery(data: RecoveryData) {
+  try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(data)); } catch {}
+}
+function loadRecovery(): RecoveryData | null {
+  try {
+    const raw = localStorage.getItem(RECOVERY_KEY);
+    if (!raw) return null;
+    const data: RecoveryData = JSON.parse(raw);
+    if (Date.now() - data.savedAt > RECOVERY_TTL_MS) {
+      localStorage.removeItem(RECOVERY_KEY);
+      return null;
+    }
+    return data;
+  } catch { return null; }
+}
+function clearRecovery() {
+  try { localStorage.removeItem(RECOVERY_KEY); } catch {}
+}
+
 export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormProps) {
   const { t } = useTranslation();
   const chainId = useChainId();
@@ -80,8 +110,17 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
   const feeAtSubmitRef = useRef<string>('0'); // P0-2 fix: capture fee at submission
   const mountedRef = useRef(true);
 
+  const [recovery, setRecovery] = useState<RecoveryData | null>(null);
+  const [recoveryRetrying, setRecoveryRetrying] = useState(false);
+
   useEffect(() => {
     return () => { mountedRef.current = false; };
+  }, []);
+
+  // Check localStorage for recovery data on mount
+  useEffect(() => {
+    const saved = loadRecovery();
+    if (saved) setRecovery(saved);
   }, []);
 
   const {
@@ -188,6 +227,15 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
 
     const capturedFee = feeAtSubmitRef.current; // P0-2 fix: use captured fee
 
+    // Save recovery data before backend sync
+    saveRecovery({
+      payload: pendingPayload,
+      txHash: createTxHash,
+      onChainMarketId: createdMarketId.toString(),
+      feeUSDT: capturedFee,
+      savedAt: Date.now(),
+    });
+
     setSyncing(true);
     void createUserMarketRecord({
       ...pendingPayload,
@@ -197,6 +245,8 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     })
       .then(() => {
         if (!mountedRef.current) return;
+        clearRecovery();
+        setRecovery(null);
         lastSyncedTxHashRef.current = createTxHash;
         toast.success(t('market.submitForReview'));
         setTitle('');
@@ -237,6 +287,17 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     resetCreateUserMarket,
   ]); // P0-2 fix: removed feeUSDT dependency
 
+  // P1-2 fix: Handle approve error — toast + reset so user can retry
+  useEffect(() => {
+    if (approveError) {
+      const msg = (approveError as Error).message?.includes('User rejected')
+        ? '用户取消了授权交易'
+        : `USDT 授权失败: ${(approveError as Error).message?.slice(0, 100) || '未知错误'}`;
+      toast.error(msg);
+      resetApprove();
+    }
+  }, [approveError, resetApprove]);
+
   // P1-2 fix: Handle approve confirmation and auto-trigger market creation
   useEffect(() => {
     if (approveConfirmed && approveTxHash && pendingPayloadRef.current) {
@@ -249,6 +310,33 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       createUserMarketOnChain(payload.title, endTimeUnix, 0n, feeWei);
     }
   }, [approveConfirmed, approveTxHash, refetchAllowance, resetApprove, createUserMarketOnChain, feeWei]);
+
+  const handleRecoveryRetry = useCallback(async () => {
+    if (!recovery) return;
+    setRecoveryRetrying(true);
+    try {
+      await createUserMarketRecord({
+        ...recovery.payload,
+        onChainMarketId: recovery.onChainMarketId,
+        createTxHash: recovery.txHash,
+        onChainCreationFee: Number(recovery.feeUSDT),
+      });
+      clearRecovery();
+      setRecovery(null);
+      toast.success(t('market.submitForReview'));
+      onSuccess?.();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('createMarket.createFailed');
+      toast.error(`恢复同步失败: ${message}`);
+    } finally {
+      setRecoveryRetrying(false);
+    }
+  }, [recovery, t, onSuccess]);
+
+  const handleRecoveryDismiss = useCallback(() => {
+    clearRecovery();
+    setRecovery(null);
+  }, []);
 
   const handleCreate = () => {
     if (!titleValid) {
@@ -348,6 +436,38 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
 
   return (
     <div className="space-y-6">
+      {/* Recovery Banner */}
+      {recovery && (
+        <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-medium mb-1">检测到未完成的市场同步</div>
+            <div className="text-xs text-amber-400/80 mb-2">
+              市场「{recovery.payload.title.slice(0, 40)}{recovery.payload.title.length > 40 ? '...' : ''}」
+              链上交易已确认，但后端同步未完成。
+              <span className="font-mono ml-1">TX: {recovery.txHash.slice(0, 10)}...{recovery.txHash.slice(-6)}</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleRecoveryRetry}
+                disabled={recoveryRetrying}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 transition-colors disabled:opacity-50"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {recoveryRetrying ? '同步中...' : '重试同步'}
+              </button>
+              <button
+                onClick={handleRecoveryDismiss}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-secondary hover:bg-secondary/80 border border-border text-muted-foreground transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                忽略
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Proposal Info Bar */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-secondary border border-border p-3">
@@ -679,7 +799,13 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
         className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors flex items-center justify-center gap-2"
       >
         <Plus className="w-5 h-5" />
-        {isProcessing ? t('createMarket.creating') : t('createMarket.createButton')}
+        {approveWriting || approveConfirming
+          ? '授权 USDT 中...'
+          : syncing
+            ? '同步后端...'
+            : isProcessing
+              ? t('createMarket.creating')
+              : t('createMarket.createButton')}
       </button>
 
       <p className="text-muted-foreground text-xs text-center">
