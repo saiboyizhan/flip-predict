@@ -762,3 +762,10 @@ DO $$ BEGIN
   ALTER TABLE markets ADD CONSTRAINT chk_markets_no_reserve_nonneg CHECK (no_reserve >= 0);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- ============================================
+-- V3: Limit Order Book columns
+-- ============================================
+ALTER TABLE open_orders ADD COLUMN IF NOT EXISTS on_chain_order_id BIGINT;
+ALTER TABLE open_orders ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+CREATE INDEX IF NOT EXISTS idx_open_orders_on_chain ON open_orders(on_chain_order_id);

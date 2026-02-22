@@ -13,6 +13,7 @@ import { ResolutionBadge } from "./ResolutionBadge";
 import { ClaimWinnings } from "./ClaimWinnings";
 import { MarketCard } from "./MarketCard";
 import { TradePanel } from "../trading/TradePanel";
+import { OrderbookPanel } from "../trading/OrderbookPanel";
 import { LiquidityPanel } from "../trading/LiquidityPanel";
 import { CommentSection } from "./CommentSection";
 import { PriceChart } from "./PriceChart";
@@ -427,6 +428,9 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
                 marketType={market.marketType}
                 options={market.options}
                 onTradeComplete={handleTradeComplete}
+              />
+              <OrderbookPanel
+                marketId={market.id}
               />
               <LiquidityPanel
                 marketId={market.id}

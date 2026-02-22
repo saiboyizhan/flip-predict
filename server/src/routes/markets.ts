@@ -387,6 +387,106 @@ router.get('/:id/history', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/markets/:id/orderbook — aggregated orderbook depth
+router.get('/:id/orderbook', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    const marketResult = await db.query('SELECT id FROM markets WHERE id = $1', [id]);
+    if (marketResult.rows.length === 0) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+
+    // Aggregate buy orders (bids) — people wanting to buy YES/NO
+    const { rows: bids } = await db.query(`
+      SELECT price, SUM(amount - filled) as total_amount, COUNT(*) as num_orders
+      FROM open_orders
+      WHERE market_id = $1 AND status = 'open' AND order_side = 'buy'
+      GROUP BY price
+      ORDER BY price DESC
+    `, [id]);
+
+    // Aggregate sell orders (asks) — people wanting to sell YES/NO
+    const { rows: asks } = await db.query(`
+      SELECT price, SUM(amount - filled) as total_amount, COUNT(*) as num_orders
+      FROM open_orders
+      WHERE market_id = $1 AND status = 'open' AND order_side = 'sell'
+      GROUP BY price
+      ORDER BY price ASC
+    `, [id]);
+
+    res.json({
+      bids: bids.map((b: any) => ({
+        price: Number(b.price),
+        totalAmount: Number(b.total_amount),
+        numOrders: parseInt(b.num_orders),
+      })),
+      asks: asks.map((a: any) => ({
+        price: Number(a.price),
+        totalAmount: Number(a.total_amount),
+        numOrders: parseInt(a.num_orders),
+      })),
+    });
+  } catch (err: any) {
+    console.error('Orderbook error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/markets/:id/orders — user's open orders for a market (requires auth)
+router.get('/:id/orders', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    // Extract user address from JWT
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    let userAddress: string;
+    try {
+      const token = authHeader.substring(7);
+      const decoded = jwt.verify(token, JWT_SECRET) as { address?: unknown };
+      if (typeof decoded.address !== 'string' || !ethers.isAddress(decoded.address)) {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+      userAddress = decoded.address.toLowerCase();
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
+
+    const { rows: orders } = await db.query(`
+      SELECT id, side, order_side, price, amount, filled, status, created_at, on_chain_order_id
+      FROM open_orders
+      WHERE market_id = $1 AND user_address = $2
+      ORDER BY created_at DESC
+    `, [id, userAddress]);
+
+    res.json({
+      orders: orders.map((o: any) => ({
+        id: o.id,
+        side: o.side,
+        orderSide: o.order_side,
+        price: Number(o.price),
+        amount: Number(o.amount),
+        filled: Number(o.filled),
+        status: o.status,
+        createdAt: Number(o.created_at),
+        onChainOrderId: o.on_chain_order_id,
+      })),
+    });
+  } catch (err: any) {
+    console.error('User orders error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/markets/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

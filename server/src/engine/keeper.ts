@@ -114,6 +114,19 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
     client.release();
   }
 
+  // Phase 2.5: Mark open limit orders as expired for resolved markets
+  for (const resolved of resolvedMarkets) {
+    try {
+      await db.query(
+        `UPDATE open_orders SET status = 'expired'
+         WHERE market_id = $1 AND status = 'open'`,
+        [resolved.marketId]
+      );
+    } catch (err: any) {
+      console.error(`Failed to expire open orders for market ${resolved.marketId}:`, err.message);
+    }
+  }
+
   // Phase 3: Post-commit actions — broadcast WS events and resolve agent predictions
   for (const resolved of resolvedMarkets) {
     try {

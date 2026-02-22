@@ -11,6 +11,7 @@ import {
   broadcastPriceUpdate,
   broadcastNewTrade,
   broadcastMarketResolved,
+  broadcastOrderBookUpdate,
 } from '../ws/index';
 
 const PREDICTION_MARKET_ADDRESS =
@@ -24,6 +25,9 @@ const EVENT_ABI = [
   'event LiquidityAdded(uint256 indexed marketId, address indexed user, uint256 amount, uint256 lpShares)',
   'event LiquidityRemoved(uint256 indexed marketId, address indexed user, uint256 shares, uint256 usdtOut)',
   'event MarketResolved(uint256 indexed marketId, bool outcome)',
+  'event LimitOrderPlaced(uint256 indexed orderId, uint256 indexed marketId, address indexed maker, uint8 orderSide, uint256 price, uint256 amount)',
+  'event LimitOrderFilled(uint256 indexed orderId, uint256 indexed marketId, address indexed taker, uint256 fillAmount, uint256 fillPrice, uint256 takerFee)',
+  'event LimitOrderCancelled(uint256 indexed orderId, uint256 indexed marketId, address indexed maker)',
   'function getPrice(uint256 marketId) view returns (uint256 yesPrice, uint256 noPrice)',
   'function getLpInfo(uint256 marketId, address user) view returns (uint256 totalShares, uint256 userLpShares, uint256 poolValue, uint256 userValue, uint256 yesReserve, uint256 noReserve)',
 ];
@@ -301,6 +305,130 @@ export function startEventListener(db: Pool): void {
       console.info(`[event-listener] MarketResolved: market ${mId} → ${outcomeStr}`);
     } catch (err) {
       console.error('[event-listener] Error processing MarketResolved event:', err);
+    }
+  });
+
+  // --- LimitOrderPlaced event ---
+  contract.on('LimitOrderPlaced', async (orderId, marketId, maker, orderSide, price, amount) => {
+    try {
+      const mId = marketId.toString();
+      const oId = orderId.toString();
+      const makerAddr = maker.toLowerCase();
+      const priceNum = Number(ethers.formatUnits(price, 18));
+      const amountNum = Number(ethers.formatUnits(amount, 18));
+      const orderSideNum = Number(orderSide);
+      // Map enum: 0=BUY_YES, 1=BUY_NO, 2=SELL_YES, 3=SELL_NO
+      const sideStr = orderSideNum < 2 ? (orderSideNum === 0 ? 'yes' : 'no') : (orderSideNum === 2 ? 'yes' : 'no');
+      const orderSideStr = orderSideNum < 2 ? 'buy' : 'sell';
+
+      const marketRes = await db.query(
+        'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+        [mId]
+      );
+      if (marketRes.rows.length === 0) {
+        console.warn(`[event-listener] LimitOrderPlaced for unknown on-chain market ${mId}`);
+        return;
+      }
+      const internalId = marketRes.rows[0].id;
+
+      await db.query(
+        `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
+        [makerAddr, Date.now()]
+      );
+
+      await db.query(
+        `INSERT INTO open_orders (id, user_address, market_id, side, order_side, price, amount, filled, status, created_at, on_chain_order_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'open', $8, $9)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          `lo-${oId}`,
+          makerAddr,
+          internalId,
+          sideStr,
+          orderSideStr,
+          priceNum,
+          amountNum,
+          Date.now(),
+          parseInt(oId),
+        ]
+      );
+
+      broadcastOrderBookUpdate(internalId, sideStr, { action: 'placed', orderId: oId, price: priceNum, amount: amountNum });
+
+      console.info(`[event-listener] LimitOrderPlaced: order ${oId} on market ${mId}, ${orderSideStr} ${sideStr} @ ${priceNum.toFixed(4)}`);
+    } catch (err) {
+      console.error('[event-listener] Error processing LimitOrderPlaced event:', err);
+    }
+  });
+
+  // --- LimitOrderFilled event ---
+  // Note: fillLimitOrder also emits Trade, which is handled by the Trade handler above for K-line data.
+  contract.on('LimitOrderFilled', async (orderId, marketId, taker, fillAmount, fillPrice, takerFee) => {
+    try {
+      const oId = orderId.toString();
+      const mId = marketId.toString();
+      const fillAmountNum = Number(ethers.formatUnits(fillAmount, 18));
+      const fillPriceNum = Number(ethers.formatUnits(fillPrice, 18));
+
+      const marketRes = await db.query(
+        'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+        [mId]
+      );
+      if (marketRes.rows.length === 0) return;
+      const internalId = marketRes.rows[0].id;
+
+      // Update open_orders filled amount
+      await db.query(
+        `UPDATE open_orders SET filled = filled + $1,
+         status = CASE WHEN filled + $1 >= amount THEN 'filled' ELSE status END
+         WHERE on_chain_order_id = $2 AND market_id = $3`,
+        [fillAmountNum, parseInt(oId), internalId]
+      );
+
+      // Get the side for broadcast
+      const orderRes = await db.query(
+        'SELECT side FROM open_orders WHERE on_chain_order_id = $1 AND market_id = $2 LIMIT 1',
+        [parseInt(oId), internalId]
+      );
+      const side = orderRes.rows[0]?.side || 'yes';
+
+      broadcastOrderBookUpdate(internalId, side, { action: 'filled', orderId: oId, fillAmount: fillAmountNum, fillPrice: fillPriceNum });
+
+      console.info(`[event-listener] LimitOrderFilled: order ${oId} filled ${fillAmountNum.toFixed(2)} @ ${fillPriceNum.toFixed(4)}`);
+    } catch (err) {
+      console.error('[event-listener] Error processing LimitOrderFilled event:', err);
+    }
+  });
+
+  // --- LimitOrderCancelled event ---
+  contract.on('LimitOrderCancelled', async (orderId, marketId, maker) => {
+    try {
+      const oId = orderId.toString();
+      const mId = marketId.toString();
+
+      const marketRes = await db.query(
+        'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+        [mId]
+      );
+      if (marketRes.rows.length === 0) return;
+      const internalId = marketRes.rows[0].id;
+
+      const orderRes = await db.query(
+        'SELECT side FROM open_orders WHERE on_chain_order_id = $1 AND market_id = $2 LIMIT 1',
+        [parseInt(oId), internalId]
+      );
+      const side = orderRes.rows[0]?.side || 'yes';
+
+      await db.query(
+        `UPDATE open_orders SET status = 'cancelled' WHERE on_chain_order_id = $1 AND market_id = $2`,
+        [parseInt(oId), internalId]
+      );
+
+      broadcastOrderBookUpdate(internalId, side, { action: 'cancelled', orderId: oId });
+
+      console.info(`[event-listener] LimitOrderCancelled: order ${oId} on market ${mId}`);
+    } catch (err) {
+      console.error('[event-listener] Error processing LimitOrderCancelled event:', err);
     }
   });
 

@@ -6,7 +6,7 @@
  */
 
 // BSC Testnet deployed address (fallback when env var not set)
-const DEFAULT_PM_ADDRESS = '0xd1d9E6cB7f488AA7D9db68F89734aa94f0e6ef4B'
+const DEFAULT_PM_ADDRESS = '0x2ec80EAa6d6921C32723fdC24cb3d4005af5ea37'
 
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
@@ -624,6 +624,125 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'agentTokenId', type: 'uint256', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+
+  // ============================================================
+  //                  LIMIT ORDER BOOK
+  // ============================================================
+  {
+    name: 'placeLimitOrder',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'orderSide', type: 'uint8' },
+      { name: 'price', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: 'orderId', type: 'uint256' }],
+  },
+  {
+    name: 'fillLimitOrder',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'orderId', type: 'uint256' },
+      { name: 'fillAmount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'cancelLimitOrder',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'orderId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    name: 'getLimitOrder',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'orderId', type: 'uint256' }],
+    outputs: [
+      { name: 'id', type: 'uint256' },
+      { name: 'marketId', type: 'uint256' },
+      { name: 'maker', type: 'address' },
+      { name: 'orderSide', type: 'uint8' },
+      { name: 'price', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'filled', type: 'uint256' },
+      { name: 'createdAt', type: 'uint256' },
+      { name: 'cancelled', type: 'bool' },
+    ],
+  },
+  {
+    name: 'getMarketOrderIds',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256[]' }],
+  },
+  {
+    name: 'getUserOrderIds',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256[]' }],
+  },
+  {
+    name: 'setApprovalForAll',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'operator', type: 'address' },
+      { name: 'approved', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'isApprovedForAll',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'operator', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+
+  // Limit Order Events
+  {
+    name: 'LimitOrderPlaced',
+    type: 'event',
+    inputs: [
+      { name: 'orderId', type: 'uint256', indexed: true },
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'maker', type: 'address', indexed: true },
+      { name: 'orderSide', type: 'uint8', indexed: false },
+      { name: 'price', type: 'uint256', indexed: false },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    name: 'LimitOrderFilled',
+    type: 'event',
+    inputs: [
+      { name: 'orderId', type: 'uint256', indexed: true },
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'taker', type: 'address', indexed: true },
+      { name: 'fillAmount', type: 'uint256', indexed: false },
+      { name: 'fillPrice', type: 'uint256', indexed: false },
+      { name: 'takerFee', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    name: 'LimitOrderCancelled',
+    type: 'event',
+    inputs: [
+      { name: 'orderId', type: 'uint256', indexed: true },
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'maker', type: 'address', indexed: true },
     ],
   },
 ] as const;

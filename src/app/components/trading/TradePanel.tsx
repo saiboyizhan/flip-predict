@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { useTradeStore } from "@/app/stores/useTradeStore";
-import { useBuy, useSell, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl, useContractPrice } from "@/app/hooks/useContracts";
+import { useBuy, useSell, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl, useContractPrice, usePlaceLimitOrder, useIsApprovedForAll, useErc1155Approval } from "@/app/hooks/useContracts";
 import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
 import { parseUnits, formatUnits } from "viem";
 import type { MarketOption } from "@/app/types/market.types";
@@ -37,6 +37,8 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   const isMulti = marketType === "multi" && options && options.length >= 2;
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(options?.[0]?.id ?? null);
   const [showRiskWarning, setShowRiskWarning] = useState(false);
+  const [orderType, setOrderType] = useState<"market" | "limit">("market");
+  const [limitPrice, setLimitPrice] = useState<string>("0.50");
   const pendingConfirmRef = useRef(false);
 
   const selectedOption = isMulti ? options.find(o => o.id === selectedOptionId) : null;
@@ -73,12 +75,38 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     reset: sellReset,
   } = useSell();
 
-  const activeTxHash = tradeMode === "buy" ? buyTxHash : sellTxHash;
-  const activeWriting = tradeMode === "buy" ? buyWriting : sellWriting;
-  const activeConfirming = tradeMode === "buy" ? buyConfirming : sellConfirming;
-  const activeConfirmed = tradeMode === "buy" ? buyConfirmed : sellConfirmed;
-  const activeError = tradeMode === "buy" ? buyError : sellError;
-  const activeReset = tradeMode === "buy" ? buyReset : sellReset;
+  // Limit order hooks
+  const {
+    placeLimitOrder,
+    txHash: limitTxHash,
+    isWriting: limitWriting,
+    isConfirming: limitConfirming,
+    isConfirmed: limitConfirmed,
+    error: limitError,
+    reset: limitReset,
+  } = usePlaceLimitOrder();
+
+  const {
+    isApproved: erc1155Approved,
+    refetch: refetchErc1155Approval,
+  } = useIsApprovedForAll(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
+
+  const {
+    setApprovalForAll: erc1155Approve,
+    txHash: erc1155ApproveTxHash,
+    isWriting: erc1155ApproveWriting,
+    isConfirming: erc1155ApproveConfirming,
+    isConfirmed: erc1155ApproveConfirmed,
+    error: erc1155ApproveError,
+    reset: erc1155ApproveReset,
+  } = useErc1155Approval();
+
+  const activeTxHash = orderType === "limit" ? limitTxHash : (tradeMode === "buy" ? buyTxHash : sellTxHash);
+  const activeWriting = orderType === "limit" ? limitWriting : (tradeMode === "buy" ? buyWriting : sellWriting);
+  const activeConfirming = orderType === "limit" ? limitConfirming : (tradeMode === "buy" ? buyConfirming : sellConfirming);
+  const activeConfirmed = orderType === "limit" ? limitConfirmed : (tradeMode === "buy" ? buyConfirmed : sellConfirmed);
+  const activeError = orderType === "limit" ? limitError : (tradeMode === "buy" ? buyError : sellError);
+  const activeReset = orderType === "limit" ? limitReset : (tradeMode === "buy" ? buyReset : sellReset);
 
   // USDT wallet balance
   const {
@@ -110,8 +138,29 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   }, []);
 
   // Tx lifecycle notifications
-  useTxNotifier(activeTxHash, activeConfirming, activeConfirmed, activeError as Error | null, tradeMode === "buy" ? "Buy" : "Sell");
+  useTxNotifier(activeTxHash, activeConfirming, activeConfirmed, activeError as Error | null, orderType === "limit" ? "Limit Order" : (tradeMode === "buy" ? "Buy" : "Sell"));
   useTxNotifier(approveTxHash, approveConfirming, approveConfirmed, approveError as Error | null, "USDT Approve");
+  useTxNotifier(erc1155ApproveTxHash, erc1155ApproveConfirming, erc1155ApproveConfirmed, erc1155ApproveError as Error | null, "ERC1155 Approve");
+
+  // After ERC1155 approval confirms, proceed with limit sell
+  useEffect(() => {
+    if (erc1155ApproveConfirmed && erc1155ApproveTxHash && isMountedRef.current) {
+      refetchErc1155Approval();
+      erc1155ApproveReset();
+      const params = tradeParamsRef.current;
+      if (!params.onChainMarketId) return;
+      try {
+        const mid = BigInt(params.onChainMarketId);
+        // OrderSide: SELL_YES=2, SELL_NO=3
+        const orderSideEnum = params.side === "yes" ? 2 : 3;
+        const priceWei = parseUnits(limitPrice, 18);
+        const amountWei = parseUnits(params.amount, 18);
+        placeLimitOrder(mid, orderSideEnum, priceWei, amountWei);
+      } catch {
+        if (isMountedRef.current) toast.error(t('trade.invalidMarketId'));
+      }
+    }
+  }, [erc1155ApproveConfirmed, erc1155ApproveTxHash, refetchErc1155Approval, erc1155ApproveReset, placeLimitOrder, limitPrice, t]);
 
   // After USDT approve confirms, proceed with buy
   useEffect(() => {
@@ -191,7 +240,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
   // On-chain trade handler
   const handleOnChainTrade = useCallback(() => {
-    if (numAmount <= 0 || activeWriting || activeConfirming || approveWriting || approveConfirming) return;
+    if (numAmount <= 0 || activeWriting || activeConfirming || approveWriting || approveConfirming || limitWriting || limitConfirming || erc1155ApproveWriting || erc1155ApproveConfirming) return;
     if (!onChainMarketId || !marketIdBigint) {
       toast.error(t('trade.invalidMarketId'));
       return;
@@ -199,8 +248,48 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
     tradeParamsRef.current = { marketId, side, amount, onChainMarketId, tradeMode };
 
+    // --- LIMIT ORDER ---
+    if (orderType === "limit") {
+      const priceNum = parseFloat(limitPrice);
+      if (priceNum < 0.01 || priceNum > 0.99) {
+        toast.error("Price must be between 0.01 and 0.99");
+        return;
+      }
+
+      if (tradeMode === "buy") {
+        // BUY limit: lock USDT
+        const usdtBal = parseFloat(walletBalance);
+        if (numAmount > usdtBal) {
+          toast.error(t('trade.insufficientContractBalance', { balance: usdtBal.toFixed(4) }));
+          return;
+        }
+        const amountWei = parseUnits(amount, 18);
+        if (usdtAllowanceRaw < amountWei) {
+          const maxUint256 = 2n ** 256n - 1n;
+          usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
+          return;
+        }
+        // OrderSide: BUY_YES=0, BUY_NO=1
+        const orderSideEnum = side === "yes" ? 0 : 1;
+        const priceWei = parseUnits(limitPrice, 18);
+        placeLimitOrder(marketIdBigint, orderSideEnum, priceWei, amountWei);
+      } else {
+        // SELL limit: lock ERC1155 shares — need setApprovalForAll
+        if (!erc1155Approved) {
+          erc1155Approve(PREDICTION_MARKET_ADDRESS, true);
+          return;
+        }
+        // OrderSide: SELL_YES=2, SELL_NO=3
+        const orderSideEnum = side === "yes" ? 2 : 3;
+        const priceWei = parseUnits(limitPrice, 18);
+        const amountWei = parseUnits(amount, 18);
+        placeLimitOrder(marketIdBigint, orderSideEnum, priceWei, amountWei);
+      }
+      return;
+    }
+
+    // --- MARKET ORDER ---
     if (tradeMode === "buy") {
-      // Check wallet balance
       const usdtBal = parseFloat(walletBalance);
       if (numAmount > usdtBal) {
         toast.error(t('trade.insufficientContractBalance', { balance: usdtBal.toFixed(4) }));
@@ -209,7 +298,6 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
       const amountWei = parseUnits(amount, 18);
 
-      // Check allowance, approve if needed
       if (usdtAllowanceRaw < amountWei) {
         const maxUint256 = 2n ** 256n - 1n;
         usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
@@ -218,11 +306,10 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
       buy(marketIdBigint, side === "yes", amount);
     } else {
-      // Sell: user needs YES/NO token shares
       const sharesWei = parseUnits(amount, 18);
       sell(marketIdBigint, side === "yes", sharesWei);
     }
-  }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, walletBalance, usdtAllowanceRaw, usdtApprove, buy, sell, t]);
+  }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, limitWriting, limitConfirming, erc1155ApproveWriting, erc1155ApproveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, orderType, limitPrice, walletBalance, usdtAllowanceRaw, usdtApprove, buy, sell, placeLimitOrder, erc1155Approved, erc1155Approve, t]);
 
   const executeTradeInternal = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;
@@ -259,7 +346,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     pendingConfirmRef.current = false;
   }, []);
 
-  const isOnChainBusy = activeWriting || activeConfirming || approveWriting || approveConfirming;
+  const isOnChainBusy = activeWriting || activeConfirming || approveWriting || approveConfirming || limitWriting || limitConfirming || erc1155ApproveWriting || erc1155ApproveConfirming;
   const tradingDisabled = status !== "active" && status !== "expiring";
   const isDisabled = tradingDisabled || numAmount <= 0 || isSubmitting || (!isMulti && isOnChainBusy);
   const sideTextClass = side === "yes" ? "text-emerald-400" : "text-red-400";
@@ -362,9 +449,35 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         </button>
       </div>
 
+      {/* Market/Limit Tabs */}
+      {!isMulti && (
+        <div className="grid grid-cols-2 border-t border-border">
+          <button
+            onClick={() => setOrderType("market")}
+            className={`py-1.5 text-[10px] font-bold tracking-wider uppercase transition-colors ${
+              orderType === "market"
+                ? "bg-blue-500/20 text-blue-400"
+                : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t('trade.market', { defaultValue: 'Market' })}
+          </button>
+          <button
+            onClick={() => setOrderType("limit")}
+            className={`py-1.5 text-[10px] font-bold tracking-wider uppercase transition-colors ${
+              orderType === "limit"
+                ? "bg-blue-500/20 text-blue-400"
+                : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t('trade.limit', { defaultValue: 'Limit' })}
+          </button>
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
         <motion.div
-          key={`${side}-${tradeMode}`}
+          key={`${side}-${tradeMode}-${orderType}`}
           initial={{ opacity: 0, x: side === "yes" ? -20 : 20 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: side === "yes" ? 20 : -20 }}
@@ -392,6 +505,44 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
               {t('trade.probability', { pct: Math.round(currentPrice * 100) })}
             </div>
           </div>
+
+          {/* Limit Price Input (limit mode only) */}
+          {orderType === "limit" && !isMulti && (
+            <div>
+              <label htmlFor="limit-price-input" className="block text-muted-foreground text-[10px] tracking-wider uppercase mb-1.5">
+                {t('trade.limitPrice', { defaultValue: 'Limit Price' })}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-base">$</span>
+                <input
+                  id="limit-price-input"
+                  type="number"
+                  min="0.01"
+                  max="0.99"
+                  step="0.01"
+                  value={limitPrice}
+                  onChange={(e) => setLimitPrice(e.target.value)}
+                  className="w-full bg-input-background border border-border text-foreground text-lg font-bold py-2.5 pl-7 pr-3 focus:outline-none focus:border-blue-500/50 transition-colors"
+                  placeholder="0.50"
+                />
+              </div>
+              <div className="flex gap-1 mt-1">
+                {[0.1, 0.25, 0.5, 0.75, 0.9].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setLimitPrice(p.toFixed(2))}
+                    className={`flex-1 py-1 text-[10px] border rounded-full transition-all ${
+                      limitPrice === p.toFixed(2)
+                        ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
+                        : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.08] text-muted-foreground"
+                    }`}
+                  >
+                    ${p.toFixed(2)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Amount Input */}
           <div>
@@ -519,18 +670,24 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
                   <Loader2 className="w-5 h-5 animate-spin" />
                   {approveWriting || approveConfirming
                     ? 'Approving USDT...'
-                    : activeConfirming
-                      ? t('trade.confirmingOnChain')
-                      : activeWriting
-                        ? t('trade.confirmInWallet')
-                        : t('trade.processing')}
+                    : erc1155ApproveWriting || erc1155ApproveConfirming
+                      ? 'Approving ERC1155...'
+                      : activeConfirming
+                        ? t('trade.confirmingOnChain')
+                        : activeWriting
+                          ? t('trade.confirmInWallet')
+                          : t('trade.processing')}
                 </>
               ) : (
                 <>
                   <Zap className="w-4 h-4" />
-                  {tradeMode === "buy"
-                    ? t('trade.confirmBuy', { side: side.toUpperCase() })
-                    : t('trade.confirmSell', { side: side.toUpperCase() })}
+                  {orderType === "limit"
+                    ? (tradeMode === "buy"
+                      ? t('trade.placeLimitBuy', { side: side.toUpperCase(), defaultValue: `Limit Buy ${side.toUpperCase()}` })
+                      : t('trade.placeLimitSell', { side: side.toUpperCase(), defaultValue: `Limit Sell ${side.toUpperCase()}` }))
+                    : (tradeMode === "buy"
+                      ? t('trade.confirmBuy', { side: side.toUpperCase() })
+                      : t('trade.confirmSell', { side: side.toUpperCase() }))}
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </>
               )}

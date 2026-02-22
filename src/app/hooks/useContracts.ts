@@ -765,6 +765,197 @@ export function useTxNotifier(
 }
 
 // ----------------------------------------------------------------
+// usePlaceLimitOrder  --  calls contract.placeLimitOrder(...)
+// ----------------------------------------------------------------
+
+export function usePlaceLimitOrder() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const placeLimitOrder = useCallback(
+    (marketId: bigint, orderSide: number, priceWei: bigint, amountWei: bigint) => {
+      reset();
+      writeContract({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'placeLimitOrder',
+        args: [marketId, orderSide, priceWei, amountWei],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    placeLimitOrder,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
+}
+
+// ----------------------------------------------------------------
+// useFillLimitOrder  --  calls contract.fillLimitOrder(...)
+// ----------------------------------------------------------------
+
+export function useFillLimitOrder() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const fillLimitOrder = useCallback(
+    (orderId: bigint, fillAmountWei: bigint) => {
+      reset();
+      writeContract({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'fillLimitOrder',
+        args: [orderId, fillAmountWei],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    fillLimitOrder,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
+}
+
+// ----------------------------------------------------------------
+// useCancelLimitOrder  --  calls contract.cancelLimitOrder(...)
+// ----------------------------------------------------------------
+
+export function useCancelLimitOrder() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const cancelLimitOrder = useCallback(
+    (orderId: bigint) => {
+      reset();
+      writeContract({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'cancelLimitOrder',
+        args: [orderId],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    cancelLimitOrder,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
+}
+
+// ----------------------------------------------------------------
+// useErc1155Approval  --  calls setApprovalForAll for limit sell orders
+// ----------------------------------------------------------------
+
+export function useErc1155Approval() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const setApprovalForAll = useCallback(
+    (operator: `0x${string}`, approved: boolean) => {
+      reset();
+      writeContract({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'setApprovalForAll',
+        args: [operator, approved],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    setApprovalForAll,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
+}
+
+export function useIsApprovedForAll(account?: `0x${string}`, operator?: `0x${string}`) {
+  const { data, isLoading, error, refetch } = useReadContract({
+    address: PREDICTION_MARKET_ADDRESS,
+    abi: PREDICTION_MARKET_ABI,
+    functionName: 'isApprovedForAll',
+    args: account && operator ? [account, operator] : undefined,
+    query: {
+      enabled: !!account && !!operator,
+    },
+  });
+
+  return {
+    isApproved: (data as boolean) ?? false,
+    isLoading,
+    error,
+    refetch,
+  };
+}
+
+// ----------------------------------------------------------------
 // useMintTestUSDT  --  mint test USDT on testnet (MockUSDT)
 // ----------------------------------------------------------------
 
