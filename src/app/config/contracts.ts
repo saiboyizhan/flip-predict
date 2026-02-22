@@ -6,7 +6,7 @@
  */
 
 // BSC Testnet deployed address (fallback when env var not set)
-const DEFAULT_PM_ADDRESS = '0xe5E4408c0484738C1aAF9BCa0Fe57dBaE0F9c4f7'
+const DEFAULT_PM_ADDRESS = '0xd1d9E6cB7f488AA7D9db68F89734aa94f0e6ef4B'
 
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
@@ -18,7 +18,7 @@ if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') 
 }
 
 // BSC USDT (BEP-20) — 18 decimals
-const DEFAULT_USDT_ADDRESS = '0xb9e59AbC61DeF3dB4e37aF4DAE38CDBca5175a32'
+const DEFAULT_USDT_ADDRESS = '0xf1669057F6eaF2216525eea54a32fC1abF967fb5'
 
 export const USDT_ADDRESS = (
   import.meta.env.VITE_USDT_ADDRESS ||
@@ -421,6 +421,20 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'marketId', type: 'uint256' },
       { name: '_outcome', type: 'bool' },
     ],
+    outputs: [],
+  },
+  {
+    name: 'lpClaimAfterResolution',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    name: 'lpRefundAfterCancel',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [],
   },
   {

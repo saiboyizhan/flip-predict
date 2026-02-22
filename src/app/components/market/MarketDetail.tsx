@@ -519,11 +519,11 @@ function SettlementActionPanel({
 
     setBusy(true);
     try {
-      // Step 1: Send on-chain finalizeResolution tx
+      // Step 1: Send on-chain adminFinalizeResolution tx (admin can override outcome, accepts 2 args)
       const txHash = await writeContractAsync({
         address: PREDICTION_MARKET_ADDRESS,
         abi: PREDICTION_MARKET_ABI,
-        functionName: "finalizeResolution",
+        functionName: "adminFinalizeResolution",
         args: [onChainMarketId, outcome === "yes"],
       });
 

@@ -95,6 +95,8 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     event NFAContractUpdated(address nfaContract);
     event FeesWithdrawn(address indexed owner, uint256 amount);
     event MarketCancelled(uint256 indexed marketId);
+    event LpClaimedAfterResolution(uint256 indexed marketId, address indexed user, uint256 sharesBurned, uint256 payout);
+    event LpRefundedAfterCancel(uint256 indexed marketId, address indexed user, uint256 sharesBurned, uint256 refund);
     event ResolutionProposed(uint256 indexed marketId, address indexed proposer, bool proposedOutcome, uint256 challengeWindowEnd);
     event ResolutionChallenged(uint256 indexed marketId, address indexed challenger, uint256 challengeCount, uint256 newWindowEnd);
     event ResolutionFinalized(uint256 indexed marketId, bool outcome);
@@ -346,14 +348,16 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         require(sharesToBurn > 0, "Shares must be > 0");
         Market storage m = markets[marketId];
         require(m.exists, "Market does not exist");
+        require(!m.resolved, "Market already resolved");
+        require(!m.cancelled, "Market cancelled");
+        require(block.timestamp < m.endTime, "Market ended");
         require(lpShares[marketId][msg.sender] >= sharesToBurn, "Insufficient LP shares");
 
-        uint256 poolValue = m.yesReserve + m.noReserve;
-
-        // Calculate withdrawal proportional to shares
-        usdtOut = (sharesToBurn * poolValue) / m.totalLpShares;
+        // LP valuation based on totalCollateral (actual USDT backing), not poolValue (reserves can inflate from fees)
+        usdtOut = (sharesToBurn * m.totalCollateral) / m.totalLpShares;
         require(usdtOut > 0, "Zero output");
 
+        uint256 poolValue = m.yesReserve + m.noReserve;
         // Calculate proportional reserve removal
         uint256 removeYes = (usdtOut * m.yesReserve) / poolValue;
         uint256 removeNo = usdtOut - removeYes;
@@ -422,6 +426,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         Market storage m = markets[marketId];
         require(m.exists, "Market does not exist");
         require(!m.resolved, "Market already resolved");
+        require(block.timestamp < m.endTime, "Market ended");
 
         uint256 yesId = getYesTokenId(marketId);
         uint256 noId = getNoTokenId(marketId);
@@ -568,7 +573,7 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         m.yesReserve = initialLiq;
         m.noReserve = initialLiq;
         m.initialLiquidity = initialLiq;
-        m.totalCollateral = initialLiq * 2; // Both reserves are backed
+        m.totalCollateral = initialLiq; // Single-sided: user deposits initialLiq, split into 50/50 reserves
         m.totalLpShares = initialLiq;
 
         marketCreator[marketId] = msg.sender;
@@ -705,6 +710,64 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         m.resolved = true;
         m.cancelled = true;
         emit MarketCancelled(marketId);
+    }
+
+    // ============================================================
+    //                      LP POST-RESOLUTION CLAIMS
+    // ============================================================
+
+    /// @notice LP claim payout after market is resolved (proportional share of winning reserve)
+    function lpClaimAfterResolution(uint256 marketId) external nonReentrant whenNotPaused {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(m.resolved, "Market not resolved");
+        require(!m.cancelled, "Market cancelled, use lpRefundAfterCancel");
+
+        uint256 userShares = lpShares[marketId][msg.sender];
+        require(userShares > 0, "No LP shares");
+
+        // LP gets proportional share of the winning reserve
+        uint256 winningReserve = m.outcome ? m.yesReserve : m.noReserve;
+        uint256 payout = (userShares * winningReserve) / m.totalLpShares;
+        require(payout > 0, "Zero payout");
+
+        lpShares[marketId][msg.sender] = 0;
+        m.totalLpShares -= userShares;
+        if (m.outcome) {
+            m.yesReserve -= payout;
+        } else {
+            m.noReserve -= payout;
+        }
+        m.totalCollateral -= payout;
+
+        require(usdtToken.transfer(msg.sender, payout), "USDT transfer failed");
+        emit LpClaimedAfterResolution(marketId, msg.sender, userShares, payout);
+    }
+
+    /// @notice LP refund after market is cancelled (proportional share of both reserves)
+    function lpRefundAfterCancel(uint256 marketId) external nonReentrant whenNotPaused {
+        Market storage m = markets[marketId];
+        require(m.exists, "Market does not exist");
+        require(m.cancelled, "Market not cancelled");
+
+        uint256 userShares = lpShares[marketId][msg.sender];
+        require(userShares > 0, "No LP shares");
+
+        uint256 poolValue = m.yesReserve + m.noReserve;
+        uint256 refund = (userShares * poolValue) / m.totalLpShares;
+        require(refund > 0, "Zero refund");
+
+        uint256 removeYes = (refund * m.yesReserve) / poolValue;
+        uint256 removeNo = refund - removeYes;
+
+        lpShares[marketId][msg.sender] = 0;
+        m.totalLpShares -= userShares;
+        m.yesReserve -= removeYes;
+        m.noReserve -= removeNo;
+        m.totalCollateral -= refund;
+
+        require(usdtToken.transfer(msg.sender, refund), "USDT transfer failed");
+        emit LpRefundedAfterCancel(marketId, msg.sender, userShares, refund);
     }
 
     // ============================================================

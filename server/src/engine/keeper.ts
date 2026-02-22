@@ -406,12 +406,14 @@ export async function settleMarketPositions(client: any, marketId: string, winni
     });
   }
 
-  // CTF settlement: 1 winning share = 1 USDT (not pari-mutuel proportional split).
-  // In CPMM + CTF model, winning shares redeem 1:1 against the collateral pool.
+  // Proportional settlement: winners split the available pool (reserves after LP payout)
+  const poolAfterLp = await client.query('SELECT yes_reserve, no_reserve FROM markets WHERE id = $1', [marketId]);
+  const availablePool = Number(poolAfterLp.rows[0].yes_reserve) + Number(poolAfterLp.rows[0].no_reserve);
 
-  // Step 1: Credit ALL winners their full shares (no commission deducted here).
+  // Step 1: Credit ALL winners proportionally (no commission deducted here).
   for (const winner of winners) {
-    const reward = Number(winner.shares);
+    const shares = Number(winner.shares);
+    const reward = (shares / totalWinnerShares) * availablePool;
 
     // P1-7 Fix: Validate reward is finite and non-negative before crediting
     if (!Number.isFinite(reward) || reward < 0) {
@@ -431,7 +433,7 @@ export async function settleMarketPositions(client: any, marketId: string, winni
       VALUES ($1, $2, 'settle_winner', $3, $4, $5, $6)
     `, [
       randomUUID(), marketId, winner.user_address, reward,
-      JSON.stringify({ shares: Number(winner.shares), reward, payout: reward, side: winningSide }),
+      JSON.stringify({ shares, reward, totalWinnerShares, availablePool, side: winningSide }),
       now
     ]);
   }
@@ -526,6 +528,9 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   // Bug H2 Fix: Clean up all positions for this settled market.
   // Prevents stale portfolio data and eliminates any future double-claim vectors.
   await client.query('DELETE FROM positions WHERE market_id = $1', [marketId]);
+
+  // Mark market as settled
+  await client.query("UPDATE markets SET status = 'settled' WHERE id = $1", [marketId]);
 }
 
 export function startKeeper(db: Pool, intervalMs: number = 30000): NodeJS.Timeout {

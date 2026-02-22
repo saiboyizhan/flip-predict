@@ -185,20 +185,25 @@ router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) =>
     return;
   }
 
+  const db = getDb();
+  const client = await db.connect();
   try {
-    const db = getDb();
+    await client.query('BEGIN');
 
     // Verify market exists and is active
-    const marketRes = await db.query('SELECT id, status, end_time FROM markets WHERE id = $1', [marketId]);
+    const marketRes = await client.query('SELECT id, status, end_time FROM markets WHERE id = $1', [marketId]);
     if (!marketRes.rows[0]) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Market not found' });
       return;
     }
     if (marketRes.rows[0].status !== 'active') {
+      await client.query('ROLLBACK');
       res.status(400).json({ error: 'Market is not active' });
       return;
     }
     if (Number(marketRes.rows[0].end_time) <= Date.now()) {
+      await client.query('ROLLBACK');
       res.status(400).json({ error: 'Market has expired' });
       return;
     }
@@ -206,48 +211,55 @@ router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) =>
     if (orderSide === 'buy') {
       // Lock cost = price * amount (USDT)
       const cost = p * a;
-      const balRes = await db.query('SELECT available FROM balances WHERE user_address = $1', [userAddress]);
+      const balRes = await client.query('SELECT available FROM balances WHERE user_address = $1 FOR UPDATE', [userAddress]);
       const available = Number(balRes.rows[0]?.available ?? 0);
       if (available < cost) {
+        await client.query('ROLLBACK');
         res.status(400).json({ error: `Insufficient balance: need ${cost.toFixed(2)}, have ${available.toFixed(2)}` });
         return;
       }
-      await db.query(
+      await client.query(
         'UPDATE balances SET available = available - $1, locked = locked + $1 WHERE user_address = $2',
         [cost, userAddress]
       );
     } else {
       // Lock shares from position
-      const posRes = await db.query(
-        'SELECT shares FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+      const posRes = await client.query(
+        'SELECT shares FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3 FOR UPDATE',
         [userAddress, marketId, side]
       );
       const shares = Number(posRes.rows[0]?.shares ?? 0);
       if (shares < a) {
+        await client.query('ROLLBACK');
         res.status(400).json({ error: `Insufficient shares: need ${a.toFixed(2)}, have ${shares.toFixed(2)}` });
         return;
       }
-      await db.query(
+      await client.query(
         'UPDATE positions SET shares = shares - $1 WHERE user_address = $2 AND market_id = $3 AND side = $4',
         [a, userAddress, marketId, side]
       );
     }
 
     const orderId = `lo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await db.query(
+    await client.query(
       `INSERT INTO open_orders (id, user_address, market_id, side, order_side, price, amount, filled, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'open', $8)`,
       [orderId, userAddress, marketId, side, orderSide, p, a, Date.now()]
     );
 
-    // Try to immediately match this order
+    await client.query('COMMIT');
+
+    // Try to immediately match this order (outside transaction)
     const { matchLimitOrders } = await import('../engine/limit-orders');
     const filled = await matchLimitOrders(db, marketId);
 
     res.json({ order: { orderId }, filled });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Limit order error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -261,37 +273,46 @@ router.delete('/:orderId', authMiddleware, async (req: AuthRequest, res: Respons
   const { orderId } = req.params;
   const userAddress = req.userAddress!;
 
+  const db = getDb();
+  const client = await db.connect();
   try {
-    const db = getDb();
-    const orderRes = await db.query(
-      'SELECT id, market_id, side, order_side, price, amount, filled FROM open_orders WHERE id = $1 AND user_address = $2 AND status = $3',
+    await client.query('BEGIN');
+
+    const orderRes = await client.query(
+      'SELECT id, market_id, side, order_side, price, amount, filled FROM open_orders WHERE id = $1 AND user_address = $2 AND status = $3 FOR UPDATE',
       [orderId, userAddress, 'open']
     );
     if (!orderRes.rows[0]) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Order not found' });
       return;
     }
     const order = orderRes.rows[0];
     const remaining = Number(order.amount) - Number(order.filled);
 
+    await client.query("UPDATE open_orders SET status = 'cancelled' WHERE id = $1", [orderId]);
+
     if (order.order_side === 'buy') {
       const refund = Number(order.price) * remaining;
-      await db.query(
+      await client.query(
         'UPDATE balances SET available = available + $1, locked = locked - $1 WHERE user_address = $2',
         [refund, userAddress]
       );
     } else {
-      await db.query(
+      await client.query(
         'UPDATE positions SET shares = shares + $1 WHERE user_address = $2 AND market_id = $3 AND side = $4',
         [remaining, userAddress, order.market_id, order.side]
       );
     }
 
-    await db.query("UPDATE open_orders SET status = 'cancelled' WHERE id = $1", [orderId]);
+    await client.query('COMMIT');
     res.json({ success: true });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Cancel order error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 

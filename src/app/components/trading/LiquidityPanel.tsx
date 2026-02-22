@@ -280,7 +280,7 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
 
                   {mode === "remove" && userSharesNum > 0 && (
                     <button
-                      onClick={() => setAmount(userSharesNum.toFixed(4))}
+                      onClick={() => setAmount(formatUnits(userLpShares, 18))}
                       className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
                     >
                       {t('lp.removeAll', 'Remove all')} ({userSharesNum.toFixed(2)} shares)

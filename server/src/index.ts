@@ -182,12 +182,8 @@ async function main() {
   // Faucet removed in v2 — users hold USDT in their own wallets
 
   // Admin: cleanup all seed/fake data
-  app.post('/api/admin/cleanup-seed', async (req, res) => {
+  app.post('/api/admin/cleanup-seed', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
     try {
-      // Verify admin via secret key (no wallet signature needed)
-      const { secret } = req.body;
-      const jwtSecret = process.env.JWT_SECRET || '';
-      if (!secret || secret !== jwtSecret) { res.status(403).json({ error: 'Invalid secret' }); return; }
 
       const SEED_ADDRESSES = [
         '0x742d35cc6634c0532925a3b844bc9e7595f0beb8',

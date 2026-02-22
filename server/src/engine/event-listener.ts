@@ -4,6 +4,7 @@
  * and indexes them into the database + broadcasts via WebSocket.
  */
 import { ethers } from 'ethers';
+import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { BSC_RPC_URL } from '../config/network';
 import {
@@ -12,6 +13,7 @@ import {
   broadcastMarketResolved,
 } from '../ws/index';
 import { matchLimitOrders } from './limit-orders';
+import { settleMarketPositions } from './keeper';
 
 const PREDICTION_MARKET_ADDRESS =
   process.env.PREDICTION_MARKET_ADDRESS ||
@@ -53,6 +55,8 @@ export function startEventListener(db: Pool): void {
       const sideStr = side ? 'yes' : 'no';
       const typeStr = isBuy ? 'buy' : 'sell';
       const txHash = event?.log?.transactionHash || '';
+      const eventTimestamp = Date.now();
+      const orderId = randomUUID();
 
       // Find internal market ID from on_chain_market_id
       const marketRes = await db.query(
@@ -88,7 +92,7 @@ export function startEventListener(db: Pool): void {
         `INSERT INTO orders (id, market_id, user_address, type, side, amount, shares, price, fee, status, tx_hash, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'filled', $10, $11)`,
         [
-          `evt-${txHash.slice(0, 16)}-${Date.now()}`,
+          orderId,
           internalId,
           userAddr,
           typeStr,
@@ -98,7 +102,7 @@ export function startEventListener(db: Pool): void {
           sharesNum > 0 ? amountNum / sharesNum : 0,
           feeNum,
           txHash,
-          Date.now(),
+          eventTimestamp,
         ]
       );
 
@@ -117,7 +121,7 @@ export function startEventListener(db: Pool): void {
       // Broadcast via WebSocket
       broadcastPriceUpdate(internalId, yesPrice, noPrice);
       broadcastNewTrade({
-        orderId: `evt-${txHash.slice(0, 16)}-${Date.now()}`,
+        orderId,
         marketId: internalId,
         userAddress: userAddr,
         side: sideStr,
@@ -125,7 +129,7 @@ export function startEventListener(db: Pool): void {
         amount: amountNum,
         shares: sharesNum,
         price: sharesNum > 0 ? amountNum / sharesNum : 0,
-        timestamp: Date.now(),
+        timestamp: eventTimestamp,
       });
 
       console.info(`[event-listener] Trade: ${typeStr} ${sideStr} ${amountNum.toFixed(2)} USDT → ${sharesNum.toFixed(2)} shares on market ${mId}`);
@@ -184,10 +188,11 @@ export function startEventListener(db: Pool): void {
       const totalLiq = yesReserve + noReserve;
       const yesPrice = noReserve / totalLiq;
       const noPrice = yesReserve / totalLiq;
+      // LP deposits do not count as volume (only trades do)
       await db.query(
         `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
-         total_liquidity = $4, yes_price = $5, no_price = $6, volume = volume + $7 WHERE id = $8`,
-        [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, amountNum, internalId]
+         total_liquidity = $4, yes_price = $5, no_price = $6 WHERE id = $7`,
+        [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, internalId]
       );
 
       // Upsert lp_positions
@@ -282,10 +287,28 @@ export function startEventListener(db: Pool): void {
       );
       if (marketRes.rows.length > 0) {
         const internalId = marketRes.rows[0].id;
-        await db.query(
-          "UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW() WHERE id = $2",
-          [outcomeStr, internalId]
-        );
+
+        // Settle positions within a transaction
+        const client = await db.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query(
+            "UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW() WHERE id = $2",
+            [outcomeStr, internalId]
+          );
+          await settleMarketPositions(client, internalId, outcomeStr);
+          await client.query(
+            "UPDATE markets SET status = 'settled' WHERE id = $1",
+            [internalId]
+          );
+          await client.query('COMMIT');
+        } catch (settleErr) {
+          await client.query('ROLLBACK');
+          console.error(`[event-listener] Settlement failed for market ${mId}:`, settleErr);
+        } finally {
+          client.release();
+        }
+
         broadcastMarketResolved(internalId, outcomeStr);
       }
 
@@ -295,10 +318,43 @@ export function startEventListener(db: Pool): void {
     }
   });
 
-  // Handle provider errors / reconnection
+  // Handle provider errors / reconnection with exponential backoff
+  let reconnectAttempts = 0;
+  let reconnectTimer: NodeJS.Timeout | null = null;
+  let healthCheckTimer: NodeJS.Timeout | null = null;
+
+  const reconnect = () => {
+    if (reconnectTimer) return; // already scheduled
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000); // max 60s
+    reconnectAttempts++;
+    console.info(`[event-listener] Reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts})...`);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      stopEventListener();
+      startEventListener(db);
+    }, delay);
+  };
+
   provider.on('error', (err) => {
     console.error('[event-listener] Provider error:', err);
+    reconnect();
   });
+
+  // Health check every 5 minutes
+  healthCheckTimer = setInterval(async () => {
+    try {
+      if (provider) {
+        await provider.getBlockNumber();
+        reconnectAttempts = 0; // reset on success
+      }
+    } catch (err) {
+      console.error('[event-listener] Health check failed:', err);
+      reconnect();
+    }
+  }, 5 * 60 * 1000);
+
+  // Store health check timer for cleanup
+  (provider as any)._healthCheckTimer = healthCheckTimer;
 }
 
 export function stopEventListener(): void {
@@ -308,6 +364,8 @@ export function stopEventListener(): void {
   }
   if (provider) {
     provider.removeAllListeners();
+    const hcTimer = (provider as any)._healthCheckTimer;
+    if (hcTimer) clearInterval(hcTimer);
     provider = null;
   }
 }

@@ -299,17 +299,18 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
   }, [approveError, resetApprove]);
 
   // P1-2 fix: Handle approve confirmation and auto-trigger market creation
+  const initialLiqWei = 50n * 10n ** 18n; // 50 USDT initial liquidity
   useEffect(() => {
     if (approveConfirmed && approveTxHash && pendingPayloadRef.current) {
       resetApprove();
       void refetchAllowance();
 
-      // Now trigger the actual market creation
+      // Now trigger the actual market creation (3 params: title, endTime, initialLiq)
       const payload = pendingPayloadRef.current;
       const endTimeUnix = BigInt(Math.floor(payload.endTime / 1000));
-      createUserMarketOnChain(payload.title, endTimeUnix, 0n, feeWei);
+      createUserMarketOnChain(payload.title, endTimeUnix, initialLiqWei);
     }
-  }, [approveConfirmed, approveTxHash, refetchAllowance, resetApprove, createUserMarketOnChain, feeWei]);
+  }, [approveConfirmed, approveTxHash, refetchAllowance, resetApprove, createUserMarketOnChain, initialLiqWei]);
 
   const handleRecoveryRetry = useCallback(async () => {
     if (!recovery) return;
@@ -408,16 +409,17 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     pendingPayloadRef.current = payload;
     feeAtSubmitRef.current = feeUSDT || '0'; // P0-2 fix: capture fee at submit time
 
-    // P1-2 fix: Check allowance and approve if needed
-    if (allowanceRaw < feeWei) {
+    // P1-2 fix: Check allowance and approve if needed (fee + initial liquidity)
+    const totalApproveAmount = feeWei + initialLiqWei;
+    if (allowanceRaw < totalApproveAmount) {
       toast.info('需要先授权 USDT，正在发起授权交易...');
-      approveUsdt(PREDICTION_MARKET_ADDRESS, feeWei);
+      approveUsdt(PREDICTION_MARKET_ADDRESS, totalApproveAmount);
       return;
     }
 
-    // Allowance is sufficient, proceed with market creation
+    // Allowance is sufficient, proceed with market creation (3 params: title, endTime, initialLiq)
     const endTimeUnix = BigInt(Math.floor(endTime / 1000));
-    createUserMarketOnChain(payload.title, endTimeUnix, 0n, feeWei);
+    createUserMarketOnChain(payload.title, endTimeUnix, initialLiqWei);
   };
 
   const formatEndTime = (ts: number) => {
