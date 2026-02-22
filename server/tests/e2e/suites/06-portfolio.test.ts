@@ -65,14 +65,14 @@ describe('Portfolio', () => {
     expect(Number(available)).toBeGreaterThan(0);
   });
 
-  it('After buying, positions show the new position', async () => {
-    // Buy YES shares
-    const buyRes = await portfolioClient.post('/api/orders', {
-      marketId,
-      side: 'yes',
-      amount: 200,
-    });
-    expect(buyRes.status).toBe(200);
+  it('After seeding position, positions show the new position', async () => {
+    // Seed a position directly (v2: trading is on-chain, not via API)
+    await pool.query(
+      `INSERT INTO positions (id, market_id, user_address, side, shares, avg_cost, created_at)
+       VALUES ($1, $2, $3, 'yes', 100, 0.5, $4)
+       ON CONFLICT DO NOTHING`,
+      [`pos-${Date.now()}`, marketId, portfolioAddress, Date.now()]
+    );
 
     // Check positions
     const posRes = await portfolioClient.get('/api/positions');

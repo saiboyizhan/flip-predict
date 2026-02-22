@@ -48,14 +48,14 @@ describe('Notifications API', () => {
 
   // ---------- Trade to generate notification ----------
 
-  it('After trade, notifications appear', async () => {
-    // Make a buy trade to generate a notification
-    const buyRes = await client.post('/api/orders', {
-      marketId,
-      side: 'yes',
-      amount: 100,
-    });
-    expect(buyRes.status).toBe(200);
+  it('After seeding notification, notifications appear', async () => {
+    // Seed a notification directly (v2: trading is on-chain, notifications come from event-listener)
+    const nId = `notif-test-${Date.now()}`;
+    await pool.query(
+      `INSERT INTO notifications (id, user_address, type, title, message, is_read, created_at)
+       VALUES ($1, $2, 'trade', 'Test Trade', 'You bought 100 YES shares', 0, $3)`,
+      [nId, userAddress, Date.now()]
+    );
 
     // Now check notifications
     const res = await client.get('/api/notifications');
