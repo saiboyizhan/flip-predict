@@ -25,6 +25,7 @@ const EVENT_ABI = [
   'event LiquidityRemoved(uint256 indexed marketId, address indexed user, uint256 shares, uint256 usdtOut)',
   'event MarketResolved(uint256 indexed marketId, bool outcome)',
   'function getPrice(uint256 marketId) view returns (uint256 yesPrice, uint256 noPrice)',
+  'function getLpInfo(uint256 marketId, address user) view returns (uint256 totalShares, uint256 userLpShares, uint256 poolValue, uint256 userValue, uint256 yesReserve, uint256 noReserve)',
 ];
 
 let provider: ethers.JsonRpcProvider | null = null;
@@ -142,34 +143,128 @@ export function startEventListener(db: Pool): void {
   });
 
   // --- LiquidityAdded event ---
-  contract.on('LiquidityAdded', async (marketId, user, amount, lpShares) => {
+  contract.on('LiquidityAdded', async (marketId, user, amount, lpShares, event) => {
     try {
       const mId = marketId.toString();
+      const userAddr = user.toLowerCase();
       const amountNum = Number(ethers.formatUnits(amount, 18));
-      console.info(`[event-listener] LiquidityAdded: ${user} added ${amountNum.toFixed(2)} USDT to market ${mId}`);
+      const lpSharesNum = Number(ethers.formatUnits(lpShares, 18));
+      const txHash = event?.log?.transactionHash || '';
 
-      // Update market volume
       const marketRes = await db.query(
-        'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+        'SELECT id, yes_reserve, no_reserve, total_lp_shares FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
         [mId]
       );
-      if (marketRes.rows.length > 0) {
-        await db.query(
-          'UPDATE markets SET volume = volume + $1 WHERE id = $2',
-          [amountNum, marketRes.rows[0].id]
-        );
+      if (marketRes.rows.length === 0) {
+        console.warn(`[event-listener] LiquidityAdded for unknown on-chain market ${mId}`);
+        return;
       }
+      const internalId = marketRes.rows[0].id;
+
+      // Fetch on-chain reserves via getLpInfo
+      let yesReserve = Number(marketRes.rows[0].yes_reserve);
+      let noReserve = Number(marketRes.rows[0].no_reserve);
+      let totalLpShares = Number(marketRes.rows[0].total_lp_shares);
+      try {
+        if (contract) {
+          const info = await contract.getLpInfo(marketId, user);
+          yesReserve = Number(ethers.formatUnits(info[4], 18));
+          noReserve = Number(ethers.formatUnits(info[5], 18));
+          totalLpShares = Number(ethers.formatUnits(info[0], 18));
+        }
+      } catch { /* use existing values */ }
+
+      // Ensure user exists
+      await db.query(
+        `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
+        [userAddr, Date.now()]
+      );
+
+      // Update market reserves, LP shares, and total liquidity
+      const totalLiq = yesReserve + noReserve;
+      const yesPrice = noReserve / totalLiq;
+      const noPrice = yesReserve / totalLiq;
+      await db.query(
+        `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
+         total_liquidity = $4, yes_price = $5, no_price = $6, volume = volume + $7 WHERE id = $8`,
+        [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, amountNum, internalId]
+      );
+
+      // Upsert lp_positions
+      await db.query(`
+        INSERT INTO lp_positions (id, user_address, market_id, lp_shares, deposit_amount, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (user_address, market_id)
+        DO UPDATE SET lp_shares = lp_positions.lp_shares + EXCLUDED.lp_shares,
+                      deposit_amount = lp_positions.deposit_amount + EXCLUDED.deposit_amount
+      `, [`lp-${txHash.slice(0, 16)}-${Date.now()}`, userAddr, internalId, lpSharesNum, amountNum, Date.now()]);
+
+      // Broadcast price update
+      broadcastPriceUpdate(internalId, yesPrice, noPrice);
+
+      console.info(`[event-listener] LiquidityAdded: ${userAddr} added ${amountNum.toFixed(2)} USDT (${lpSharesNum.toFixed(2)} LP shares) to market ${mId}`);
     } catch (err) {
       console.error('[event-listener] Error processing LiquidityAdded event:', err);
     }
   });
 
   // --- LiquidityRemoved event ---
-  contract.on('LiquidityRemoved', async (marketId, user, shares, usdtOut) => {
+  contract.on('LiquidityRemoved', async (marketId, user, shares, usdtOut, event) => {
     try {
       const mId = marketId.toString();
+      const userAddr = user.toLowerCase();
+      const sharesNum = Number(ethers.formatUnits(shares, 18));
       const outNum = Number(ethers.formatUnits(usdtOut, 18));
-      console.info(`[event-listener] LiquidityRemoved: ${user} removed ${outNum.toFixed(2)} USDT from market ${mId}`);
+
+      const marketRes = await db.query(
+        'SELECT id, yes_reserve, no_reserve, total_lp_shares FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+        [mId]
+      );
+      if (marketRes.rows.length === 0) {
+        console.warn(`[event-listener] LiquidityRemoved for unknown on-chain market ${mId}`);
+        return;
+      }
+      const internalId = marketRes.rows[0].id;
+
+      // Fetch on-chain reserves via getLpInfo
+      let yesReserve = Number(marketRes.rows[0].yes_reserve);
+      let noReserve = Number(marketRes.rows[0].no_reserve);
+      let totalLpShares = Number(marketRes.rows[0].total_lp_shares);
+      try {
+        if (contract) {
+          const info = await contract.getLpInfo(marketId, user);
+          yesReserve = Number(ethers.formatUnits(info[4], 18));
+          noReserve = Number(ethers.formatUnits(info[5], 18));
+          totalLpShares = Number(ethers.formatUnits(info[0], 18));
+        }
+      } catch { /* use existing values */ }
+
+      // Update market reserves and LP shares
+      const totalLiq = yesReserve + noReserve;
+      const yesPrice = totalLiq > 0 ? noReserve / totalLiq : 0.5;
+      const noPrice = totalLiq > 0 ? yesReserve / totalLiq : 0.5;
+      await db.query(
+        `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
+         total_liquidity = $4, yes_price = $5, no_price = $6 WHERE id = $7`,
+        [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, internalId]
+      );
+
+      // Update lp_positions
+      await db.query(`
+        UPDATE lp_positions SET lp_shares = GREATEST(lp_shares - $1, 0)
+        WHERE user_address = $2 AND market_id = $3
+      `, [sharesNum, userAddr, internalId]);
+
+      // Remove if zero shares
+      await db.query(
+        `DELETE FROM lp_positions WHERE user_address = $1 AND market_id = $2 AND lp_shares <= 0`,
+        [userAddr, internalId]
+      );
+
+      // Broadcast price update
+      broadcastPriceUpdate(internalId, yesPrice, noPrice);
+
+      console.info(`[event-listener] LiquidityRemoved: ${userAddr} removed ${sharesNum.toFixed(2)} LP shares (${outNum.toFixed(2)} USDT) from market ${mId}`);
     } catch (err) {
       console.error('[event-listener] Error processing LiquidityRemoved event:', err);
     }
