@@ -54,14 +54,14 @@ describe('Markets', () => {
     expect(markets.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('GET /api/markets?category=meme filters by category', async () => {
-    const res = await client.get('/api/markets?category=meme');
+  it('GET /api/markets?category=four-meme filters by category', async () => {
+    const res = await client.get('/api/markets?category=four-meme');
     expect(res.status).toBe(200);
     const body = await res.json();
     const markets = Array.isArray(body) ? body : body.markets;
     expect(Array.isArray(markets)).toBe(true);
     for (const m of markets) {
-      expect(m.category).toBe('meme');
+      expect(m.category).toBe('four-meme');
     }
   });
 

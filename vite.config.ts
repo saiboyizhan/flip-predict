@@ -19,15 +19,13 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://flip-backend-production.up.railway.app',
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        headers: { Origin: 'https://flippredict.net' },
       },
       '/ws': {
-        target: 'wss://flip-backend-production.up.railway.app',
+        target: 'ws://localhost:3001',
         ws: true,
         changeOrigin: true,
-        headers: { Origin: 'https://flippredict.net' },
       },
     },
   },

@@ -12,7 +12,7 @@ function generateId(): string {
 }
 
 const VALID_CATEGORIES = [
-  'four-meme', 'flap', 'nfa', 'other'
+  'four-meme', 'flap', 'nfa', 'hackathon', 'other'
 ];
 const VALID_RESOLUTION_TYPES = ['manual', 'price_above', 'price_below'] as const;
 const MARKET_CREATION_RPC_URL =

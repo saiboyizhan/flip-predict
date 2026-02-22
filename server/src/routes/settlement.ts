@@ -774,12 +774,6 @@ router.post('/:marketId/propose', authMiddleware, async (req: AuthRequest, res: 
       res.status(409).json({ error: 'Market is not linked to on-chain market id' });
       return;
     }
-    if (market.market_type === 'multi') {
-      await client.query('ROLLBACK');
-      res.status(409).json({ error: '当前版本仲裁结算仅支持二元市场（YES/NO）' });
-      return;
-    }
-
     const creatorRes = await client.query(
       'SELECT creator_address FROM user_created_markets WHERE market_id = $1',
       [marketId],
@@ -1140,12 +1134,6 @@ router.post('/:marketId/finalize', authMiddleware, adminMiddleware, async (req: 
       res.status(409).json({ error: 'Market is not linked to on-chain market id' });
       return;
     }
-    if (market.market_type === 'multi') {
-      await client.query('ROLLBACK');
-      res.status(409).json({ error: '当前版本仲裁结算仅支持二元市场（YES/NO）' });
-      return;
-    }
-
     const proposalRes = await client.query(`
       SELECT * FROM resolution_proposals
       WHERE market_id = $1

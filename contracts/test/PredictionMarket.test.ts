@@ -23,13 +23,6 @@ describe("PredictionMarket", function () {
     await mockUSDT.connect(user).approve(pmAddress, amount);
   }
 
-  // Helper: deposit USDT into prediction market for a user
-  async function depositUSDT(user: SignerWithAddress, amount: bigint) {
-    const pmAddress = await predictionMarket.getAddress();
-    await mockUSDT.connect(user).approve(pmAddress, amount);
-    await predictionMarket.connect(user).deposit(amount);
-  }
-
   beforeEach(async function () {
     [owner, user1, user2] = await ethers.getSigners();
 
@@ -58,58 +51,7 @@ describe("PredictionMarket", function () {
     await mockUSDT.connect(owner).approve(pmAddress, INITIAL_USDT_BALANCE);
   });
 
-  describe("Deposit", function () {
-    it("should deposit USDT successfully", async function () {
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      expect(await predictionMarket.balances(user1.address)).to.equal(DEPOSIT_AMOUNT);
-    });
-
-    it("should emit Deposit event", async function () {
-      await expect(predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT))
-        .to.emit(predictionMarket, "Deposit")
-        .withArgs(user1.address, DEPOSIT_AMOUNT);
-    });
-
-    it("should transfer USDT from user to contract", async function () {
-      const contractAddress = await predictionMarket.getAddress();
-      const balanceBefore = await mockUSDT.balanceOf(contractAddress);
-      await predictionMarket.connect(user1).deposit(DEPOSIT_AMOUNT);
-      const balanceAfter = await mockUSDT.balanceOf(contractAddress);
-      expect(balanceAfter - balanceBefore).to.equal(DEPOSIT_AMOUNT);
-    });
-
-    it("should revert on zero amount", async function () {
-      await expect(predictionMarket.connect(user1).deposit(0)).to.be.revertedWith("Amount must be > 0");
-    });
-  });
-
-  describe("Withdraw", function () {
-    beforeEach(async function () {
-      // withdraw is onlyOwner, so deposit as owner
-      await predictionMarket.deposit(DEPOSIT_AMOUNT);
-    });
-
-    it("should withdraw USDT successfully", async function () {
-      const withdrawAmount = ethers.parseEther("5");
-      await predictionMarket.withdraw(withdrawAmount);
-      expect(await predictionMarket.balances(owner.address)).to.equal(DEPOSIT_AMOUNT - withdrawAmount);
-    });
-
-    it("should emit Withdraw event", async function () {
-      await expect(predictionMarket.withdraw(DEPOSIT_AMOUNT))
-        .to.emit(predictionMarket, "Withdraw")
-        .withArgs(owner.address, DEPOSIT_AMOUNT);
-    });
-
-    it("should revert on insufficient balance", async function () {
-      const tooMuch = ethers.parseEther("20");
-      await expect(predictionMarket.withdraw(tooMuch)).to.be.revertedWith("Insufficient balance");
-    });
-
-    it("should revert on zero amount", async function () {
-      await expect(predictionMarket.withdraw(0)).to.be.revertedWith("Amount must be > 0");
-    });
-  });
+  // Deposit/Withdraw tests removed — v2 is non-custodial (users hold USDT in wallets)
 
   describe("Create Market", function () {
     it("should create a market", async function () {
