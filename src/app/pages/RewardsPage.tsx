@@ -6,9 +6,6 @@ import {
   Copy,
   CheckCircle2,
   Clock,
-  DollarSign,
-  Users,
-  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -137,7 +134,6 @@ export default function RewardsPage() {
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-2"
         >
-          <Gift className="w-5 h-5 text-blue-400" />
           <div>
             <h1 className="text-lg sm:text-xl font-bold tracking-tight">{t('rewards.title')}</h1>
             <p className="text-muted-foreground text-xs mt-0.5">{t('rewards.subtitle')}</p>
@@ -152,8 +148,7 @@ export default function RewardsPage() {
             transition={{ delay: 0.05 }}
             className="bg-secondary border border-blue-500/30 p-4"
           >
-            <div className="flex items-center gap-1.5 text-blue-400 text-xs mb-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
+            <div className="text-blue-400 text-xs mb-1.5">
               {t('rewards.claimable')}
             </div>
             <div className="text-xl font-bold text-blue-400">
@@ -167,8 +162,7 @@ export default function RewardsPage() {
             transition={{ delay: 0.1 }}
             className="bg-secondary border border-border p-4"
           >
-            <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1.5">
-              <DollarSign className="w-3.5 h-3.5" />
+            <div className="text-muted-foreground text-xs mb-1.5">
               {t('rewards.totalClaimed')}
             </div>
             <div className="text-xl font-bold text-foreground">
@@ -182,8 +176,7 @@ export default function RewardsPage() {
             transition={{ delay: 0.15 }}
             className="bg-secondary border border-border p-4"
           >
-            <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1.5">
-              <Users className="w-3.5 h-3.5" />
+            <div className="text-muted-foreground text-xs mb-1.5">
               {t('rewards.referralEarnings')}
             </div>
             <div className="text-xl font-bold text-foreground">
@@ -199,8 +192,7 @@ export default function RewardsPage() {
           transition={{ delay: 0.2 }}
           className="bg-secondary border border-border p-4"
         >
-          <h3 className="text-sm font-bold flex items-center gap-2 mb-3">
-            <Users className="w-4 h-4 text-blue-400" />
+          <h3 className="text-sm font-bold mb-3">
             {t('rewards.inviteFriends')}
           </h3>
           {referralLoading ? (
