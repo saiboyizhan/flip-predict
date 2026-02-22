@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { useState, useMemo, useEffect } from "react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
-import { Wallet, TrendingUp, PieChart, Trophy, Inbox, ArrowRight, Droplets } from "lucide-react";
+import { Inbox, ArrowRight, Droplets } from "lucide-react";
 import { toast } from "sonner";
 import { PositionCard } from "./PositionCard";
 import { usePortfolioStore } from "@/app/stores/usePortfolioStore";
@@ -25,28 +25,6 @@ interface PositionListProps {
   history?: HistoryRecord[];
 }
 
-const STAT_COLOR_CLASS: Record<string, { badge: string; icon: string }> = {
-  amber: {
-    badge: "bg-blue-500/10 border-blue-500/30",
-    icon: "text-blue-400",
-  },
-  blue: {
-    badge: "bg-blue-500/10 border-blue-500/30",
-    icon: "text-blue-400",
-  },
-  emerald: {
-    badge: "bg-emerald-500/10 border-emerald-500/30",
-    icon: "text-emerald-400",
-  },
-  red: {
-    badge: "bg-red-500/10 border-red-500/30",
-    icon: "text-red-400",
-  },
-  purple: {
-    badge: "bg-purple-500/10 border-purple-500/30",
-    icon: "text-purple-400",
-  },
-};
 
 export function PositionList({ history = [] }: PositionListProps) {
   const { navigate } = useTransitionNavigate();
@@ -106,26 +84,18 @@ export function PositionList({ history = [] }: PositionListProps) {
     {
       label: t('portfolio.positionValue'),
       value: `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      icon: Wallet,
-      color: "amber",
     },
     {
       label: t('portfolio.positionCount'),
       value: `${positions.length}`,
-      icon: PieChart,
-      color: "blue",
     },
     {
       label: t('portfolio.totalPnl'),
       value: `${totalPnl >= 0 ? "+" : ""}$${totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      icon: TrendingUp,
-      color: totalPnl >= 0 ? "emerald" : "red",
     },
     {
       label: t('portfolio.winRate'),
       value: `${winRate.toFixed(1)}%`,
-      icon: Trophy,
-      color: "purple",
     },
   ];
 
@@ -133,9 +103,7 @@ export function PositionList({ history = [] }: PositionListProps) {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((stat, index) => {
-          const color = STAT_COLOR_CLASS[stat.color] ?? STAT_COLOR_CLASS.amber;
-          return (
+        {stats.map((stat, index) => (
             <motion.div
               key={stat.label}
               initial={{ opacity: 0, y: 20 }}
@@ -143,16 +111,12 @@ export function PositionList({ history = [] }: PositionListProps) {
               transition={{ delay: index * 0.1 }}
               className="bg-card border border-border rounded-xl p-6"
             >
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`w-8 h-8 border flex items-center justify-center ${color.badge}`}>
-                  <stat.icon className={`w-4 h-4 ${color.icon}`} />
-                </div>
+              <div className="mb-3">
                 <span className="text-xs text-muted-foreground tracking-wider uppercase">{stat.label}</span>
               </div>
               <div className="text-2xl font-bold text-foreground font-mono">{stat.value}</div>
             </motion.div>
-          );
-        })}
+        ))}
       </div>
 
       {/* Tabs */}
