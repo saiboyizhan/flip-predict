@@ -156,9 +156,99 @@ router.get('/open', authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/orderbook/limit — place a limit order (off-chain, future feature)
+// POST /api/orderbook/limit — place a limit order
 router.post('/limit', authMiddleware, async (req: AuthRequest, res: Response) => {
-  res.status(501).json({ error: 'Limit orders not yet supported — use AMM trading' });
+  const { marketId, side, orderSide, price, amount } = req.body;
+  const userAddress = req.userAddress!;
+
+  if (!marketId || !side || !orderSide || price == null || amount == null) {
+    res.status(400).json({ error: 'marketId, side, orderSide, price, and amount are required' });
+    return;
+  }
+  if (side !== 'yes' && side !== 'no') {
+    res.status(400).json({ error: 'side must be "yes" or "no"' });
+    return;
+  }
+  if (orderSide !== 'buy' && orderSide !== 'sell') {
+    res.status(400).json({ error: 'orderSide must be "buy" or "sell"' });
+    return;
+  }
+
+  const p = Number(price);
+  const a = Number(amount);
+  if (!Number.isFinite(p) || p < 0.01 || p > 0.99) {
+    res.status(400).json({ error: 'Price must be between 0.01 and 0.99' });
+    return;
+  }
+  if (!Number.isFinite(a) || a <= 0 || a > 1_000_000) {
+    res.status(400).json({ error: 'Amount must be between 0 and 1,000,000' });
+    return;
+  }
+
+  try {
+    const db = getDb();
+
+    // Verify market exists and is active
+    const marketRes = await db.query('SELECT id, status, end_time FROM markets WHERE id = $1', [marketId]);
+    if (!marketRes.rows[0]) {
+      res.status(404).json({ error: 'Market not found' });
+      return;
+    }
+    if (marketRes.rows[0].status !== 'active') {
+      res.status(400).json({ error: 'Market is not active' });
+      return;
+    }
+    if (Number(marketRes.rows[0].end_time) <= Date.now()) {
+      res.status(400).json({ error: 'Market has expired' });
+      return;
+    }
+
+    if (orderSide === 'buy') {
+      // Lock cost = price * amount (USDT)
+      const cost = p * a;
+      const balRes = await db.query('SELECT available FROM balances WHERE user_address = $1', [userAddress]);
+      const available = Number(balRes.rows[0]?.available ?? 0);
+      if (available < cost) {
+        res.status(400).json({ error: `Insufficient balance: need ${cost.toFixed(2)}, have ${available.toFixed(2)}` });
+        return;
+      }
+      await db.query(
+        'UPDATE balances SET available = available - $1, locked = locked + $1 WHERE user_address = $2',
+        [cost, userAddress]
+      );
+    } else {
+      // Lock shares from position
+      const posRes = await db.query(
+        'SELECT shares FROM positions WHERE user_address = $1 AND market_id = $2 AND side = $3',
+        [userAddress, marketId, side]
+      );
+      const shares = Number(posRes.rows[0]?.shares ?? 0);
+      if (shares < a) {
+        res.status(400).json({ error: `Insufficient shares: need ${a.toFixed(2)}, have ${shares.toFixed(2)}` });
+        return;
+      }
+      await db.query(
+        'UPDATE positions SET shares = shares - $1 WHERE user_address = $2 AND market_id = $3 AND side = $4',
+        [a, userAddress, marketId, side]
+      );
+    }
+
+    const orderId = `lo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await db.query(
+      `INSERT INTO open_orders (id, user_address, market_id, side, order_side, price, amount, filled, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'open', $8)`,
+      [orderId, userAddress, marketId, side, orderSide, p, a, Date.now()]
+    );
+
+    // Try to immediately match this order
+    const { matchLimitOrders } = await import('../engine/limit-orders');
+    const filled = await matchLimitOrders(db, marketId);
+
+    res.json({ order: { orderId }, filled });
+  } catch (err) {
+    console.error('Limit order error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // POST /api/orderbook/market — market order goes through AMM

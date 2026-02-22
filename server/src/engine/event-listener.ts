@@ -11,6 +11,7 @@ import {
   broadcastNewTrade,
   broadcastMarketResolved,
 } from '../ws/index';
+import { matchLimitOrders } from './limit-orders';
 
 const PREDICTION_MARKET_ADDRESS =
   process.env.PREDICTION_MARKET_ADDRESS ||
@@ -121,6 +122,14 @@ export function startEventListener(db: Pool): void {
       });
 
       console.info(`[event-listener] Trade: ${typeStr} ${sideStr} ${amountNum.toFixed(2)} USDT → ${sharesNum.toFixed(2)} shares on market ${mId}`);
+
+      // After price change, try to match limit orders
+      try {
+        const filled = await matchLimitOrders(db, internalId);
+        if (filled > 0) console.info(`[event-listener] Matched ${filled} limit order(s) on market ${internalId}`);
+      } catch (matchErr) {
+        console.error('[event-listener] Limit order matching error:', matchErr);
+      }
     } catch (err) {
       console.error('[event-listener] Error processing Trade event:', err);
     }

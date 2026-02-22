@@ -4,6 +4,7 @@ import { getOraclePrice, SUPPORTED_PAIRS } from './oracle';
 import { fetchTokenPrice } from './dexscreener';
 import { broadcastMarketResolved } from '../ws';
 import { resolvePredictions } from './agent-prediction';
+import { matchAllLimitOrders } from './limit-orders';
 
 /**
  * Check if an oracle_pair value is a BSC token address (0x...) rather than
@@ -536,6 +537,9 @@ export function startKeeper(db: Pool, intervalMs: number = 30000): NodeJS.Timeou
     isRunning = true;
     try {
       await checkAndResolveMarkets(db);
+      // Match any pending limit orders
+      const filled = await matchAllLimitOrders(db);
+      if (filled > 0) console.info(`[keeper] Matched ${filled} limit order(s)`);
     } catch (err) {
       console.error('Keeper error:', err);
     } finally {
