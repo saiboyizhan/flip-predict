@@ -44,22 +44,18 @@ describe('Admin API', () => {
     await cleanDatabase(pool);
   });
 
-  // ------ Cleanup Seed ------
+  // ------ Cleanup Seed (requires authMiddleware + adminMiddleware) ------
 
-  it('POST /api/admin/cleanup-seed with correct secret succeeds', async () => {
-    const pub = createPublicClient();
-    const res = await pub.post('/api/admin/cleanup-seed', {
-      secret: 'test-secret-for-e2e',
-    });
+  it('POST /api/admin/cleanup-seed with admin auth succeeds', async () => {
+    const client = createAuthClient(adminToken);
+    const res = await client.post('/api/admin/cleanup-seed', {});
     expect([200, 204]).toContain(res.status);
   });
 
-  it('POST /api/admin/cleanup-seed with wrong secret returns 403', async () => {
+  it('POST /api/admin/cleanup-seed without auth returns 401', async () => {
     const pub = createPublicClient();
-    const res = await pub.post('/api/admin/cleanup-seed', {
-      secret: 'wrong-secret',
-    });
-    expect(res.status).toBe(403);
+    const res = await pub.post('/api/admin/cleanup-seed', {});
+    expect(res.status).toBe(401);
   });
 
   // ------ Approve / Reject Markets ------

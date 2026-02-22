@@ -48,9 +48,8 @@ describe('Full User Flows', () => {
     it('completes full trading lifecycle', async () => {
       const client = createAuthClient(token);
 
-      // Step 1: Faucet 5000 balance
-      const faucetRes = await client.post('/api/faucet', { amount: 5000 });
-      expect(faucetRes.status).toBe(200);
+      // Step 1: Seed 5000 balance (faucet removed in v2)
+      await seedBalance(pool, address, 5000);
 
       // Step 2: Verify markets are visible
       const marketsRes = await client.get('/api/markets');
