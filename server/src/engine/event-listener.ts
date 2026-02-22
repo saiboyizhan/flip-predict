@@ -76,6 +76,12 @@ export function startEventListener(db: Pool): void {
         }
       } catch { /* use existing prices */ }
 
+      // Ensure user exists (foreign key constraint)
+      await db.query(
+        `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
+        [userAddr, Date.now()]
+      );
+
       // Insert order record
       await db.query(
         `INSERT INTO orders (id, market_id, user_address, type, side, amount, shares, price, fee, status, tx_hash, created_at)
