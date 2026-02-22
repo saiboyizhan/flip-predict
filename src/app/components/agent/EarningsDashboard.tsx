@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
-import { getAgentEarnings, claimEarnings } from "@/app/services/api";
+import { getAgentEarnings } from "@/app/services/api";
 
 interface EarningsDashboardProps {
   agentId: string;
@@ -10,7 +9,6 @@ interface EarningsDashboardProps {
 export function EarningsDashboard({ agentId }: EarningsDashboardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
-  const [claiming, setClaiming] = useState(false);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [unclaimed, setUnclaimed] = useState(0);
   const [earnings, setEarnings] = useState<any[]>([]);
@@ -31,20 +29,6 @@ export function EarningsDashboard({ agentId }: EarningsDashboardProps) {
     loadEarnings();
   }, [agentId]);
 
-  const handleClaim = async () => {
-    setClaiming(true);
-    try {
-      const result = await claimEarnings(agentId);
-      if (result.success) {
-        toast.success(t("earnings.claimSuccess", { amount: result.amount.toFixed(2) }));
-        loadEarnings();
-      }
-    } catch (err: any) {
-      toast.error(err.message || t("earnings.claimFailed"));
-    } finally {
-      setClaiming(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -77,17 +61,6 @@ export function EarningsDashboard({ agentId }: EarningsDashboardProps) {
           </div>
         </div>
       </div>
-
-      {/* Claim button */}
-      {unclaimed >= 0.01 && (
-        <button
-          onClick={handleClaim}
-          disabled={claiming}
-          className="w-full py-3 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold transition-colors"
-        >
-          {claiming ? t("earnings.claiming") : t("earnings.claim")} (${unclaimed.toFixed(2)})
-        </button>
-      )}
 
       {/* Earnings history */}
       <div className="bg-secondary border border-border">

@@ -1,7 +1,6 @@
 import { Pool } from 'pg';
 import crypto from 'crypto';
 import { initDatabase, getDb } from './index';
-import { getPrice } from '../engine/amm';
 
 function futureTs(days: number, hours = 0): number {
   return Date.now() + days * 86400000 + hours * 3600000;
@@ -95,13 +94,15 @@ export async function seedMarkets(pool: Pool) {
 
     for (const m of MARKETS) {
       const { yesReserve, noReserve } = priceToReserves(m.yesPrice);
-      const prices = getPrice(yesReserve, noReserve);
+      const total = yesReserve + noReserve;
+      const yesPrice = total > 0 ? noReserve / total : 0.5;
+      const noPrice = total > 0 ? yesReserve / total : 0.5;
       await client.query(`
         INSERT INTO markets (id, title, description, category, end_time, status, yes_price, no_price, volume, total_liquidity, yes_reserve, no_reserve, created_at)
         VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10, $11, $12)
       `, [
         m.id, m.title, m.description, m.category,
-        futureTs(m.endDays), prices.yesPrice, prices.noPrice,
+        futureTs(m.endDays), yesPrice, noPrice,
         m.volume, 10000, yesReserve, noReserve, pastTs(m.createdDays)
       ]);
     }

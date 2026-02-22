@@ -11,12 +11,10 @@ import { initDatabase } from './db';
 import { setupWebSocket, getWebSocketStatus } from './ws';
 import authRoutes from './routes/auth';
 import marketsRoutes from './routes/markets';
-import tradingRoutes from './routes/trading'; // legacy fallback for markets without on-chain ID
 import portfolioRoutes from './routes/portfolio';
 import settlementRoutes from './routes/settlement';
 import agentRoutes from './routes/agents';
 import { startKeeper } from './engine/keeper';
-import { startAutoTrader } from './engine/agent-autotrader';
 import { startEventListener, stopEventListener } from './engine/event-listener';
 
 import marketCreationRoutes from './routes/market-creation';
@@ -28,9 +26,8 @@ import feeRoutes from './routes/fees';
 import achievementRoutes from './routes/achievements';
 import socialRoutes from './routes/social';
 import profileRoutes from './routes/profile';
-import copyTradingRoutes from './routes/copy-trading';
 
-import orderbookRoutes from './routes/orderbook';
+
 import favoritesRoutes from './routes/favorites';
 import { authMiddleware, AuthRequest } from './routes/middleware/auth';
 import { adminMiddleware } from './routes/middleware/admin';
@@ -58,25 +55,9 @@ const authLimiter = isTestEnv ? noopLimiter : rateLimit({
   message: { error: 'Too many auth requests, please try again later.' },
 });
 
-const tradingLimiter = isTestEnv ? noopLimiter : rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many trading requests, please try again later.' },
-});
-
 const publicReadLimiter = isTestEnv ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' },
-});
-
-const copyTradingLimiter = isTestEnv ? noopLimiter : rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
@@ -149,8 +130,6 @@ async function main() {
   app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/markets', publicReadLimiter, marketCreationRoutes);
   app.use('/api/markets', publicReadLimiter, marketsRoutes);
-  app.use('/api/orders', tradingLimiter, tradingRoutes); // legacy fallback
-  app.use('/api/orderbook', tradingLimiter, orderbookRoutes);
   app.use('/api', portfolioRoutes);
   app.use('/api/settlement', publicReadLimiter, settlementRoutes);
   app.use('/api/agents', publicReadLimiter, agentRoutes);
@@ -162,8 +141,6 @@ async function main() {
   app.use('/api/achievements', publicReadLimiter, achievementRoutes);
   app.use('/api/social', publicReadLimiter, socialRoutes);
   app.use('/api/profile', publicReadLimiter, profileRoutes);
-  app.use('/api/copy-trading', copyTradingLimiter, copyTradingRoutes);
-
   app.use('/api/favorites', publicReadLimiter, favoritesRoutes);
 
   // Health check
@@ -332,7 +309,6 @@ async function main() {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`WebSocket available on ws://localhost:${PORT}`);
     const keeperInterval = startKeeper(pool, 30000);
-    const autoTraderInterval = startAutoTrader(pool, 60000);
     startEventListener(pool);
 
 
@@ -341,7 +317,6 @@ async function main() {
     const shutdown = () => {
       console.log('Shutting down gracefully...');
       clearInterval(keeperInterval);
-      clearInterval(autoTraderInterval);
       stopEventListener();
 
 

@@ -26,8 +26,7 @@
     "all": "全部",
     "four-meme": "Four.meme",
     "flap": "Flap",
-    "nfa": "NFA",
-    "hackathon": "Hackathon"
+    "nfa": "NFA"
   },
   "common": {
     "loading": "加载中...",
@@ -319,8 +318,7 @@
     "categories": {
       "four-meme": "Four.meme",
       "flap": "Flap",
-      "nfa": "NFA",
-      "hackathon": "Hackathon"
+      "nfa": "NFA"
     }
   },
   "rewards": {
@@ -974,7 +972,6 @@
     "catFourMeme": "Meme 币",
     "catFlap": "发射台",
     "catNfa": "NFA Agent",
-    "catHackathon": "黑客松",
     "summaryNoPredictions": "该 Agent 还没有进行过预测，开始预测以生成风格画像。",
     "summaryExcellent": "这个 Agent 表现出色，预测准确率高达 {{pct}}%",
     "summaryStable": "这个 Agent 表现稳定，预测准确率为 {{pct}}%",

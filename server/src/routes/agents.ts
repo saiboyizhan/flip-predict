@@ -4,7 +4,6 @@ import { getDb } from '../db';
 import { recordPrediction, analyzeStyle } from '../engine/agent-prediction';
 import { generateSuggestion, calculateRisk } from '../engine/agent-advisor';
 import { getLearningMetrics } from '../engine/agent-learning';
-import { syncOwnerProfile, getOwnerInfluence } from '../engine/agent-owner-learning';
 import { encrypt, decrypt, maskApiKey } from '../utils/crypto';
 import { ethers } from 'ethers';
 import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
@@ -1169,15 +1168,6 @@ router.post('/:id/learn-from-owner', authMiddleware, async (req: AuthRequest, re
 
     await db.query('UPDATE agents SET learn_from_owner = $1 WHERE id = $2', [val, req.params.id]);
 
-    // If enabling, trigger an immediate sync
-    if (val === 1) {
-      try {
-        await syncOwnerProfile(db, req.params.id as string);
-      } catch (syncErr: any) {
-        console.error('Owner profile initial sync error:', syncErr.message);
-      }
-    }
-
     res.json({ success: true, learnFromOwner: val });
   } catch (err: any) {
     console.error('Learn-from-owner toggle error:', err);
@@ -1198,11 +1188,7 @@ router.get('/:id/owner-profile', authMiddleware, async (req: AuthRequest, res: R
       return;
     }
 
-    // Force a fresh sync
-    const profile = await syncOwnerProfile(db, req.params.id as string);
-    const influence = await getOwnerInfluence(db, req.params.id as string);
-
-    res.json({ profile, influence, enabled: true });
+    res.json({ profile: null, influence: null, enabled: true });
   } catch (err: any) {
     console.error('Owner profile error:', err);
     res.status(500).json({ error: 'Internal server error' });

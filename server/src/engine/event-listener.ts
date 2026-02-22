@@ -12,8 +12,6 @@ import {
   broadcastNewTrade,
   broadcastMarketResolved,
 } from '../ws/index';
-import { matchLimitOrders } from './limit-orders';
-import { settleMarketPositions } from './keeper';
 
 const PREDICTION_MARKET_ADDRESS =
   process.env.PREDICTION_MARKET_ADDRESS ||
@@ -133,14 +131,6 @@ export function startEventListener(db: Pool): void {
       });
 
       console.info(`[event-listener] Trade: ${typeStr} ${sideStr} ${amountNum.toFixed(2)} USDT → ${sharesNum.toFixed(2)} shares on market ${mId}`);
-
-      // After price change, try to match limit orders
-      try {
-        const filled = await matchLimitOrders(db, internalId);
-        if (filled > 0) console.info(`[event-listener] Matched ${filled} limit order(s) on market ${internalId}`);
-      } catch (matchErr) {
-        console.error('[event-listener] Limit order matching error:', matchErr);
-      }
     } catch (err) {
       console.error('[event-listener] Error processing Trade event:', err);
     }
@@ -288,27 +278,23 @@ export function startEventListener(db: Pool): void {
       if (marketRes.rows.length > 0) {
         const internalId = marketRes.rows[0].id;
 
-        // Settle positions within a transaction
-        const client = await db.connect();
-        try {
-          await client.query('BEGIN');
-          await client.query(
-            "UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW() WHERE id = $2",
-            [outcomeStr, internalId]
-          );
-          await settleMarketPositions(client, internalId, outcomeStr);
-          await client.query(
-            "UPDATE markets SET status = 'settled' WHERE id = $1",
-            [internalId]
-          );
-          await client.query('COMMIT');
-        } catch (settleErr) {
-          await client.query('ROLLBACK');
-          console.error(`[event-listener] Settlement failed for market ${mId}:`, settleErr);
-        } finally {
-          client.release();
-        }
+        // Update prices to 1/0 (CTF: winning side = 1, losing side = 0)
+        const finalYesPrice = outcomeStr === 'yes' ? 1 : 0;
+        const finalNoPrice = outcomeStr === 'yes' ? 0 : 1;
 
+        // Update DB status — settlement is on-chain (claimWinnings)
+        await db.query(
+          `UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW(),
+           yes_price = $2, no_price = $3 WHERE id = $4`,
+          [outcomeStr, finalYesPrice, finalNoPrice, internalId]
+        );
+        await db.query(
+          'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
+          [internalId, finalYesPrice, finalNoPrice]
+        );
+
+        // Broadcast with final 1/0 prices
+        broadcastPriceUpdate(internalId, finalYesPrice, finalNoPrice);
         broadcastMarketResolved(internalId, outcomeStr);
       }
 

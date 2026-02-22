@@ -1213,7 +1213,18 @@ router.post('/:marketId/finalize', authMiddleware, adminMiddleware, async (req: 
       return;
     }
 
-    await client.query("UPDATE markets SET status = 'resolved' WHERE id = $1", [marketId]);
+    // Update prices to 1/0 (CTF: winning side = 1, losing side = 0)
+    const finalYesPrice = winningSide === 'yes' ? 1 : 0;
+    const finalNoPrice = winningSide === 'yes' ? 0 : 1;
+    await client.query(
+      "UPDATE markets SET status = 'resolved', yes_price = $1, no_price = $2 WHERE id = $3",
+      [finalYesPrice, finalNoPrice, marketId]
+    );
+    // Insert final price history record
+    await client.query(
+      'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
+      [marketId, finalYesPrice, finalNoPrice]
+    );
 
     await client.query(`
       INSERT INTO market_resolution (

@@ -1,5 +1,4 @@
 import { Pool } from 'pg';
-import type { OwnerInfluence } from './agent-owner-learning';
 
 export type StrategyType = 'conservative' | 'aggressive' | 'contrarian' | 'momentum' | 'random';
 
@@ -207,37 +206,3 @@ export async function comboStrategy(
   return weightedDecisions.length > 0 ? weightedDecisions : [allDecisions[0]];
 }
 
-/**
- * Post-process rule-based decisions with owner influence.
- * - Prioritize markets in owner's preferred categories
- * - Nudge side towards owner's bias (max 40% flip probability)
- * - Adjust position sizing by owner risk profile (0.5x - 2.0x)
- */
-export function applyOwnerInfluence(
-  decisions: AgentDecision[],
-  influence: OwnerInfluence
-): AgentDecision[] {
-  if (decisions.length === 0) return decisions;
-
-  return decisions.map(d => {
-    let { side, amount, confidence, reasoning } = d;
-
-    // 1. Side nudge: flip with probability = sideBiasStrength
-    if (influence.sideBias && influence.sideBiasStrength > 0) {
-      if (side !== influence.sideBias && Math.random() < influence.sideBiasStrength) {
-        side = influence.sideBias;
-        reasoning = `[Owner-learned] Side flipped to ${side}. ${reasoning}`;
-      }
-    }
-
-    // 2. Position sizing adjustment
-    amount = Math.round(amount * influence.sizingMultiplier * 100) / 100;
-    // Floor at 0.01
-    amount = Math.max(0.01, amount);
-
-    // 3. Confidence micro-adjustment based on risk
-    confidence = Math.max(0, Math.min(1, confidence + influence.riskAdjustment * 0.1));
-
-    return { ...d, side, amount, confidence, reasoning };
-  });
-}

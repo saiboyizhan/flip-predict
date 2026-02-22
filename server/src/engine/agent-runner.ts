@@ -1,9 +1,7 @@
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { StrategyType } from './agent-strategy';
-import { executeCopyTrades } from './copy-trade';
 import { generateLlmDecisions } from './agent-llm-adapter';
-import { syncOwnerProfile, getOwnerInfluence } from './agent-owner-learning';
 
 // Bug D4 Fix: Use crypto.randomUUID() instead of Math.random() to avoid
 // ID collisions in the agent_trades table under concurrent inserts.
@@ -42,19 +40,11 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
 
   const strategy = agent.strategy as StrategyType;
 
-  // Sync owner profile if learn_from_owner is enabled
-  try {
-    await syncOwnerProfile(db, agentId);
-  } catch (err: any) {
-    console.error(`Owner profile sync error for agent ${agentId}:`, err.message);
-  }
-  const ownerInfluence = await getOwnerInfluence(db, agentId);
-
   // Use LLM-enhanced decisions (falls back to rule-based if no LLM config)
   const comboWeights = agent.combo_weights
     ? (typeof agent.combo_weights === 'string' ? (() => { try { return JSON.parse(agent.combo_weights as string); } catch { return null; } })() : agent.combo_weights)
     : null;
-  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights, ownerInfluence);
+  const decisions = await generateLlmDecisions(db, agentId, strategy, agent.wallet_balance, comboWeights);
 
   if (decisions.length === 0) return;
 
@@ -100,11 +90,6 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
       if (newLevel > level) level = newLevel;
 
       const tradeId = randomUUID();
-      // Tag reasoning with [Owner-learned] when owner influence is active
-      const reasoning = ownerInfluence
-        ? `[Owner-learned] ${d.reasoning || ''}`
-        : (d.reasoning || '');
-      void reasoning; // reasoning stored via agent_trades doesn't have a column yet, used in logs
 
       await client.query(`
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price, outcome, profit, created_at)
@@ -122,17 +107,6 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
         Date.now()
       ]);
 
-      // Execute copy trades for followers
-      try {
-        await executeCopyTrades(db, agentId, tradeId, {
-          marketId: d.marketId,
-          side: d.side,
-          amount: d.amount,
-          price: roundTo(price, 4),
-        });
-      } catch (copyErr: any) {
-        console.error(`Copy trade execution error for agent ${agentId}:`, copyErr.message);
-      }
     }
 
     const wr = total_trades > 0 ? Math.round((winning_trades / total_trades) * 100) : 0;

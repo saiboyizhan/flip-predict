@@ -13,9 +13,6 @@ import { ResolutionBadge } from "./ResolutionBadge";
 import { ClaimWinnings } from "./ClaimWinnings";
 import { MarketCard } from "./MarketCard";
 import { TradePanel } from "../trading/TradePanel";
-import { OrderBook } from "../trading/OrderBook";
-import { LimitOrderForm } from "../trading/LimitOrderForm";
-import { OpenOrders } from "../trading/OpenOrders";
 import { LiquidityPanel } from "../trading/LiquidityPanel";
 import { CommentSection } from "./CommentSection";
 import { PriceChart } from "./PriceChart";
@@ -89,7 +86,6 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   const authAddress = useAuthStore((s) => s.address);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isAdmin = useAuthStore((s) => s.isAdmin);
-  const [prefilledPrice, setPrefilledPrice] = useState<number | undefined>();
 
   // Live price state (overrides props when WS updates arrive)
   const [liveYesPrice, setLiveYesPrice] = useState(market.yesPrice);
@@ -432,17 +428,6 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
                 options={market.options}
                 onTradeComplete={handleTradeComplete}
               />
-              <OrderBook
-                marketId={market.id}
-                side="yes"
-                onPriceClick={setPrefilledPrice}
-              />
-              <LimitOrderForm
-                marketId={market.id}
-                side="yes"
-                prefilledPrice={prefilledPrice}
-              />
-              <OpenOrders marketId={market.id} />
               <LiquidityPanel
                 marketId={market.id}
                 onChainMarketId={market.onChainMarketId}

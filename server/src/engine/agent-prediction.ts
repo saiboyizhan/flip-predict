@@ -1,5 +1,4 @@
 import { Pool } from 'pg';
-import { getOwnerInfluence } from './agent-owner-learning';
 
 function generateId(): string {
   return 'pred-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
@@ -36,9 +35,6 @@ export interface PredictionStyleReport {
   bestStreak: number;
   reputationScore: number;
   styleTags: string[];
-  ownerInfluenceActive?: boolean;
-  ownerTradeCount?: number;
-  ownerWinRate?: number;
 }
 
 /**
@@ -227,19 +223,6 @@ export async function analyzeStyle(db: Pool, agentId: string): Promise<Predictio
   // Style tags
   const styleTags = generateStyleTags_internal(accuracy, riskPreference, contrarianTendency, categoryBreakdown, currentStreak, totalPredictions);
 
-  // Check owner influence status
-  let ownerInfluenceActive = false;
-  let ownerTradeCount = 0;
-  let ownerWinRate = 0;
-  try {
-    const influence = await getOwnerInfluence(db, agentId);
-    if (influence) {
-      ownerInfluenceActive = true;
-      ownerTradeCount = influence.profile.totalTrades;
-      ownerWinRate = influence.profile.winRate;
-    }
-  } catch {}
-
   return {
     totalPredictions,
     correctPredictions,
@@ -252,9 +235,6 @@ export async function analyzeStyle(db: Pool, agentId: string): Promise<Predictio
     bestStreak,
     reputationScore,
     styleTags,
-    ownerInfluenceActive,
-    ownerTradeCount,
-    ownerWinRate,
   };
 }
 
@@ -295,7 +275,6 @@ function generateStyleTags_internal(
         'four-meme': 'Meme 猎手',
         'flap': '发射台专家',
         'nfa': 'Agent 先知',
-        'hackathon': '黑客松预言家',
       };
       if (catNames[cat]) tags.push(catNames[cat]);
     }

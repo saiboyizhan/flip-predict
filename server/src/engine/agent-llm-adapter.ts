@@ -1,7 +1,6 @@
 import { Pool } from 'pg';
 import { decrypt } from '../utils/crypto';
-import { generateDecisions, comboStrategy, applyOwnerInfluence, StrategyType, AgentDecision } from './agent-strategy';
-import { OwnerInfluence, formatOwnerInfluenceForLlm } from './agent-owner-learning';
+import { generateDecisions, comboStrategy, StrategyType, AgentDecision } from './agent-strategy';
 
 interface LlmConfig {
   agent_id: string;
@@ -33,22 +32,16 @@ async function getAgentLlmConfig(db: Pool, agentId: string): Promise<LlmConfig |
 function buildMarketPrompt(
   markets: { id: string; title: string; yes_price: number; category: string }[],
   strategy: string,
-  walletBalance: number,
-  ownerInfluence?: OwnerInfluence | null
+  walletBalance: number
 ): string {
   const marketList = markets
     .slice(0, 20)
     .map((m, i) => `${i + 1}. [${m.id}] "${m.title}" (YES: ${m.yes_price.toFixed(2)}, NO: ${(1 - m.yes_price).toFixed(2)}, Category: ${m.category})`)
     .join('\n');
 
-  let ownerContext = '';
-  if (ownerInfluence) {
-    ownerContext = `\n\n${formatOwnerInfluenceForLlm(ownerInfluence)}\nAdapt your decisions to align with your owner's trading style while maintaining your core strategy.\n`;
-  }
-
   return `You are a prediction market trading agent with strategy "${strategy}".
 Your wallet balance is $${walletBalance.toFixed(2)}.
-${ownerContext}
+
 Active markets:
 ${marketList}
 
@@ -164,8 +157,7 @@ export async function generateLlmDecisions(
   agentId: string,
   strategy: StrategyType,
   walletBalance: number,
-  comboWeights?: Record<string, number> | null,
-  ownerInfluence?: OwnerInfluence | null
+  comboWeights?: Record<string, number> | null
 ): Promise<AgentDecision[]> {
   // Check for LLM config
   const config = await getAgentLlmConfig(db, agentId);
@@ -181,10 +173,6 @@ export async function generateLlmDecisions(
     } else {
       decisions = await generateDecisions(db, strategy, walletBalance);
     }
-    // Apply owner influence to rule-based decisions
-    if (ownerInfluence) {
-      return applyOwnerInfluence(decisions, ownerInfluence);
-    }
     return decisions;
   }
 
@@ -198,7 +186,7 @@ export async function generateLlmDecisions(
 
     if (markets.length === 0 || walletBalance < 1) return [];
 
-    const userPrompt = buildMarketPrompt(markets, strategy, walletBalance, ownerInfluence);
+    const userPrompt = buildMarketPrompt(markets, strategy, walletBalance);
 
     let responseText: string;
 
@@ -235,10 +223,6 @@ export async function generateLlmDecisions(
     );
 
     if (decisions.length > 0) {
-      // P1 Fix: Apply owner influence to LLM decisions too, not just fallback path
-      if (ownerInfluence) {
-        decisions = applyOwnerInfluence(decisions, ownerInfluence);
-      }
       return decisions;
     }
 
@@ -263,9 +247,6 @@ export async function generateLlmDecisions(
     }
   } else {
     fallbackDecisions = await generateDecisions(db, strategy, walletBalance);
-  }
-  if (ownerInfluence) {
-    return applyOwnerInfluence(fallbackDecisions, ownerInfluence);
   }
   return fallbackDecisions;
 }

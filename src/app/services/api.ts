@@ -211,77 +211,6 @@ export async function fetchMarket(id: string): Promise<Market> {
   return normalizeMarket(rawMarket)
 }
 
-export async function createOrder(data: {
-  marketId: string
-  side?: string
-  amount: number
-  optionId?: string
-}): Promise<{
-  orderId: string
-  shares: number
-  price: number
-  newYesPrice: number
-  newNoPrice: number
-  newYesReserve?: number
-  newNoReserve?: number
-  newPrices?: { optionId: string; price: number }[]
-}> {
-  const res = await request<{
-    order?: {
-      orderId: string
-      shares: number
-      price: number
-      newYesPrice: number
-      newNoPrice: number
-      newYesReserve?: number
-      newNoReserve?: number
-      newPrices?: { optionId: string; price: number }[]
-    }
-  }>('/api/orders', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-  if (!res.order) {
-    throw new Error('Invalid order response from server')
-  }
-  return res.order
-}
-
-export async function sellOrder(data: {
-  marketId: string
-  side?: string
-  shares: number
-  optionId?: string
-}): Promise<{
-  orderId: string
-  amountOut: number
-  price: number
-  newYesPrice: number
-  newNoPrice: number
-  newYesReserve?: number
-  newNoReserve?: number
-  newPrices?: { optionId: string; price: number }[]
-}> {
-  const res = await request<{
-    order?: {
-      orderId: string
-      amountOut: number
-      price: number
-      newYesPrice: number
-      newNoPrice: number
-      newYesReserve?: number
-      newNoReserve?: number
-      newPrices?: { optionId: string; price: number }[]
-    }
-  }>('/api/orders/sell', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-  if (!res.order) {
-    throw new Error('Invalid sell response from server')
-  }
-  return res.order
-}
 
 export async function getPositions(): Promise<unknown[]> {
   const data = await request<{ positions: unknown[] }>('/api/positions')
@@ -354,110 +283,6 @@ export async function fetchPriceHistory(marketId: string, interval: string = '1h
   return request<{ history: PricePoint[] }>(`/api/markets/${marketId}/history?${params}`)
 }
 
-// --- Orderbook API ---
-
-export interface OrderBookLevel {
-  price: number
-  amount: number
-  count: number
-}
-
-export interface OrderBookData {
-  bids: OrderBookLevel[]
-  asks: OrderBookLevel[]
-  spread: number
-  midPrice: number
-}
-
-export interface OpenOrder {
-  id: string
-  marketId: string
-  side: string
-  orderSide: string
-  price: number
-  amount: number
-  filled: number
-  status: string
-  createdAt: string
-}
-
-interface RawOpenOrder {
-  id: string
-  market_id?: string
-  marketId?: string
-  side: string
-  order_side?: string
-  orderSide?: string
-  price: number
-  amount: number
-  filled: number
-  status: string
-  created_at?: string | number
-  createdAt?: string | number
-}
-
-function normalizeOpenOrder(order: RawOpenOrder): OpenOrder {
-  return {
-    id: order.id,
-    marketId: order.marketId ?? order.market_id ?? '',
-    side: order.side,
-    orderSide: order.orderSide ?? order.order_side ?? 'buy',
-    price: Number(order.price) || 0,
-    amount: Number(order.amount) || 0,
-    filled: Number(order.filled) || 0,
-    status: order.status,
-    createdAt: String(order.createdAt ?? order.created_at ?? ''),
-  }
-}
-
-export async function getOrderBook(marketId: string, side: string): Promise<OrderBookData> {
-  return request<OrderBookData>(`/api/orderbook/${marketId}/${side}`)
-}
-
-export async function placeLimitOrder(data: {
-  marketId: string
-  side: string
-  orderSide: string
-  price: number
-  amount: number
-}): Promise<{ orderId: string }> {
-  const res = await request<{ order?: { orderId: string } }>('/api/orderbook/limit', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-  if (!res.order?.orderId) {
-    throw new Error('Invalid limit order response from server')
-  }
-  return { orderId: res.order.orderId }
-}
-
-export async function placeMarketOrder(data: {
-  marketId: string
-  side: string
-  orderSide: string
-  amount: number
-}): Promise<{ orderId: string }> {
-  const res = await request<{ order?: { orderId: string } }>('/api/orderbook/market', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-  if (!res.order?.orderId) {
-    throw new Error('Invalid market order response from server')
-  }
-  return { orderId: res.order.orderId }
-}
-
-export async function cancelOrder(orderId: string): Promise<{ success: boolean }> {
-  return request(`/api/orderbook/${orderId}`, {
-    method: 'DELETE',
-  })
-}
-
-export async function getOpenOrders(): Promise<OpenOrder[]> {
-  const data = await request<{ orders?: RawOpenOrder[] } | RawOpenOrder[]>('/api/orderbook/open')
-  const orders = Array.isArray(data) ? data : (data.orders ?? [])
-  return orders.map(normalizeOpenOrder)
-}
 
 // --- Settlement API ---
 
@@ -1384,43 +1209,12 @@ export async function updateProfile(data: { displayName?: string; bio?: string; 
   })
 }
 
-// === Copy Trading API ===
+// === Copy Trading API (read-only) ===
 
-export async function startCopyTrading(data: {
-  agentId: string
-  copyPercentage: number
-  maxPerTrade: number
-  dailyLimit: number
-  onChain?: boolean
-}) {
-  return request<{ follower: any }>('/api/copy-trading/start', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-}
-
-export async function stopCopyTrading(agentId: string) {
-  return request<{ follower: any }>('/api/copy-trading/stop', {
-    method: 'POST',
-    body: JSON.stringify({ agentId }),
-  })
-}
-
-export async function updateCopySettings(data: {
-  agentId: string
-  copyPercentage?: number
-  maxPerTrade?: number
-  dailyLimit?: number
-  onChain?: boolean
-}) {
-  return request<{ follower: any }>('/api/copy-trading/settings', {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  })
-}
-
-export async function getCopyStatus(agentId: string) {
-  return request<{ follower: any }>(`/api/copy-trading/status/${agentId}`)
+export async function getAgentEarnings(agentId: string) {
+  return request<{ earnings: any[]; totalEarnings: number; unclaimed: number }>(
+    `/api/copy-trading/earnings/${agentId}`
+  )
 }
 
 export async function getCopyTrades(limit?: number, offset?: number) {
@@ -1429,30 +1223,6 @@ export async function getCopyTrades(limit?: number, offset?: number) {
   if (offset) params.set('offset', String(offset))
   const qs = params.toString()
   return request<{ trades: any[]; total: number }>(`/api/copy-trading/trades${qs ? `?${qs}` : ''}`)
-}
-
-export async function getAgentEarnings(agentId: string) {
-  return request<{ earnings: any[]; totalEarnings: number; unclaimed: number }>(
-    `/api/copy-trading/earnings/${agentId}`
-  )
-}
-
-export async function getPendingOnChainTrades() {
-  return request<{ trades: any[] }>('/api/copy-trading/pending-on-chain')
-}
-
-export async function confirmOnChainTrade(tradeId: string, txHash: string) {
-  return request<{ success: boolean; trade: any }>('/api/copy-trading/confirm-on-chain', {
-    method: 'POST',
-    body: JSON.stringify({ tradeId, txHash }),
-  })
-}
-
-export async function claimEarnings(agentId: string) {
-  return request<{ success: boolean; amount: number }>('/api/copy-trading/claim', {
-    method: 'POST',
-    body: JSON.stringify({ agentId }),
-  })
 }
 
 export async function setComboStrategy(agentId: string, weights: Record<string, number>) {

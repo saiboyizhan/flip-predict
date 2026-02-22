@@ -26,8 +26,7 @@
     "all": "All",
     "four-meme": "Four.meme",
     "flap": "Flap",
-    "nfa": "NFA",
-    "hackathon": "Hackathon"
+    "nfa": "NFA"
   },
   "common": {
     "loading": "Loading...",
@@ -238,8 +237,7 @@
     "categories": {
       "four-meme": "Four.meme",
       "flap": "Flap",
-      "nfa": "NFA",
-      "hackathon": "Hackathon"
+      "nfa": "NFA"
     }
   },
   "rewards": {
@@ -974,7 +972,6 @@
     "catFourMeme": "Four.meme",
     "catFlap": "Flap",
     "catNfa": "NFA",
-    "catHackathon": "Hackathon",
     "summaryNoPredictions": "This Agent has not made any predictions yet. Start predicting to generate a style profile.",
     "summaryExcellent": "This Agent performs excellently with a prediction accuracy of {{pct}}%",
     "summaryStable": "This Agent performs steadily with a prediction accuracy of {{pct}}%",

@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { useTradeStore } from "@/app/stores/useTradeStore";
-import { createOrder, sellOrder } from "@/app/services/api";
 import { useBuy, useSell, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl, useContractPrice } from "@/app/hooks/useContracts";
 import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
 import { parseUnits, formatUnits } from "viem";
@@ -42,7 +41,6 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
   const selectedOption = isMulti ? options.find(o => o.id === selectedOptionId) : null;
 
-  const { executeAPIBuyMulti, executeAPISellMulti, getLMSRPreview } = useTradeStore();
 
   // On-chain market ID
   const marketIdBigint = useMemo(() => {
@@ -226,81 +224,15 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     }
   }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, walletBalance, usdtAllowanceRaw, usdtApprove, buy, sell, t]);
 
-  // Legacy API fallback for binary markets without on-chain ID
-  const handleLegacyAPITrade = useCallback(async () => {
-    setIsSubmitting(true);
-    try {
-      let result: any;
-      if (tradeMode === "buy") {
-        result = await createOrder({ marketId, side, amount: numAmount });
-        if (result) {
-          setShowSuccess(true);
-          toast.success(t('trade.buySuccess', { shares: result.shares.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }));
-          setAmount("100");
-          setTimeout(() => setShowSuccess(false), 1500);
-          onTradeComplete?.();
-        }
-      } else {
-        result = await sellOrder({ marketId, side, shares: numAmount });
-        if (result) {
-          setShowSuccess(true);
-          toast.success(t('trade.sellSuccess', { shares: numAmount.toFixed(2), side: side.toUpperCase(), price: result.price.toFixed(4) }));
-          setAmount("10");
-          setTimeout(() => setShowSuccess(false), 1500);
-          onTradeComplete?.();
-        }
-      }
-    } catch (err: any) {
-      toast.error(err?.message || t('trade.error'));
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [marketId, side, numAmount, tradeMode, t, onTradeComplete]);
-
   const executeTradeInternal = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;
 
-    // Binary markets: on-chain if has chain ID, otherwise fallback to API
-    if (!isMulti) {
-      if (onChainMarketId && marketIdBigint) {
-        handleOnChainTrade();
-      } else {
-        handleLegacyAPITrade();
-      }
-      return;
+    if (onChainMarketId && marketIdBigint) {
+      handleOnChainTrade();
+    } else {
+      toast.error(t('trade.invalidMarketId'));
     }
-
-    // Multi-option markets still use API (for now)
-    setIsSubmitting(true);
-    try {
-      let result: any;
-      if (selectedOptionId) {
-        result = tradeMode === "buy"
-          ? await executeAPIBuyMulti(marketId, selectedOptionId, numAmount)
-          : await executeAPISellMulti(marketId, selectedOptionId, numAmount);
-      }
-
-      if (result?.success) {
-        setShowSuccess(true);
-        const label = selectedOption ? selectedOption.label : side.toUpperCase();
-        if (tradeMode === "buy") {
-          toast.success(t('trade.buySuccess', { shares: result.shares.toFixed(2), side: label, price: result.price.toFixed(4) }));
-          setAmount("100");
-        } else {
-          toast.success(t('trade.sellSuccess', { shares: numAmount.toFixed(2), side: label, price: result.price.toFixed(4) }));
-          setAmount("10");
-        }
-        setTimeout(() => setShowSuccess(false), 1500);
-        onTradeComplete?.();
-      } else {
-        toast.error(result?.error || t('trade.tradeFailed'));
-      }
-    } catch {
-      toast.error(t('trade.tradeFailed'));
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [numAmount, isSubmitting, isMulti, handleOnChainTrade, executeAPIBuyMulti, executeAPISellMulti, marketId, selectedOptionId, side, t, tradeMode, selectedOption]);
+  }, [numAmount, isSubmitting, onChainMarketId, marketIdBigint, handleOnChainTrade, t]);
 
   const handleConfirm = useCallback(() => {
     if (numAmount <= 0 || isSubmitting) return;
