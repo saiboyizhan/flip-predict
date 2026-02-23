@@ -14,7 +14,7 @@ function isTokenAddress(pair: string): boolean {
 }
 
 export async function checkAndResolveMarkets(db: Pool): Promise<void> {
-  const now = Date.now();
+  const now = Math.floor(Date.now() / 1000);
 
   // Track resolved markets for post-commit actions (WS broadcast & prediction resolution)
   const resolvedMarkets: Array<{ marketId: string; outcome: string; resolvedPrice: number }> = [];
