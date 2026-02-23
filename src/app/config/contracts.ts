@@ -1,29 +1,43 @@
 /**
- * PredictionMarket v2 Smart Contract Configuration
+ * PredictionMarket v3 + LimitOrderBook Smart Contract Configuration
  *
- * Non-custodial CPMM: buy/sell/addLiquidity/removeLiquidity directly on-chain.
- * No deposit/withdraw needed — users interact with AMM via USDT approval.
+ * PM: CPMM + Agent + Oracle + Arbitration (ERC1155, UUPS)
+ * LOB: Independent limit order book (UUPS), interacts with PM
  */
 
-// BSC Testnet deployed address (fallback when env var not set)
-const DEFAULT_PM_ADDRESS = '0x2ec80EAa6d6921C32723fdC24cb3d4005af5ea37'
+// ============================================================
+//  ADDRESSES
+// ============================================================
+
+const DEFAULT_PM_ADDRESS = '0xB80a8fE565663fF0b06a2b859eBd29C8492aDc25'
 
 export const PREDICTION_MARKET_ADDRESS = (
   import.meta.env.VITE_PREDICTION_MARKET_ADDRESS ||
   DEFAULT_PM_ADDRESS
 ) as `0x${string}`;
 
+const DEFAULT_LOB_ADDRESS = '0x8C2BDAf40Bdc1C02210825D7fE03A2a02656260d'
+
+export const LIMIT_ORDER_BOOK_ADDRESS = (
+  import.meta.env.VITE_LIMIT_ORDER_BOOK_ADDRESS ||
+  DEFAULT_LOB_ADDRESS
+) as `0x${string}`;
+
 if (PREDICTION_MARKET_ADDRESS === '0x0000000000000000000000000000000000000000') {
-  console.warn('[contracts] VITE_PREDICTION_MARKET_ADDRESS not set — on-chain features will not work.');
+  console.warn('[contracts] VITE_PREDICTION_MARKET_ADDRESS not set -- on-chain features will not work.');
 }
 
-// BSC USDT (BEP-20) — 18 decimals
+// BSC USDT (BEP-20) -- 18 decimals
 const DEFAULT_USDT_ADDRESS = '0xf1669057F6eaF2216525eea54a32fC1abF967fb5'
 
 export const USDT_ADDRESS = (
   import.meta.env.VITE_USDT_ADDRESS ||
   DEFAULT_USDT_ADDRESS
 ) as `0x${string}`;
+
+// ============================================================
+//  USDT ABI
+// ============================================================
 
 export const MOCK_USDT_MINT_ABI = [
   {
@@ -96,10 +110,12 @@ export const ERC20_ABI = [
   },
 ] as const;
 
+// ============================================================
+//  PREDICTION MARKET ABI (CPMM + Agent + Oracle + Arbitration)
+// ============================================================
+
 export const PREDICTION_MARKET_ABI = [
-  // ============================================================
-  //                  CPMM TRADING (v2 — non-custodial)
-  // ============================================================
+  // CPMM Trading
   {
     name: 'buy',
     type: 'function',
@@ -122,10 +138,7 @@ export const PREDICTION_MARKET_ABI = [
     ],
     outputs: [{ name: 'usdtOut', type: 'uint256' }],
   },
-
-  // ============================================================
-  //                  LIQUIDITY PROVIDER
-  // ============================================================
+  // Liquidity
   {
     name: 'addLiquidity',
     type: 'function',
@@ -146,10 +159,7 @@ export const PREDICTION_MARKET_ABI = [
     ],
     outputs: [{ name: 'usdtOut', type: 'uint256' }],
   },
-
-  // ============================================================
-  //                  PRICE & RESERVES
-  // ============================================================
+  // Price & Reserves
   {
     name: 'getPrice',
     type: 'function',
@@ -210,10 +220,7 @@ export const PREDICTION_MARKET_ABI = [
     ],
     outputs: [{ name: '', type: 'uint256' }],
   },
-
-  // ============================================================
-  //                  CLAIM WINNINGS / REFUND
-  // ============================================================
+  // Claim Winnings / Refund
   {
     name: 'claimWinnings',
     type: 'function',
@@ -228,10 +235,7 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [],
   },
-
-  // ============================================================
-  //                  USER MARKET CREATION
-  // ============================================================
+  // User Market Creation
   {
     name: 'createUserMarket',
     type: 'function',
@@ -243,10 +247,7 @@ export const PREDICTION_MARKET_ABI = [
     ],
     outputs: [{ name: '', type: 'uint256' }],
   },
-
-  // ============================================================
-  //                  CTF: SPLIT / MERGE
-  // ============================================================
+  // CTF: Split / Merge
   {
     name: 'splitPosition',
     type: 'function',
@@ -267,10 +268,7 @@ export const PREDICTION_MARKET_ABI = [
     ],
     outputs: [],
   },
-
-  // ============================================================
-  //                  MARKET & POSITION VIEWS
-  // ============================================================
+  // Market & Position Views
   {
     name: 'getMarket',
     type: 'function',
@@ -312,10 +310,14 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [{ name: '', type: 'bool' }],
   },
-
-  // ============================================================
-  //                  PUBLIC STATE VARIABLES
-  // ============================================================
+  {
+    name: 'isMarketActive',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  // Public State Variables
   {
     name: 'marketCreationFee',
     type: 'function',
@@ -337,10 +339,7 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
-
-  // ============================================================
-  //                  TOKEN ID HELPERS & ERC1155
-  // ============================================================
+  // Token ID Helpers & ERC1155
   {
     name: 'getYesTokenId',
     type: 'function',
@@ -385,10 +384,27 @@ export const PREDICTION_MARKET_ABI = [
     inputs: [{ name: 'id', type: 'uint256' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
-
-  // ============================================================
-  //                  ARBITRATION
-  // ============================================================
+  {
+    name: 'setApprovalForAll',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'operator', type: 'address' },
+      { name: 'approved', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'isApprovedForAll',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'operator', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  // Arbitration
   {
     name: 'proposeResolution',
     type: 'function',
@@ -454,10 +470,7 @@ export const PREDICTION_MARKET_ABI = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
-
-  // ============================================================
-  //                  AGENT
-  // ============================================================
+  // Agent
   {
     name: 'getAgentPosition',
     type: 'function',
@@ -472,10 +485,7 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'claimed', type: 'bool' },
     ],
   },
-
-  // ============================================================
-  //                  EVENTS
-  // ============================================================
+  // Events
   {
     name: 'Trade',
     type: 'event',
@@ -626,10 +636,13 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
+] as const;
 
-  // ============================================================
-  //                  LIMIT ORDER BOOK
-  // ============================================================
+// ============================================================
+//  LIMIT ORDER BOOK ABI (independent contract)
+// ============================================================
+
+export const LIMIT_ORDER_BOOK_ABI = [
   {
     name: 'placeLimitOrder',
     type: 'function',
@@ -691,27 +704,13 @@ export const PREDICTION_MARKET_ABI = [
     outputs: [{ name: '', type: 'uint256[]' }],
   },
   {
-    name: 'setApprovalForAll',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'operator', type: 'address' },
-      { name: 'approved', type: 'bool' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'isApprovedForAll',
+    name: 'accumulatedFees',
     type: 'function',
     stateMutability: 'view',
-    inputs: [
-      { name: 'account', type: 'address' },
-      { name: 'operator', type: 'address' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
   },
-
-  // Limit Order Events
+  // Events
   {
     name: 'LimitOrderPlaced',
     type: 'event',
@@ -745,12 +744,30 @@ export const PREDICTION_MARKET_ABI = [
       { name: 'maker', type: 'address', indexed: true },
     ],
   },
+  {
+    name: 'Trade',
+    type: 'event',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'isBuy', type: 'bool', indexed: false },
+      { name: 'side', type: 'bool', indexed: false },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'shares', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
+    ],
+  },
 ] as const;
 
 /**
- * Wagmi contract config object for use with useReadContract / useWriteContract.
+ * Wagmi contract config objects.
  */
 export const predictionMarketConfig = {
   address: PREDICTION_MARKET_ADDRESS,
   abi: PREDICTION_MARKET_ABI,
+} as const;
+
+export const limitOrderBookConfig = {
+  address: LIMIT_ORDER_BOOK_ADDRESS,
+  abi: LIMIT_ORDER_BOOK_ABI,
 } as const;

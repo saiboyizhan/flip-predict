@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { useTradeStore } from "@/app/stores/useTradeStore";
 import { useBuy, useSell, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl, useContractPrice, usePlaceLimitOrder, useIsApprovedForAll, useErc1155Approval } from "@/app/hooks/useContracts";
-import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
+import { PREDICTION_MARKET_ADDRESS, LIMIT_ORDER_BOOK_ADDRESS } from "@/app/config/contracts";
 import { parseUnits, formatUnits } from "viem";
 import type { MarketOption } from "@/app/types/market.types";
 
@@ -89,7 +89,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   const {
     isApproved: erc1155Approved,
     refetch: refetchErc1155Approval,
-  } = useIsApprovedForAll(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
+  } = useIsApprovedForAll(address as `0x${string}` | undefined, LIMIT_ORDER_BOOK_ADDRESS);
 
   const {
     setApprovalForAll: erc1155Approve,
@@ -115,10 +115,15 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   } = useContractBalance(address as `0x${string}` | undefined);
 
   // USDT approval
+  // USDT allowance for PM (market orders) and LOB (limit buy orders)
   const {
-    allowanceRaw: usdtAllowanceRaw,
-    refetch: refetchAllowance,
+    allowanceRaw: usdtAllowancePmRaw,
+    refetch: refetchAllowancePm,
   } = useUsdtAllowance(address as `0x${string}` | undefined, PREDICTION_MARKET_ADDRESS);
+  const {
+    allowanceRaw: usdtAllowanceLobRaw,
+    refetch: refetchAllowanceLob,
+  } = useUsdtAllowance(address as `0x${string}` | undefined, LIMIT_ORDER_BOOK_ADDRESS);
 
   const {
     approve: usdtApprove,
@@ -165,7 +170,8 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   // After USDT approve confirms, proceed with buy
   useEffect(() => {
     if (approveConfirmed && approveTxHash && isMountedRef.current) {
-      refetchAllowance();
+      refetchAllowancePm();
+      refetchAllowanceLob();
       approveReset();
       const params = tradeParamsRef.current;
       if (!params.onChainMarketId) return;
@@ -178,7 +184,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         if (isMountedRef.current) toast.error(t('trade.invalidMarketId'));
       }
     }
-  }, [approveConfirmed, approveTxHash, refetchAllowance, approveReset, buy, t]);
+  }, [approveConfirmed, approveTxHash, refetchAllowancePm, refetchAllowanceLob, approveReset, buy, t]);
 
   // After on-chain trade confirms
   useEffect(() => {
@@ -257,16 +263,16 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       }
 
       if (tradeMode === "buy") {
-        // BUY limit: lock USDT
+        // BUY limit: lock USDT in LOB
         const usdtBal = parseFloat(walletBalance);
         if (numAmount > usdtBal) {
           toast.error(t('trade.insufficientContractBalance', { balance: usdtBal.toFixed(4) }));
           return;
         }
         const amountWei = parseUnits(amount, 18);
-        if (usdtAllowanceRaw < amountWei) {
+        if (usdtAllowanceLobRaw < amountWei) {
           const maxUint256 = 2n ** 256n - 1n;
-          usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
+          usdtApprove(LIMIT_ORDER_BOOK_ADDRESS, maxUint256);
           return;
         }
         // OrderSide: BUY_YES=0, BUY_NO=1
@@ -274,9 +280,9 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         const priceWei = parseUnits(limitPrice, 18);
         placeLimitOrder(marketIdBigint, orderSideEnum, priceWei, amountWei);
       } else {
-        // SELL limit: lock ERC1155 shares — need setApprovalForAll
+        // SELL limit: lock ERC1155 shares in LOB — need setApprovalForAll on PM for LOB
         if (!erc1155Approved) {
-          erc1155Approve(PREDICTION_MARKET_ADDRESS, true);
+          erc1155Approve(LIMIT_ORDER_BOOK_ADDRESS, true);
           return;
         }
         // OrderSide: SELL_YES=2, SELL_NO=3
@@ -298,7 +304,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
       const amountWei = parseUnits(amount, 18);
 
-      if (usdtAllowanceRaw < amountWei) {
+      if (usdtAllowancePmRaw < amountWei) {
         const maxUint256 = 2n ** 256n - 1n;
         usdtApprove(PREDICTION_MARKET_ADDRESS, maxUint256);
         return;
@@ -309,7 +315,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       const sharesWei = parseUnits(amount, 18);
       sell(marketIdBigint, side === "yes", sharesWei);
     }
-  }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, limitWriting, limitConfirming, erc1155ApproveWriting, erc1155ApproveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, orderType, limitPrice, walletBalance, usdtAllowanceRaw, usdtApprove, buy, sell, placeLimitOrder, erc1155Approved, erc1155Approve, t]);
+  }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, limitWriting, limitConfirming, erc1155ApproveWriting, erc1155ApproveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, orderType, limitPrice, walletBalance, usdtAllowancePmRaw, usdtAllowanceLobRaw, usdtApprove, buy, sell, placeLimitOrder, erc1155Approved, erc1155Approve, t]);
 
   const executeTradeInternal = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;

@@ -15,6 +15,8 @@ import { decodeEventLog, parseUnits, formatUnits } from 'viem';
 import {
   PREDICTION_MARKET_ABI,
   PREDICTION_MARKET_ADDRESS,
+  LIMIT_ORDER_BOOK_ABI,
+  LIMIT_ORDER_BOOK_ADDRESS,
   USDT_ADDRESS,
   ERC20_ABI,
   MOCK_USDT_MINT_ABI,
@@ -787,8 +789,8 @@ export function usePlaceLimitOrder() {
     (marketId: bigint, orderSide: number, priceWei: bigint, amountWei: bigint) => {
       reset();
       writeContract({
-        address: PREDICTION_MARKET_ADDRESS,
-        abi: PREDICTION_MARKET_ABI,
+        address: LIMIT_ORDER_BOOK_ADDRESS,
+        abi: LIMIT_ORDER_BOOK_ABI,
         functionName: 'placeLimitOrder',
         args: [marketId, orderSide, priceWei, amountWei],
       });
@@ -830,8 +832,8 @@ export function useFillLimitOrder() {
     (orderId: bigint, fillAmountWei: bigint) => {
       reset();
       writeContract({
-        address: PREDICTION_MARKET_ADDRESS,
-        abi: PREDICTION_MARKET_ABI,
+        address: LIMIT_ORDER_BOOK_ADDRESS,
+        abi: LIMIT_ORDER_BOOK_ABI,
         functionName: 'fillLimitOrder',
         args: [orderId, fillAmountWei],
       });
@@ -873,8 +875,8 @@ export function useCancelLimitOrder() {
     (orderId: bigint) => {
       reset();
       writeContract({
-        address: PREDICTION_MARKET_ADDRESS,
-        abi: PREDICTION_MARKET_ABI,
+        address: LIMIT_ORDER_BOOK_ADDRESS,
+        abi: LIMIT_ORDER_BOOK_ABI,
         functionName: 'cancelLimitOrder',
         args: [orderId],
       });

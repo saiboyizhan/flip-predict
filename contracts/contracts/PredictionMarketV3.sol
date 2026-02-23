@@ -9,8 +9,10 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-/// @title PredictionMarketV3 - UUPS Upgradeable CPMM + Limit Orderbook
-/// @dev Agent + Oracle functions removed to fit 24KB limit. Can be added back via UUPS upgrade.
+import "./interfaces/IBinanceOracle.sol";
+
+/// @title PredictionMarketV3 - UUPS Upgradeable CPMM + Agent + Oracle + Arbitration
+/// @dev Limit order book moved to separate LimitOrderBook.sol contract.
 contract PredictionMarketV3 is
     Initializable,
     ERC1155SupplyUpgradeable,
@@ -20,7 +22,7 @@ contract PredictionMarketV3 is
     UUPSUpgradeable
 {
     // ============================================================
-    //  CUSTOM ERRORS (saves ~10KB vs string reverts)
+    //  CUSTOM ERRORS
     // ============================================================
 
     error ZeroAmount();
@@ -50,16 +52,29 @@ contract PredictionMarketV3 is
     error NoLpShares();
     error NotCancelled();
     error NoPosition();
-    error PriceOutOfRange();
-    error OrderNotFound();
-    error OrderCancelled();
-    error SelfTrade();
-    error OrderFullyFilled();
-    error InvalidFillAmount();
-    error AlreadyCancelled();
-    error MarketStillActive();
     error ExceedsFees();
     error InvalidAddress();
+    // Oracle errors
+    error OracleOnly();
+    error NotOracleMarket();
+    error InvalidPriceFeed();
+    error InvalidResType();
+    error InvalidOraclePrice();
+    error StaleOraclePrice();
+    // Arbitration errors
+    error ProposalExists();
+    error NotOwnerOrCreator();
+    error NoActiveProposal();
+    error ChallengeWindowClosed();
+    error ProposerCannotChallenge();
+    error MaxChallengesReached();
+    error AlreadyChallengedMkt();
+    error NotProposedPhase();
+    error ChallengeWindowOpen();
+    error NotChallengedPhase();
+    error ArbitrationInProgress();
+    // Agent errors
+    error OnlyNFA();
 
     // ============================================================
 
@@ -90,7 +105,7 @@ contract PredictionMarketV3 is
     }
 
     // ============================================================
-    //  STORAGE — slots 0-14 (must match V2 layout)
+    //  STORAGE -- slots 0-14 (must match V2 layout)
     // ============================================================
 
     IERC20 public usdtToken;                                              // slot 0
@@ -122,33 +137,6 @@ contract PredictionMarketV3 is
     uint256 public constant MIN_INITIAL_LIQUIDITY = 50e18;
 
     // ============================================================
-    //  LIMIT ORDER BOOK — new storage (slot 15+)
-    // ============================================================
-
-    enum OrderSide { BUY_YES, BUY_NO, SELL_YES, SELL_NO }
-
-    struct LimitOrder {
-        uint256 id;
-        uint256 marketId;
-        address maker;
-        OrderSide orderSide;
-        uint256 price;
-        uint256 amount;
-        uint256 filled;
-        uint256 createdAt;
-        bool cancelled;
-    }
-
-    uint256 public nextOrderId;                                           // slot 15
-    mapping(uint256 => LimitOrder) public limitOrders;                    // slot 16
-    mapping(uint256 => uint256[]) public marketOrders;                    // slot 17
-    mapping(address => uint256[]) public userOrders;                      // slot 18
-
-    uint256 public constant TAKER_FEE_BPS = 50;
-    uint256 public constant MIN_ORDER_PRICE = 1e16;
-    uint256 public constant MAX_ORDER_PRICE = 99e16;
-
-    // ============================================================
     //  EVENTS
     // ============================================================
 
@@ -170,9 +158,16 @@ contract PredictionMarketV3 is
     event StrictArbitrationModeUpdated(bool enabled);
     event PositionSplit(uint256 indexed marketId, address indexed user, uint256 amount);
     event PositionsMerged(uint256 indexed marketId, address indexed user, uint256 amount);
-    event LimitOrderPlaced(uint256 indexed orderId, uint256 indexed marketId, address indexed maker, uint8 orderSide, uint256 price, uint256 amount);
-    event LimitOrderFilled(uint256 indexed orderId, uint256 indexed marketId, address indexed taker, uint256 fillAmount, uint256 fillPrice, uint256 takerFee);
-    event LimitOrderCancelled(uint256 indexed orderId, uint256 indexed marketId, address indexed maker);
+    // Oracle events
+    event OracleMarketCreated(uint256 indexed marketId, address priceFeed, int256 targetPrice, uint8 resolutionType);
+    event OracleResolution(uint256 indexed marketId, int256 price, bool outcome);
+    // Arbitration events
+    event ResolutionProposed(uint256 indexed marketId, address indexed proposer, bool proposedOutcome, uint256 challengeWindowEnd);
+    event ResolutionChallenged(uint256 indexed marketId, address indexed challenger, uint256 challengeCount, uint256 newWindowEnd);
+    event ResolutionFinalized(uint256 indexed marketId, bool outcome);
+    // Agent events
+    event AgentPositionTaken(uint256 indexed marketId, uint256 indexed agentTokenId, bool isYes, uint256 amount);
+    event AgentRefundClaimed(uint256 indexed marketId, uint256 indexed agentTokenId, uint256 amount);
 
     // ============================================================
     //  INITIALIZER
@@ -198,19 +193,7 @@ contract PredictionMarketV3 is
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     // ============================================================
-    //  ERC1155 RECEIVER (for limit sell order escrow)
-    // ============================================================
-
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) public pure returns (bytes4) {
-        return this.onERC1155Received.selector;
-    }
-
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata) public pure returns (bytes4) {
-        return this.onERC1155BatchReceived.selector;
-    }
-
-    // ============================================================
-    //  INTERNAL HELPERS (reduce repetitive checks)
+    //  INTERNAL HELPERS
     // ============================================================
 
     function _activeMarket(uint256 marketId) internal view returns (Market storage m) {
@@ -483,6 +466,26 @@ contract PredictionMarketV3 is
         return marketId;
     }
 
+    function createOracleMarket(
+        string calldata title, uint256 endTime, address priceFeed, int256 targetPrice, uint8 resolutionType
+    ) external onlyOwner returns (uint256) {
+        if (endTime <= block.timestamp) revert InvalidEndTime();
+        if (priceFeed == address(0)) revert InvalidPriceFeed();
+        if (resolutionType != 1 && resolutionType != 2) revert InvalidResType();
+        uint256 marketId = nextMarketId++;
+        Market storage m = markets[marketId];
+        m.title = title;
+        m.endTime = endTime;
+        m.exists = true;
+        m.oracleEnabled = true;
+        m.priceFeed = priceFeed;
+        m.targetPrice = targetPrice;
+        m.resolutionType = resolutionType;
+        emit MarketCreated(marketId, title, endTime);
+        emit OracleMarketCreated(marketId, priceFeed, targetPrice, resolutionType);
+        return marketId;
+    }
+
     function createUserMarket(
         string calldata title, uint256 endTime, uint256 initialLiq
     ) external nonReentrant whenNotPaused returns (uint256) {
@@ -530,10 +533,100 @@ contract PredictionMarketV3 is
     function resolveMarket(uint256 marketId, bool outcome) external onlyOwner {
         Market storage m = _existingMarket(marketId);
         if (m.resolved) revert AlreadyResolved();
+        if (m.oracleEnabled) revert OracleOnly();
+        if (!strictArbitrationMode) {
+            // Direct manual resolve allowed when strict mode off
+        } else {
+            revert ManualDisabled();
+        }
         if (block.timestamp < m.endTime) revert MarketEnded();
+        if (m.resolutionPhase == ResolutionPhase.PROPOSED || m.resolutionPhase == ResolutionPhase.CHALLENGED) {
+            revert ArbitrationInProgress();
+        }
         m.resolved = true;
         m.outcome = outcome;
         emit MarketResolved(marketId, outcome);
+    }
+
+    function resolveByOracle(uint256 marketId) external {
+        Market storage m = _existingMarket(marketId);
+        if (m.resolved) revert AlreadyResolved();
+        if (!m.oracleEnabled) revert NotOracleMarket();
+        if (block.timestamp < m.endTime) revert MarketEnded();
+
+        (, int256 currentPrice, , uint256 updatedAt, ) = AggregatorV2V3Interface(m.priceFeed).latestRoundData();
+        if (currentPrice <= 0) revert InvalidOraclePrice();
+        if (block.timestamp - updatedAt >= 1 hours) revert StaleOraclePrice();
+
+        bool oracleOutcome;
+        if (m.resolutionType == 1) {
+            oracleOutcome = currentPrice >= m.targetPrice;
+        } else {
+            oracleOutcome = currentPrice <= m.targetPrice;
+        }
+
+        m.resolved = true;
+        m.outcome = oracleOutcome;
+        m.resolvedPrice = currentPrice;
+        emit MarketResolved(marketId, oracleOutcome);
+        emit OracleResolution(marketId, currentPrice, oracleOutcome);
+    }
+
+    // ============================================================
+    //  ARBITRATION
+    // ============================================================
+
+    function proposeResolution(uint256 marketId, bool _outcome) external {
+        Market storage m = _existingMarket(marketId);
+        if (m.resolved) revert AlreadyResolved();
+        if (block.timestamp < m.endTime) revert MarketEnded();
+        if (m.resolutionPhase != ResolutionPhase.NONE) revert ProposalExists();
+        if (msg.sender != owner() && msg.sender != marketCreator[marketId]) revert NotOwnerOrCreator();
+        m.resolutionPhase = ResolutionPhase.PROPOSED;
+        m.proposer = msg.sender;
+        m.proposedOutcome = _outcome;
+        m.challengeWindowEnd = block.timestamp + 6 hours;
+        emit ResolutionProposed(marketId, msg.sender, _outcome, m.challengeWindowEnd);
+    }
+
+    function challengeResolution(uint256 marketId) external {
+        Market storage m = _existingMarket(marketId);
+        if (m.resolutionPhase != ResolutionPhase.PROPOSED && m.resolutionPhase != ResolutionPhase.CHALLENGED) {
+            revert NoActiveProposal();
+        }
+        if (block.timestamp >= m.challengeWindowEnd) revert ChallengeWindowClosed();
+        if (msg.sender == m.proposer) revert ProposerCannotChallenge();
+        if (m.challengeCount >= MAX_CHALLENGES) revert MaxChallengesReached();
+        if (hasChallenged[marketId][msg.sender]) revert AlreadyChallengedMkt();
+        m.resolutionPhase = ResolutionPhase.CHALLENGED;
+        m.challengeCount++;
+        hasChallenged[marketId][msg.sender] = true;
+        m.challengeWindowEnd = block.timestamp + 3 hours;
+        emit ResolutionChallenged(marketId, msg.sender, m.challengeCount, m.challengeWindowEnd);
+    }
+
+    function finalizeResolution(uint256 marketId) external {
+        Market storage m = _existingMarket(marketId);
+        if (m.resolved) revert AlreadyResolved();
+        if (m.resolutionPhase != ResolutionPhase.PROPOSED) revert NotProposedPhase();
+        if (block.timestamp < m.challengeWindowEnd) revert ChallengeWindowOpen();
+        m.resolved = true;
+        m.outcome = m.proposedOutcome;
+        m.resolutionPhase = ResolutionPhase.FINALIZED;
+        emit MarketResolved(marketId, m.proposedOutcome);
+        emit ResolutionFinalized(marketId, m.proposedOutcome);
+    }
+
+    function adminFinalizeResolution(uint256 marketId, bool _outcome) external onlyOwner {
+        Market storage m = _existingMarket(marketId);
+        if (m.resolved) revert AlreadyResolved();
+        if (m.resolutionPhase != ResolutionPhase.CHALLENGED) revert NotChallengedPhase();
+        if (block.timestamp < m.challengeWindowEnd) revert ChallengeWindowOpen();
+        m.resolved = true;
+        m.outcome = _outcome;
+        m.resolutionPhase = ResolutionPhase.FINALIZED;
+        emit MarketResolved(marketId, _outcome);
+        emit ResolutionFinalized(marketId, _outcome);
     }
 
     // ============================================================
@@ -592,119 +685,114 @@ contract PredictionMarketV3 is
     }
 
     // ============================================================
-    //  LIMIT ORDER BOOK
+    //  AGENT FUNCTIONS
     // ============================================================
 
-    function placeLimitOrder(
-        uint256 marketId, OrderSide orderSide, uint256 price, uint256 amount
-    ) external nonReentrant whenNotPaused returns (uint256 orderId) {
+    function agentBuy(
+        uint256 agentTokenId, uint256 marketId, bool buyYes, uint256 amount
+    ) external nonReentrant whenNotPaused returns (uint256 sharesOut) {
+        if (msg.sender != nfaContract) revert OnlyNFA();
         if (amount == 0) revert ZeroAmount();
-        _activeMarket(marketId);
-        if (price < MIN_ORDER_PRICE || price > MAX_ORDER_PRICE) revert PriceOutOfRange();
+        Market storage m = _activeMarket(marketId);
+        if (m.yesReserve == 0 || m.noReserve == 0) revert NoLiquidity();
 
-        orderId = nextOrderId++;
+        if (!usdtToken.transferFrom(nfaContract, address(this), amount)) revert TransferFailed();
 
-        if (orderSide == OrderSide.BUY_YES || orderSide == OrderSide.BUY_NO) {
-            if (!usdtToken.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
-        } else if (orderSide == OrderSide.SELL_YES) {
-            uint256 tokenId = getYesTokenId(marketId);
-            if (balanceOf(msg.sender, tokenId) < amount) revert InsufficientShares();
-            _safeTransferFrom(msg.sender, address(this), tokenId, amount, "");
+        uint256 fee = (amount * FEE_BPS) / BPS_DENOMINATOR;
+        uint256 netAmount = amount - fee;
+        accumulatedFees += fee;
+
+        uint256 k = m.yesReserve * m.noReserve;
+
+        if (buyYes) {
+            uint256 newNo = m.noReserve + netAmount;
+            uint256 newYes = k / newNo;
+            sharesOut = netAmount + (m.yesReserve - newYes);
+            m.yesReserve = newYes;
+            m.noReserve = newNo;
         } else {
-            uint256 tokenId = getNoTokenId(marketId);
-            if (balanceOf(msg.sender, tokenId) < amount) revert InsufficientShares();
-            _safeTransferFrom(msg.sender, address(this), tokenId, amount, "");
+            uint256 newYes = m.yesReserve + netAmount;
+            uint256 newNo = k / newYes;
+            sharesOut = netAmount + (m.noReserve - newNo);
+            m.noReserve = newNo;
+            m.yesReserve = newYes;
         }
 
-        limitOrders[orderId] = LimitOrder({
-            id: orderId, marketId: marketId, maker: msg.sender, orderSide: orderSide,
-            price: price, amount: amount, filled: 0, createdAt: block.timestamp, cancelled: false
-        });
-        marketOrders[marketId].push(orderId);
-        userOrders[msg.sender].push(orderId);
-        emit LimitOrderPlaced(orderId, marketId, msg.sender, uint8(orderSide), price, amount);
-    }
+        if (sharesOut == 0) revert ZeroOutput();
+        if (m.yesReserve < MIN_RESERVE || m.noReserve < MIN_RESERVE) revert TradeTooLarge();
 
-    function fillLimitOrder(uint256 orderId, uint256 fillAmount) external nonReentrant whenNotPaused {
-        LimitOrder storage order = limitOrders[orderId];
-        if (order.amount == 0) revert OrderNotFound();
-        if (order.cancelled) revert OrderCancelled();
-        if (order.maker == msg.sender) revert SelfTrade();
-
-        uint256 remaining = order.amount - order.filled;
-        if (remaining == 0) revert OrderFullyFilled();
-        if (fillAmount == 0 || fillAmount > remaining) revert InvalidFillAmount();
-
-        Market storage m = _activeMarket(order.marketId);
-        uint256 takerFee;
-
-        if (order.orderSide == OrderSide.BUY_YES || order.orderSide == OrderSide.BUY_NO) {
-            uint256 sharesAmount = (fillAmount * 1e18) / order.price;
-            if (sharesAmount == 0) revert ZeroOutput();
-            uint256 tokenId = order.orderSide == OrderSide.BUY_YES
-                ? getYesTokenId(order.marketId) : getNoTokenId(order.marketId);
-            if (balanceOf(msg.sender, tokenId) < sharesAmount) revert InsufficientShares();
-            _safeTransferFrom(msg.sender, order.maker, tokenId, sharesAmount, "");
-
-            takerFee = (fillAmount * TAKER_FEE_BPS) / BPS_DENOMINATOR;
-            accumulatedFees += takerFee;
-            if (!usdtToken.transfer(msg.sender, fillAmount - takerFee)) revert TransferFailed();
-            emit Trade(order.marketId, msg.sender, false, order.orderSide == OrderSide.BUY_YES, fillAmount - takerFee, sharesAmount, takerFee);
+        m.totalCollateral += netAmount;
+        if (buyYes) {
+            _mint(nfaContract, getYesTokenId(marketId), sharesOut, "");
+            agentYesBalance[marketId][agentTokenId] += sharesOut;
         } else {
-            uint256 usdtCost = (fillAmount * order.price) / 1e18;
-            if (usdtCost == 0) revert ZeroOutput();
-            takerFee = (usdtCost * TAKER_FEE_BPS) / BPS_DENOMINATOR;
-            accumulatedFees += takerFee;
-            if (!usdtToken.transferFrom(msg.sender, address(this), usdtCost + takerFee)) revert TransferFailed();
-            if (!usdtToken.transfer(order.maker, usdtCost)) revert TransferFailed();
-
-            uint256 tokenId = order.orderSide == OrderSide.SELL_YES
-                ? getYesTokenId(order.marketId) : getNoTokenId(order.marketId);
-            _safeTransferFrom(address(this), msg.sender, tokenId, fillAmount, "");
-            emit Trade(order.marketId, msg.sender, true, order.orderSide == OrderSide.SELL_YES, usdtCost, fillAmount, takerFee);
+            _mint(nfaContract, getNoTokenId(marketId), sharesOut, "");
+            agentNoBalance[marketId][agentTokenId] += sharesOut;
         }
-        order.filled += fillAmount;
-        emit LimitOrderFilled(orderId, order.marketId, msg.sender, fillAmount, order.price, takerFee);
+
+        emit AgentPositionTaken(marketId, agentTokenId, buyYes, amount);
+        emit Trade(marketId, nfaContract, true, buyYes, amount, sharesOut, fee);
     }
 
-    function cancelLimitOrder(uint256 orderId) external nonReentrant {
-        LimitOrder storage order = limitOrders[orderId];
-        if (order.amount == 0) revert OrderNotFound();
-        if (order.cancelled) revert AlreadyCancelled();
-        if (order.maker != msg.sender && msg.sender != owner()) revert NotAuthorized();
-        order.cancelled = true;
-        uint256 remaining = order.amount - order.filled;
-        if (remaining > 0) {
-            if (order.orderSide == OrderSide.BUY_YES || order.orderSide == OrderSide.BUY_NO) {
-                if (!usdtToken.transfer(order.maker, remaining)) revert TransferFailed();
-            } else if (order.orderSide == OrderSide.SELL_YES) {
-                _safeTransferFrom(address(this), order.maker, getYesTokenId(order.marketId), remaining, "");
-            } else {
-                _safeTransferFrom(address(this), order.maker, getNoTokenId(order.marketId), remaining, "");
-            }
-        }
-        emit LimitOrderCancelled(orderId, order.marketId, order.maker);
-    }
-
-    function cancelMarketOrders(uint256 marketId) external nonReentrant {
+    function agentClaimWinnings(uint256 agentTokenId, uint256 marketId) external nonReentrant whenNotPaused {
+        if (msg.sender != nfaContract) revert OnlyNFA();
         Market storage m = _existingMarket(marketId);
-        if (!m.resolved && !m.cancelled && block.timestamp < m.endTime) revert MarketStillActive();
-        uint256[] storage orderIds = marketOrders[marketId];
-        for (uint256 i = 0; i < orderIds.length; i++) {
-            LimitOrder storage order = limitOrders[orderIds[i]];
-            if (order.cancelled) continue;
-            uint256 remaining = order.amount - order.filled;
-            if (remaining == 0) continue;
-            order.cancelled = true;
-            if (order.orderSide == OrderSide.BUY_YES || order.orderSide == OrderSide.BUY_NO) {
-                usdtToken.transfer(order.maker, remaining);
-            } else if (order.orderSide == OrderSide.SELL_YES) {
-                _safeTransferFrom(address(this), order.maker, getYesTokenId(marketId), remaining, "");
-            } else {
-                _safeTransferFrom(address(this), order.maker, getNoTokenId(marketId), remaining, "");
-            }
-            emit LimitOrderCancelled(orderIds[i], marketId, order.maker);
+        if (!m.resolved) revert AlreadyResolved();
+        if (m.cancelled) revert MktCancelled();
+
+        uint256 winnerAmount;
+        uint256 winningTokenId;
+
+        if (m.outcome) {
+            winnerAmount = agentYesBalance[marketId][agentTokenId];
+            winningTokenId = getYesTokenId(marketId);
+        } else {
+            winnerAmount = agentNoBalance[marketId][agentTokenId];
+            winningTokenId = getNoTokenId(marketId);
         }
+        if (winnerAmount == 0) revert NoWinningPosition();
+
+        uint256 winnerSupply = totalSupply(winningTokenId);
+
+        if (m.outcome) {
+            agentYesBalance[marketId][agentTokenId] = 0;
+        } else {
+            agentNoBalance[marketId][agentTokenId] = 0;
+        }
+
+        _burn(nfaContract, winningTokenId, winnerAmount);
+        uint256 reward = (winnerAmount * m.totalCollateral) / winnerSupply;
+        m.totalCollateral -= reward;
+
+        if (!usdtToken.transfer(nfaContract, reward)) revert TransferFailed();
+        emit WinningsClaimed(marketId, nfaContract, reward);
+    }
+
+    function agentClaimRefund(uint256 agentTokenId, uint256 marketId) external nonReentrant whenNotPaused {
+        if (msg.sender != nfaContract) revert OnlyNFA();
+        Market storage m = _existingMarket(marketId);
+        if (!m.cancelled) revert NotCancelled();
+
+        uint256 yesAmount = agentYesBalance[marketId][agentTokenId];
+        uint256 noAmount = agentNoBalance[marketId][agentTokenId];
+        uint256 totalTokens = yesAmount + noAmount;
+        if (totalTokens == 0) revert NoPosition();
+
+        agentYesBalance[marketId][agentTokenId] = 0;
+        agentNoBalance[marketId][agentTokenId] = 0;
+
+        uint256 yesId = getYesTokenId(marketId);
+        uint256 noId = getNoTokenId(marketId);
+
+        if (yesAmount > 0) _burn(nfaContract, yesId, yesAmount);
+        if (noAmount > 0) _burn(nfaContract, noId, noAmount);
+
+        uint256 totalAllTokens = totalSupply(yesId) + totalSupply(noId) + totalTokens;
+        uint256 refundAmount = (totalTokens * m.totalCollateral) / totalAllTokens;
+        m.totalCollateral -= refundAmount;
+
+        if (!usdtToken.transfer(nfaContract, refundAmount)) revert TransferFailed();
+        emit AgentRefundClaimed(marketId, agentTokenId, refundAmount);
     }
 
     // ============================================================
@@ -737,15 +825,20 @@ contract PredictionMarketV3 is
         noAmount = balanceOf(user, getNoTokenId(marketId));
     }
 
-    function getMarketOrderIds(uint256 marketId) external view returns (uint256[] memory) { return marketOrders[marketId]; }
-    function getUserOrderIds(address user) external view returns (uint256[] memory) { return userOrders[user]; }
+    function isMarketCancelled(uint256 marketId) external view returns (bool) {
+        Market storage m = _existingMarket(marketId);
+        return m.cancelled;
+    }
 
-    function getLimitOrder(uint256 orderId) external view returns (
-        uint256 id, uint256 marketId, address maker, uint8 orderSide,
-        uint256 price, uint256 amount, uint256 filled, uint256 createdAt, bool cancelled
-    ) {
-        LimitOrder storage o = limitOrders[orderId];
-        return (o.id, o.marketId, o.maker, uint8(o.orderSide), o.price, o.amount, o.filled, o.createdAt, o.cancelled);
+    function getAgentPosition(uint256 marketId, uint256 agentTokenId) external view returns (uint256 yesAmount, uint256 noAmount, bool claimed) {
+        yesAmount = agentYesBalance[marketId][agentTokenId];
+        noAmount = agentNoBalance[marketId][agentTokenId];
+    }
+
+    /// @notice Check if a market is currently active (for LimitOrderBook)
+    function isMarketActive(uint256 marketId) external view returns (bool) {
+        Market storage m = markets[marketId];
+        return m.exists && !m.resolved && !m.cancelled && block.timestamp < m.endTime;
     }
 
     // ============================================================
