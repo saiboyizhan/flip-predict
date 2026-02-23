@@ -351,14 +351,6 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         return _vaultPermissions[tokenId][delegate];
     }
 
-    function _getPredictionMarketBalance() internal view returns (uint256) {
-        (bool success, bytes memory data) = predictionMarket.staticcall(
-            abi.encodeWithSignature("balances(address)", address(this))
-        );
-        require(success && data.length >= 32, "Failed to read PM balance");
-        return abi.decode(data, (uint256));
-    }
-
     // ═══════════════════════════════════════════════════════════════
     // ADMIN (Prediction Market Integration)
     // ═══════════════════════════════════════════════════════════════
@@ -367,21 +359,6 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     function setPredictionMarket(address _predictionMarket) external onlyOwner {
         require(_predictionMarket != address(0), "Invalid address");
         predictionMarket = _predictionMarket;
-    }
-
-    /// @notice Withdraw NFA's balance from PredictionMarket back to this contract
-    function withdrawFromPredictionMarket(uint256 amount) external onlyOwner nonReentrant {
-        require(predictionMarket != address(0), "Prediction market not set");
-        require(amount > 0, "Amount must be > 0");
-        uint256 pmBalance = _getPredictionMarketBalance();
-        require(pmBalance >= totalAllocatedPredictionMarketBalance, "PM balance bookkeeping mismatch");
-        uint256 unallocated = pmBalance - totalAllocatedPredictionMarketBalance;
-        require(amount <= unallocated, "Amount exceeds unallocated PM balance");
-
-        (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("nfaWithdraw(uint256)", amount)
-        );
-        require(success, "Withdraw from prediction market failed");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -395,7 +372,8 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     event AgentRefundViaPM(uint256 indexed tokenId, uint256 indexed marketId);
     event AgentWithdrewFromPM(uint256 indexed tokenId, uint256 amount);
 
-    /// @notice Deposit agent's USDT into PredictionMarket balance (so agent can trade)
+    /// @notice Move agent's USDT from agent balance to PM trading balance (internal bookkeeping).
+    ///         PM V3 uses transferFrom on agentBuy, so we just approve PM and track the sub-ledger.
     function depositToPredictionMarket(uint256 tokenId, uint256 amount)
         external onlyTokenOwnerOrAutoTrader(tokenId, amount) onlyActiveAgent(tokenId) nonReentrant
     {
@@ -404,41 +382,29 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         require(_agentBalances[tokenId] >= amount, "Insufficient agent balance");
         _agentBalances[tokenId] -= amount;
         totalAgentBalances -= amount;
-        // Approve PM to pull USDT, then call deposit(amount)
-        require(usdtToken.approve(predictionMarket, amount), "USDT approve failed");
-        (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("deposit(uint256)", amount)
-        );
-        require(success, "Deposit failed");
         predictionMarketBalances[tokenId] += amount;
         totalAllocatedPredictionMarketBalance += amount;
+        // Approve PM to pull USDT when agentBuy is called
+        require(usdtToken.approve(predictionMarket, usdtToken.allowance(address(this), predictionMarket) + amount), "USDT approve failed");
         emit AgentDepositedToPM(tokenId, amount);
     }
 
-    /// @notice Withdraw this agent's PredictionMarket balance back into local agent balance
+    /// @notice Move agent's PM trading balance back to agent balance (internal bookkeeping).
     function withdrawFromPredictionMarketToAgent(uint256 tokenId, uint256 amount)
         external onlyTokenOwnerOrAutoTraderNoLimit(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         require(amount > 0, "Amount must be > 0");
         require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
-
-        uint256 beforeBalance = usdtToken.balanceOf(address(this));
         predictionMarketBalances[tokenId] -= amount;
         totalAllocatedPredictionMarketBalance -= amount;
-
-        (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("nfaWithdraw(uint256)", amount)
-        );
-        require(success, "Withdraw failed");
-        require(usdtToken.balanceOf(address(this)) >= beforeBalance + amount, "Withdraw amount mismatch");
-
         _agentBalances[tokenId] += amount;
         totalAgentBalances += amount;
         emit AgentWithdrewFromPM(tokenId, amount);
     }
 
-    /// @notice Take a YES/NO position on a market via PredictionMarket
+    /// @notice Take a YES/NO position on a market via PM V3's agentBuy.
+    ///         PM V3 does transferFrom(NFA, PM, amount) internally.
     function agentPredictionTakePosition(uint256 tokenId, uint256 marketId, bool isYes, uint256 amount)
         external onlyTokenOwnerOrAutoTrader(tokenId, amount) onlyActiveAgent(tokenId) nonReentrant
     {
@@ -447,14 +413,19 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
         predictionMarketBalances[tokenId] -= amount;
         totalAllocatedPredictionMarketBalance -= amount;
+        // Ensure PM has enough allowance
+        uint256 currentAllowance = usdtToken.allowance(address(this), predictionMarket);
+        if (currentAllowance < amount) {
+            require(usdtToken.approve(predictionMarket, amount), "USDT approve failed");
+        }
         (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("agentTakePosition(uint256,uint256,bool,uint256)", tokenId, marketId, isYes, amount)
+            abi.encodeWithSignature("agentBuy(uint256,uint256,bool,uint256)", tokenId, marketId, isYes, amount)
         );
         require(success, "Take position failed");
         emit AgentPositionViaPM(tokenId, marketId, isYes, amount);
     }
 
-    /// @notice Split collateral into YES+NO tokens via PredictionMarket (CTF)
+    /// @notice Split collateral into YES+NO tokens via PredictionMarket
     function agentPredictionSplitPosition(uint256 tokenId, uint256 marketId, uint256 amount)
         external onlyTokenOwnerOrAutoTrader(tokenId, amount) onlyActiveAgent(tokenId) nonReentrant
     {
@@ -463,49 +434,51 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         require(predictionMarketBalances[tokenId] >= amount, "Insufficient PM balance for agent");
         predictionMarketBalances[tokenId] -= amount;
         totalAllocatedPredictionMarketBalance -= amount;
+        uint256 currentAllowance = usdtToken.allowance(address(this), predictionMarket);
+        if (currentAllowance < amount) {
+            require(usdtToken.approve(predictionMarket, amount), "USDT approve failed");
+        }
         (bool success, ) = predictionMarket.call(
-            abi.encodeWithSignature("agentSplitPosition(uint256,uint256,uint256)", tokenId, marketId, amount)
+            abi.encodeWithSignature("splitPosition(uint256,uint256)", marketId, amount)
         );
         require(success, "Split position failed");
         emit AgentSplitViaPM(tokenId, marketId, amount);
     }
 
-    /// @notice Claim agent winnings from a resolved market via PredictionMarket
+    /// @notice Claim agent winnings from a resolved market via PredictionMarket.
+    ///         PM V3 transfers USDT directly back to NFA contract.
     function agentPredictionClaimWinnings(uint256 tokenId, uint256 marketId)
         external onlyTokenOwnerOrAutoTraderNoLimit(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
-        uint256 pmBalanceBefore = _getPredictionMarketBalance();
+        uint256 balBefore = usdtToken.balanceOf(address(this));
         (bool success, ) = predictionMarket.call(
             abi.encodeWithSignature("agentClaimWinnings(uint256,uint256)", tokenId, marketId)
         );
         require(success, "Claim winnings failed");
-        uint256 pmBalanceAfter = _getPredictionMarketBalance();
-        require(pmBalanceAfter >= pmBalanceBefore, "Invalid PM balance delta");
-        uint256 claimedAmount = pmBalanceAfter - pmBalanceBefore;
-        if (claimedAmount > 0) {
-            predictionMarketBalances[tokenId] += claimedAmount;
-            totalAllocatedPredictionMarketBalance += claimedAmount;
+        uint256 claimed = usdtToken.balanceOf(address(this)) - balBefore;
+        if (claimed > 0) {
+            _agentBalances[tokenId] += claimed;
+            totalAgentBalances += claimed;
         }
         emit AgentClaimedViaPM(tokenId, marketId);
     }
 
-    /// @notice Claim agent refund from a cancelled market via PredictionMarket
+    /// @notice Claim agent refund from a cancelled market via PredictionMarket.
+    ///         PM V3 transfers USDT directly back to NFA contract.
     function agentPredictionClaimRefund(uint256 tokenId, uint256 marketId)
         external onlyTokenOwnerOrAutoTraderNoLimit(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
-        uint256 pmBalanceBefore = _getPredictionMarketBalance();
+        uint256 balBefore = usdtToken.balanceOf(address(this));
         (bool success, ) = predictionMarket.call(
             abi.encodeWithSignature("agentClaimRefund(uint256,uint256)", tokenId, marketId)
         );
         require(success, "Claim refund failed");
-        uint256 pmBalanceAfter = _getPredictionMarketBalance();
-        require(pmBalanceAfter >= pmBalanceBefore, "Invalid PM balance delta");
-        uint256 claimedAmount = pmBalanceAfter - pmBalanceBefore;
-        if (claimedAmount > 0) {
-            predictionMarketBalances[tokenId] += claimedAmount;
-            totalAllocatedPredictionMarketBalance += claimedAmount;
+        uint256 claimed = usdtToken.balanceOf(address(this)) - balBefore;
+        if (claimed > 0) {
+            _agentBalances[tokenId] += claimed;
+            totalAgentBalances += claimed;
         }
         emit AgentRefundViaPM(tokenId, marketId);
     }
