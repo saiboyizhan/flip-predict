@@ -7,8 +7,6 @@ import { getLearningMetrics } from '../engine/agent-learning';
 import { encrypt, decrypt, maskApiKey } from '../utils/crypto';
 import { ethers } from 'ethers';
 import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
-import { getHotWalletAddress } from '../engine/agent-chain';
-
 const router = Router();
 
 /** Clean up expired rentals and their LLM configs */
@@ -253,16 +251,6 @@ router.get('/', async (req: Request, res: Response) => {
     console.error('Agents error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
-
-// GET /api/agents/hot-wallet — get the backend hot wallet address for auto-trade authorization
-router.get('/hot-wallet', (_req: Request, res: Response) => {
-  const address = getHotWalletAddress();
-  if (!address) {
-    res.status(503).json({ error: 'Agent chain module not initialized' });
-    return;
-  }
-  res.json({ address });
 });
 
 // GET /api/agents/leaderboard — top 20 by ROI
@@ -1045,70 +1033,6 @@ router.post('/:id/execute-suggestion', authMiddleware, async (req: AuthRequest, 
     res.json({ success: true, suggestion: { ...suggestion, user_action: 'accepted' } });
   } catch (err: any) {
     console.error('Agent execute-suggestion error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// POST /api/agents/:id/authorize-trade — authorize auto trading
-router.post('/:id/authorize-trade', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDb();
-    const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
-    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
-
-    const parsedMaxPerTrade = parsePositiveNumber(req.body?.maxPerTrade);
-    const parsedMaxDailyAmount = parsePositiveNumber(req.body?.maxDailyAmount);
-    const parsedDurationHours = parsePositiveInteger(req.body?.durationHours);
-
-    if (parsedMaxPerTrade === null) { res.status(400).json({ error: 'Invalid maxPerTrade' }); return; }
-    if (parsedMaxDailyAmount === null) { res.status(400).json({ error: 'Invalid maxDailyAmount' }); return; }
-    if (parsedDurationHours === null || parsedDurationHours < 1 || parsedDurationHours > 720) {
-      res.status(400).json({ error: 'Duration must be 1-720 hours' });
-      return;
-    }
-
-    const expiresAt = Date.now() + parsedDurationHours * 3600000;
-
-    await db.query(`
-      UPDATE agents SET
-        prediction_mode = 'auto_trade',
-        auto_trade_enabled = 1,
-        max_per_trade = $1,
-        max_daily_amount = $2,
-        daily_trade_used = 0,
-        auto_trade_expires = $3
-      WHERE id = $4
-    `, [parsedMaxPerTrade, parsedMaxDailyAmount, expiresAt, req.params.id]);
-
-    const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
-    res.json({ agent: updated });
-  } catch (err: any) {
-    console.error('Agents error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// POST /api/agents/:id/revoke-trade — revoke auto trading
-router.post('/:id/revoke-trade', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDb();
-    const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0] as any;
-    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
-    if (!isOwnerOrRenter(agent, req.userAddress!)) { res.status(403).json({ error: 'Not the owner or renter' }); return; }
-
-    await db.query(`
-      UPDATE agents SET
-        prediction_mode = 'observe',
-        auto_trade_enabled = 0,
-        auto_trade_expires = NULL
-      WHERE id = $1
-    `, [req.params.id]);
-
-    const updated = (await db.query('SELECT * FROM agents WHERE id = $1', [req.params.id])).rows[0];
-    res.json({ agent: updated });
-  } catch (err: any) {
-    console.error('Agents error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

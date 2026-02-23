@@ -15,6 +15,8 @@ export interface TradeSuggestion {
   riskLevel: 'low' | 'medium' | 'high' | 'extreme';
   potentialProfit: number;
   potentialLoss: number;
+  suggestedAmount: number;
+  onChainMarketId: number | null;
 }
 
 export interface RiskAssessment {
@@ -34,10 +36,12 @@ export async function generateSuggestion(db: Pool, agentId: string, marketId: st
   const agent = (await db.query('SELECT * FROM agents WHERE id = $1', [agentId])).rows[0] as any;
   if (!agent) throw new Error('Agent not found');
 
-  // Get market info
-  const market = (await db.query('SELECT * FROM markets WHERE id = $1', [marketId])).rows[0] as any;
+  // Get market info (include on_chain_market_id for frontend execution)
+  const market = (await db.query('SELECT *, on_chain_market_id FROM markets WHERE id = $1', [marketId])).rows[0] as any;
   if (!market) throw new Error('Market not found');
   if (market.status !== 'active') throw new Error('Market is not active');
+
+  const onChainMarketId: number | null = market.on_chain_market_id != null ? Number(market.on_chain_market_id) : null;
 
   // Get agent's style profile
   const profile = (await db.query('SELECT * FROM agent_style_profile WHERE agent_id = $1', [agentId])).rows[0] as any;
@@ -99,6 +103,8 @@ export async function generateSuggestion(db: Pool, agentId: string, marketId: st
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
   `, [id, agentId, marketId, suggestedSide, confidence, reasoning, riskLevel, Math.round(potentialProfit * 100) / 100, Math.round(potentialLoss * 100) / 100, now]);
 
+  const suggestedAmount = Math.round(potentialLoss * 100) / 100;
+
   return {
     id,
     agentId,
@@ -109,6 +115,8 @@ export async function generateSuggestion(db: Pool, agentId: string, marketId: st
     riskLevel,
     potentialProfit: Math.round(potentialProfit * 100) / 100,
     potentialLoss: Math.round(potentialLoss * 100) / 100,
+    suggestedAmount,
+    onChainMarketId,
   };
 }
 

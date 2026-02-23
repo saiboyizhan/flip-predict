@@ -16,7 +16,6 @@ import settlementRoutes from './routes/settlement';
 import agentRoutes from './routes/agents';
 import { startKeeper } from './engine/keeper';
 import { startEventListener, stopEventListener } from './engine/event-listener';
-import { startAgentRunner } from './engine/agent-runner';
 import { initAgentChain } from './engine/agent-chain';
 
 import marketCreationRoutes from './routes/market-creation';
@@ -313,13 +312,11 @@ async function main() {
     const keeperInterval = startKeeper(pool, 30000);
     startEventListener(pool);
     initAgentChain();
-    const agentRunnerInterval = startAgentRunner(pool, 60000);
 
     // Graceful shutdown handler
     const shutdown = () => {
       console.log('Shutting down gracefully...');
       clearInterval(keeperInterval);
-      clearInterval(agentRunnerInterval);
       stopEventListener();
 
       server.close(() => {

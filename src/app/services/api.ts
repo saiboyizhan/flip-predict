@@ -765,48 +765,6 @@ export async function generateSuggestion(agentId: string, marketId: string): Pro
   return data.suggestion
 }
 
-export async function executeSuggestion(agentId: string, suggestionId: string, riskConfirmed: boolean): Promise<any> {
-  return request(`/api/agents/${agentId}/execute-suggestion`, {
-    method: 'POST',
-    body: JSON.stringify({ suggestionId, riskConfirmed }),
-  })
-}
-
-// --- Auto Trade ---
-
-export async function authorizeAutoTrade(agentId: string, data: {
-  maxPerTrade: number
-  maxDailyAmount: number
-  durationHours: number
-}): Promise<any> {
-  const res = await request<{ agent: any }>(`/api/agents/${agentId}/authorize-trade`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-  return res.agent
-}
-
-export async function revokeAutoTrade(agentId: string): Promise<any> {
-  const res = await request<{ agent: any }>(`/api/agents/${agentId}/revoke-trade`, {
-    method: 'POST',
-  })
-  return res.agent
-}
-
-export async function getAutoTradeAuth(agentId: string): Promise<any> {
-  const data = await request<{ agent?: any }>(`/api/agents/${agentId}`)
-  return data.agent ?? null
-}
-
-export async function getHotWalletAddress(): Promise<string | null> {
-  try {
-    const data = await request<{ address: string }>('/api/agents/hot-wallet')
-    return data.address ?? null
-  } catch {
-    return null
-  }
-}
-
 // --- Learning ---
 
 // Available but not yet wired to UI - see AgentDetail for integration point

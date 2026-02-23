@@ -90,7 +90,7 @@ export function AgentDetail() {
   const [vaultURIInput, setVaultURIInput] = useState("");
   const [vaultHashInput, setVaultHashInput] = useState("");
   const [selectedStrategy, setSelectedStrategy] = useState("");
-  const [activeDetailTab, setActiveDetailTab] = useState<'trades' | 'predictions' | 'suggestions' | 'style' | 'auto' | 'llm' | 'copyTrading' | 'earnings' | 'onchain'>('trades');
+  const [activeDetailTab, setActiveDetailTab] = useState<'trades' | 'predictions' | 'suggestions' | 'style' | 'llm' | 'copyTrading' | 'earnings' | 'onchain'>('trades');
   const [markets, setMarkets] = useState<any[]>([]);
   const [showBuyConfirm, setShowBuyConfirm] = useState(false);
   const [showRentConfirm, setShowRentConfirm] = useState(false);
@@ -1189,7 +1189,6 @@ export function AgentDetail() {
                     { id: 'predictions', label: t('agentDetail.tabPredictions') },
                     { id: 'suggestions', label: t('agentDetail.tabSuggestions') },
                     { id: 'style', label: t('agentDetail.tabStyle') },
-                    { id: 'auto', label: t('agentDetail.tabAuto') },
                     { id: 'llm', label: t('agentDetail.tabLlm') },
                     { id: 'copyTrading', label: t('copyTrade.title') },
                     { id: 'earnings', label: t('earnings.title') },
@@ -1284,7 +1283,7 @@ export function AgentDetail() {
             </div>
           )}
 
-          {(activeDetailTab === 'predictions' || activeDetailTab === 'suggestions' || activeDetailTab === 'auto') && (
+          {(activeDetailTab === 'predictions' || activeDetailTab === 'suggestions') && (
             <AgentInteraction agentId={agent.id} isOwner={!!isOwner} tokenId={agent.token_id} markets={markets} />
           )}
 

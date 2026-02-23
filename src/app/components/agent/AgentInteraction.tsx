@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Brain, Lightbulb, Zap, TrendingUp, Target, Clock, AlertTriangle, Shield } from "lucide-react";
+import { Brain, Lightbulb, Target, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
@@ -9,11 +9,6 @@ import {
   recordPrediction,
   getAgentPredictions,
   generateSuggestion,
-  executeSuggestion,
-  authorizeAutoTrade,
-  revokeAutoTrade,
-  getAutoTradeAuth,
-  getHotWalletAddress,
 } from "@/app/services/api";
 import { NFA_CONTRACT_ADDRESS, NFA_ABI } from "@/app/config/nfaContracts";
 
@@ -26,7 +21,7 @@ interface AgentInteractionProps {
 
 export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentInteractionProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'predict' | 'suggest' | 'auto'>('predict');
+  const [activeTab, setActiveTab] = useState<'predict' | 'suggest'>('predict');
 
   // Prediction tab state
   const [selectedMarket, setSelectedMarket] = useState('');
@@ -40,37 +35,25 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
   const [sugMarket, setSugMarket] = useState('');
   const [suggestion, setSuggestion] = useState<any>(null);
   const [sugLoading, setSugLoading] = useState(false);
-  const [showRiskDialog, setShowRiskDialog] = useState(false);
+  const [executeAmount, setExecuteAmount] = useState('');
+  const [executeLoading, setExecuteLoading] = useState(false);
 
-  // Auto trade tab state
-  const [autoEnabled, setAutoEnabled] = useState(false);
-  const [maxPerTrade, setMaxPerTrade] = useState('50');
-  const [maxDaily, setMaxDaily] = useState('200');
-  const [duration, setDuration] = useState('24');
-  const [autoLoading, setAutoLoading] = useState(false);
-
-  // On-chain auto-trade authorization state
-  const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
-  const [onChainAuthorized, setOnChainAuthorized] = useState(false);
-  const [onChainLoading, setOnChainLoading] = useState(false);
-
-  // wagmi write contract hook for on-chain authorization
-  const { writeContract, data: txHash, isPending: isTxPending } = useWriteContract();
-  const { isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
+  // wagmi write contract hook for on-chain execution
+  const { writeContract, data: txHash, isPending: isTxPending, reset: resetTx } = useWriteContract();
+  const { isSuccess: isTxConfirmed, isLoading: isTxWaiting } = useWaitForTransactionReceipt({ hash: txHash });
 
   useEffect(() => {
-    // Load predictions on mount
     loadPredictions();
-    loadAutoTradeState();
-    loadHotWalletAddress();
   }, [agentId]);
 
-  // When on-chain tx confirms, mark as authorized
+  // When on-chain tx confirms, show success
   useEffect(() => {
     if (isTxConfirmed && txHash) {
-      setOnChainAuthorized(true);
-      setOnChainLoading(false);
-      toast.success(t('agentInteraction.onChainAuthSuccess', 'On-chain auto-trade authorized'));
+      setExecuteLoading(false);
+      toast.success(t('agentInteraction.executeSuccess', 'Trade executed on-chain!'));
+      setSuggestion(null);
+      setExecuteAmount('');
+      resetTx();
     }
   }, [isTxConfirmed, txHash]);
 
@@ -79,76 +62,6 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
       const data = await getAgentPredictions(agentId);
       setPredictions(data);
     } catch { /* ignore */ }
-  };
-
-  const loadAutoTradeState = async () => {
-    try {
-      const agent = await getAutoTradeAuth(agentId);
-      if (!agent) return;
-
-      const expiresAt = Number(agent.auto_trade_expires) || 0;
-      const enabled = Boolean(agent.auto_trade_enabled) && (expiresAt === 0 || expiresAt > Date.now());
-      setAutoEnabled(enabled);
-
-      if (agent.max_per_trade != null) {
-        setMaxPerTrade(String(agent.max_per_trade));
-      }
-      if (agent.max_daily_amount != null) {
-        setMaxDaily(String(agent.max_daily_amount));
-      }
-      if (expiresAt > Date.now()) {
-        const hoursLeft = Math.max(1, Math.ceil((expiresAt - Date.now()) / 3600000));
-        setDuration(String(hoursLeft));
-      }
-    } catch {
-      // ignore initialization errors
-    }
-  };
-
-  const loadHotWalletAddress = async () => {
-    try {
-      const addr = await getHotWalletAddress();
-      setHotWalletAddress(addr);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleOnChainAuthorize = () => {
-    if (!hotWalletAddress || tokenId == null) return;
-    setOnChainLoading(true);
-    try {
-      const maxPerTradeWei = parseUnits(maxPerTrade || '50', 18);
-      const maxDailyWei = parseUnits(maxDaily || '200', 18);
-      const durationSeconds = BigInt(Number(duration || '24') * 3600);
-
-      writeContract({
-        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
-        abi: NFA_ABI,
-        functionName: 'authorizeAutoTrade',
-        args: [BigInt(tokenId), hotWalletAddress as `0x${string}`, maxPerTradeWei, maxDailyWei, durationSeconds],
-      });
-    } catch (err: any) {
-      setOnChainLoading(false);
-      toast.error(err?.shortMessage || err?.message || 'Failed to authorize on-chain');
-    }
-  };
-
-  const handleOnChainRevoke = () => {
-    if (tokenId == null) return;
-    setOnChainLoading(true);
-    try {
-      writeContract({
-        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
-        abi: NFA_ABI,
-        functionName: 'revokeAutoTrade',
-        args: [BigInt(tokenId)],
-      });
-      setOnChainAuthorized(false);
-    } catch (err: any) {
-      setOnChainLoading(false);
-      toast.error(err?.shortMessage || err?.message || 'Failed to revoke on-chain');
-    }
   };
 
   const handlePredict = async () => {
@@ -174,9 +87,15 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
   const handleSuggest = async () => {
     if (!sugMarket) { toast.error(t('agentInteraction.selectMarketError')); return; }
     setSugLoading(true);
+    setSuggestion(null);
+    setExecuteAmount('');
     try {
       const data = await generateSuggestion(agentId, sugMarket);
       setSuggestion(data);
+      // Pre-fill suggested amount
+      if (data.suggestedAmount) {
+        setExecuteAmount(String(data.suggestedAmount));
+      }
     } catch (err: any) {
       toast.error(err.message || t('agentInteraction.adviceFailed'));
     } finally {
@@ -184,44 +103,34 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
     }
   };
 
-  const handleAcceptSuggestion = async () => {
-    if (!suggestion) return;
-    try {
-      await executeSuggestion(agentId, suggestion.id, true);
-      toast.success(t('agentInteraction.adviceAccepted'));
-      setSuggestion(null);
-    } catch (err: any) {
-      toast.error(err.message || t('agentInteraction.executionFailed'));
+  const handleExecuteOnChain = () => {
+    if (!suggestion || tokenId == null) return;
+    if (suggestion.onChainMarketId == null) {
+      toast.error(t('agentInteraction.noOnChainMarket', 'This market has no on-chain ID'));
+      return;
     }
-  };
+    const amount = Number(executeAmount);
+    if (!amount || amount <= 0) {
+      toast.error(t('agentInteraction.invalidAmount', 'Please enter a valid amount'));
+      return;
+    }
 
-  const handleAuthorize = async () => {
-    setAutoLoading(true);
+    setExecuteLoading(true);
     try {
-      await authorizeAutoTrade(agentId, {
-        maxPerTrade: Number(maxPerTrade),
-        maxDailyAmount: Number(maxDaily),
-        durationHours: Number(duration),
+      writeContract({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: 'agentPredictionTakePosition',
+        args: [
+          BigInt(tokenId),
+          BigInt(suggestion.onChainMarketId),
+          suggestion.suggestedSide === 'yes',
+          parseUnits(String(amount), 18),
+        ],
       });
-      setAutoEnabled(true);
-      toast.success(t('agentInteraction.autoAuthorized'));
     } catch (err: any) {
-      toast.error(err.message || t('agentInteraction.authorizationFailed'));
-    } finally {
-      setAutoLoading(false);
-    }
-  };
-
-  const handleRevoke = async () => {
-    setAutoLoading(true);
-    try {
-      await revokeAutoTrade(agentId);
-      setAutoEnabled(false);
-      toast.success(t('agentInteraction.autoRevoked'));
-    } catch (err: any) {
-      toast.error(err.message || t('agentInteraction.revokeFailed'));
-    } finally {
-      setAutoLoading(false);
+      setExecuteLoading(false);
+      toast.error(err?.shortMessage || err?.message || 'Transaction failed');
     }
   };
 
@@ -230,7 +139,6 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
   const TABS = [
     { id: 'predict' as const, label: t('agentInteraction.tabPredict'), icon: Brain },
     { id: 'suggest' as const, label: t('agentInteraction.tabSuggest'), icon: Lightbulb },
-    { id: 'auto' as const, label: t('agentInteraction.tabAuto'), icon: Zap },
   ];
 
   const activeMarkets = markets.filter(m => m.status === 'active');
@@ -267,7 +175,7 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
       </div>
 
       <div className="p-6">
-        {/* Tab 1: 预测记录 */}
+        {/* Tab 1: Predict */}
         {activeTab === 'predict' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -375,7 +283,7 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
           </div>
         )}
 
-        {/* Tab 2: 交易建议 */}
+        {/* Tab 2: Suggest + Execute On-chain */}
         {activeTab === 'suggest' && (
           <div className="space-y-4">
             <div>
@@ -440,136 +348,63 @@ export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentIn
 
                 <p className="text-muted-foreground text-sm">{suggestion.reasoning}</p>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleAcceptSuggestion}
-                    className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-sm transition-colors"
-                  >
-                    {t('agentInteraction.acceptAdvice')}
-                  </button>
-                  <button
-                    onClick={() => setSuggestion(null)}
-                    className="flex-1 py-2 bg-muted hover:bg-accent text-muted-foreground font-bold text-sm transition-colors"
-                  >
-                    {t('agentInteraction.rejectAdvice')}
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        )}
+                {/* Amount input + Execute button */}
+                <div className="border-t border-border pt-3 space-y-3">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">
+                      {t('agentInteraction.tradeAmount', 'Trade Amount (USDT)')}
+                    </label>
+                    <input
+                      type="number"
+                      value={executeAmount}
+                      onChange={(e) => setExecuteAmount(e.target.value)}
+                      min="0.01"
+                      step="0.01"
+                      placeholder={String(suggestion.suggestedAmount || '50')}
+                      className="w-full bg-input-background border border-border text-foreground text-sm py-2 px-3 focus:outline-none focus:border-blue-500/50 font-mono"
+                    />
+                  </div>
 
-        {/* Tab 3: 自动交易 */}
-        {activeTab === 'auto' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 p-4 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-sm">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <span>{t('agentInteraction.autoTradeWarning')}</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.maxPerTrade')}</label>
-                <input
-                  type="number"
-                  value={maxPerTrade}
-                  onChange={(e) => setMaxPerTrade(e.target.value)}
-                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.dailyLimit')}</label>
-                <input
-                  type="number"
-                  value={maxDaily}
-                  onChange={(e) => setMaxDaily(e.target.value)}
-                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-muted-foreground mb-2">{t('agentInteraction.authDuration')}</label>
-                <select
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="w-full bg-input-background border border-border text-foreground text-sm py-2.5 px-3 focus:outline-none focus:border-blue-500/50"
-                >
-                  <option value="1">{t('agentInteraction.hours1')}</option>
-                  <option value="6">{t('agentInteraction.hours6')}</option>
-                  <option value="12">{t('agentInteraction.hours12')}</option>
-                  <option value="24">{t('agentInteraction.hours24')}</option>
-                  <option value="72">{t('agentInteraction.days3')}</option>
-                  <option value="168">{t('agentInteraction.weeks1')}</option>
-                  <option value="720">{t('agentInteraction.days30')}</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Step 1: Backend authorization (DB) */}
-            {!autoEnabled ? (
-              <button
-                onClick={handleAuthorize}
-                disabled={autoLoading}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
-              >
-                <Zap className="w-4 h-4" />
-                {autoLoading ? t('agentInteraction.authorizing') : t('agentInteraction.authorizeAuto')}
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm flex items-center gap-2">
-                  <Zap className="w-4 h-4" />
-                  {t('agentInteraction.autoEnabled')}
-                </div>
-                <button
-                  onClick={handleRevoke}
-                  disabled={autoLoading}
-                  className="w-full py-3 bg-red-500/20 border border-red-500/50 hover:bg-red-500/30 text-red-400 font-bold text-sm transition-colors"
-                >
-                  {autoLoading ? t('agentInteraction.revoking') : t('agentInteraction.revokeAuth')}
-                </button>
-              </div>
-            )}
-
-            {/* Step 2: On-chain authorization (NFA contract) */}
-            {tokenId != null && hotWalletAddress && (
-              <div className="mt-4 p-4 bg-card border border-border space-y-3">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Shield className="w-4 h-4 text-blue-400" />
-                  {t('agentInteraction.onChainAuth', 'On-chain Authorization')}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t('agentInteraction.onChainAuthDesc', 'Authorize the backend hot wallet to execute trades on-chain via your NFA. Your private key stays in your wallet.')}
-                </p>
-                <div className="text-xs text-muted-foreground font-mono bg-muted/50 p-2 break-all">
-                  Hot Wallet: {hotWalletAddress}
-                </div>
-                {!onChainAuthorized ? (
-                  <button
-                    onClick={handleOnChainAuthorize}
-                    disabled={onChainLoading || isTxPending}
-                    className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Shield className="w-4 h-4" />
-                    {onChainLoading || isTxPending
-                      ? t('agentInteraction.onChainAuthorizing', 'Authorizing on-chain...')
-                      : t('agentInteraction.onChainAuthorizeBtn', 'Authorize On-chain')}
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
-                      <Shield className="w-3 h-3" />
-                      {t('agentInteraction.onChainAuthActive', 'On-chain authorization active')}
-                    </div>
+                  <div className="flex gap-2">
                     <button
-                      onClick={handleOnChainRevoke}
-                      disabled={onChainLoading || isTxPending}
-                      className="w-full py-2 bg-red-500/20 border border-red-500/50 hover:bg-red-500/30 text-red-400 font-bold text-xs transition-colors"
+                      onClick={handleExecuteOnChain}
+                      disabled={executeLoading || isTxPending || isTxWaiting || !executeAmount || tokenId == null}
+                      className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2"
                     >
-                      {t('agentInteraction.onChainRevokeBtn', 'Revoke On-chain')}
+                      <ExternalLink className="w-4 h-4" />
+                      {executeLoading || isTxPending
+                        ? t('agentInteraction.signing', 'Signing...')
+                        : isTxWaiting
+                        ? t('agentInteraction.confirming', 'Confirming...')
+                        : t('agentInteraction.executeOnChain', 'Execute On-chain')}
+                    </button>
+                    <button
+                      onClick={() => { setSuggestion(null); setExecuteAmount(''); }}
+                      className="flex-1 py-2.5 bg-muted hover:bg-accent text-muted-foreground font-bold text-sm transition-colors"
+                    >
+                      {t('agentInteraction.rejectAdvice')}
                     </button>
                   </div>
+
+                  {tokenId == null && (
+                    <p className="text-xs text-yellow-400">
+                      {t('agentInteraction.needMintFirst', 'Agent must be minted on-chain (NFA) to execute trades')}
+                    </p>
+                  )}
+                  {suggestion.onChainMarketId == null && (
+                    <p className="text-xs text-yellow-400">
+                      {t('agentInteraction.noOnChainMarketWarning', 'This market does not have an on-chain ID. Cannot execute.')}
+                    </p>
+                  )}
+                </div>
+
+                {/* Show tx hash if available */}
+                {txHash && (
+                  <div className="text-xs text-muted-foreground font-mono break-all">
+                    Tx: {txHash}
+                  </div>
                 )}
-              </div>
+              </motion.div>
             )}
           </div>
         )}
