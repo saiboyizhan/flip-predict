@@ -42,7 +42,7 @@ async function main() {
 
   // 2. Deploy NFA and link
   const NFA = await ethers.getContractFactory("NFA");
-  const nfa = await NFA.deploy(pmProxyAddress);
+  const nfa = await NFA.deploy(usdtAddress);
   await nfa.waitForDeployment();
   const nfaAddress = await nfa.getAddress();
   console.log(`  NFA:               ${nfaAddress}`);
@@ -51,6 +51,11 @@ async function main() {
   const linkTx = await pm.setNFAContract(nfaAddress);
   await linkTx.wait();
   console.log(`  NFA linked to PM`);
+
+  const nfaContract = NFA.attach(nfaAddress) as any;
+  const setPmTx = await nfaContract.setPredictionMarket(pmProxyAddress);
+  await setPmTx.wait();
+  console.log(`  PM linked to NFA`);
 
   // 3. Deploy LimitOrderBook UUPS Proxy
   const LimitOrderBook = await ethers.getContractFactory("LimitOrderBook");
