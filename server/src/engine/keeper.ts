@@ -4,6 +4,7 @@ import { getOraclePrice, SUPPORTED_PAIRS } from './oracle';
 import { fetchTokenPrice } from './dexscreener';
 import { broadcastMarketResolved } from '../ws';
 import { resolvePredictions } from './agent-prediction';
+import { settleAgentTrades } from './agent-settlement';
 
 /**
  * Check if an oracle_pair value is a BSC token address (0x...) rather than
@@ -138,6 +139,11 @@ export async function checkAndResolveMarkets(db: Pool): Promise<void> {
       await resolvePredictions(db, resolved.marketId, resolved.outcome);
     } catch (err: any) {
       console.error(`Failed to resolve predictions for ${resolved.marketId}:`, err.message);
+    }
+    try {
+      await settleAgentTrades(db, resolved.marketId, resolved.outcome);
+    } catch (err: any) {
+      console.error(`Failed to settle agent trades for ${resolved.marketId}:`, err.message);
     }
   }
 }

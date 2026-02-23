@@ -13,6 +13,8 @@ import {
   broadcastMarketResolved,
   broadcastOrderBookUpdate,
 } from '../ws/index';
+import { resolvePredictions } from './agent-prediction';
+import { settleAgentTrades } from './agent-settlement';
 
 const PREDICTION_MARKET_ADDRESS =
   process.env.PREDICTION_MARKET_ADDRESS ||
@@ -290,6 +292,17 @@ export function startEventListener(db: Pool): void {
 
         broadcastPriceUpdate(internalId, finalYesPrice, finalNoPrice);
         broadcastMarketResolved(internalId, outcomeStr);
+
+        try {
+          await resolvePredictions(db, internalId, outcomeStr);
+        } catch (err: any) {
+          console.error(`[event-listener] Failed to resolve predictions for ${internalId}:`, err.message);
+        }
+        try {
+          await settleAgentTrades(db, internalId, outcomeStr);
+        } catch (err: any) {
+          console.error(`[event-listener] Failed to settle agent trades for ${internalId}:`, err.message);
+        }
       }
 
       console.info(`[event-listener] MarketResolved: market ${mId} -> ${outcomeStr}`);

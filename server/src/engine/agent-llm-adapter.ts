@@ -14,6 +14,19 @@ interface LlmConfig {
   enabled: number;
 }
 
+interface EnrichedMarket {
+  id: string;
+  title: string;
+  yes_price: number;
+  category: string;
+  description: string | null;
+  end_time: number;
+  volume: number;
+  liquidity: number;
+  total_lp_shares: number;
+  comment_count: number;
+}
+
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com/v1',
@@ -29,31 +42,97 @@ async function getAgentLlmConfig(db: Pool, agentId: string): Promise<LlmConfig |
   return (result.rows[0] as LlmConfig) || null;
 }
 
+async function fetchPriceTrends(db: Pool, marketIds: string[]): Promise<Map<string, string>> {
+  if (marketIds.length === 0) return new Map();
+
+  const result = await db.query(`
+    SELECT market_id, yes_price, timestamp
+    FROM price_history
+    WHERE market_id = ANY($1)
+    ORDER BY market_id, timestamp DESC
+  `, [marketIds]);
+
+  const trends = new Map<string, string>();
+  const byMarket = new Map<string, number[]>();
+
+  for (const row of result.rows) {
+    const arr = byMarket.get(row.market_id) || [];
+    arr.push(Number(row.yes_price));
+    byMarket.set(row.market_id, arr);
+  }
+
+  for (const [mId, prices] of byMarket) {
+    const recent5 = prices.slice(0, 5);
+    if (recent5.length < 2) { trends.set(mId, 'stable'); continue; }
+    const diff = recent5[0] - recent5[recent5.length - 1];
+    trends.set(mId, diff > 0.05 ? 'rising' : diff < -0.05 ? 'falling' : 'stable');
+  }
+  return trends;
+}
+
+async function fetchAgentHistory(db: Pool, agentId: string): Promise<string> {
+  const trades = await db.query(`
+    SELECT market_id, side, amount, outcome, profit, created_at
+    FROM agent_trades WHERE agent_id = $1 AND status = 'settled'
+    ORDER BY created_at DESC LIMIT 10
+  `, [agentId]);
+
+  if (trades.rows.length === 0) return 'No trade history yet.';
+
+  const wins = trades.rows.filter(t => t.outcome === 'win').length;
+  const totalProfit = trades.rows.reduce((s, t) => s + Number(t.profit || 0), 0);
+
+  return `Recent ${trades.rows.length} trades: ${wins} wins, ${trades.rows.length - wins} losses, net P&L: $${totalProfit.toFixed(2)}`;
+}
+
+async function fetchOwnerProfile(db: Pool, agentId: string): Promise<string> {
+  const profile = await db.query(
+    'SELECT * FROM agent_owner_profile WHERE agent_id = $1', [agentId]
+  );
+  if (profile.rows.length === 0) return '';
+  const p = profile.rows[0];
+  return `Owner profile: yes_ratio=${p.yes_ratio}, risk_score=${p.risk_score}, contrarian=${p.contrarian_score}`;
+}
+
 function buildMarketPrompt(
-  markets: { id: string; title: string; yes_price: number; category: string }[],
+  markets: EnrichedMarket[],
   strategy: string,
-  walletBalance: number
+  walletBalance: number,
+  priceTrends: Map<string, string>,
+  agentHistory: string,
+  ownerProfile: string,
 ): string {
-  const marketList = markets
-    .slice(0, 20)
-    .map((m, i) => `${i + 1}. [${m.id}] "${m.title}" (YES: ${m.yes_price.toFixed(2)}, NO: ${(1 - m.yes_price).toFixed(2)}, Category: ${m.category})`)
-    .join('\n');
+  const marketList = markets.slice(0, 15).map((m, i) => {
+    const trend = priceTrends.get(m.id) || 'unknown';
+    const hoursLeft = Math.max(0, Math.round((m.end_time - Math.floor(Date.now() / 1000)) / 3600));
+    return `${i + 1}. [${m.id}] "${m.title}"
+   YES: ${m.yes_price.toFixed(2)} | Trend: ${trend} | Volume: $${m.volume || 0} | Liquidity: $${m.liquidity || 0}
+   Category: ${m.category} | Ends in: ${hoursLeft}h | Comments: ${m.comment_count || 0}${m.description ? `\n   Desc: ${m.description.slice(0, 100)}` : ''}`;
+  }).join('\n');
+
+  let strategyHint = '';
+  switch (strategy) {
+    case 'conservative': strategyHint = 'Focus on markets with clear trends, bet 3-5% of balance'; break;
+    case 'aggressive': strategyHint = 'Look for mispriced markets, bet 10-20% of balance'; break;
+    case 'contrarian': strategyHint = 'Bet against consensus when confidence is high'; break;
+    case 'momentum': strategyHint = 'Follow strong trends, avoid stale markets'; break;
+  }
 
   return `You are a prediction market trading agent with strategy "${strategy}".
-Your wallet balance is $${walletBalance.toFixed(2)}.
+Wallet: $${walletBalance.toFixed(2)}
+
+${agentHistory}
+${ownerProfile}
 
 Active markets:
 ${marketList}
 
-Based on your strategy, select 1-3 markets to trade. For each trade, specify:
-- action: "buy" to open a position, or "sell" to close an existing position (take profit / stop loss)
-- marketId: the market ID in brackets
-- side: "yes" or "no"
-- amount: dollar amount (reasonable % of balance based on strategy)
-- confidence: 0-1
-- reasoning: brief explanation
+Instructions:
+- Analyze price trends, time remaining, and market context
+${strategyHint ? `- ${strategyHint}` : ''}
+- Use your trade history to avoid repeating mistakes
 
-Respond ONLY with a JSON array:
+Select 1-3 markets. Respond ONLY with JSON array:
 [{"action":"buy","marketId":"...","side":"yes","amount":50,"confidence":0.7,"reasoning":"..."}]`;
 }
 
@@ -103,7 +182,6 @@ async function callOpenAICompatible(
   temperature: number,
   maxTokens: number
 ): Promise<string> {
-  // Use dynamic import for openai SDK
   const { default: OpenAI } = await import('openai');
   const client = new OpenAI({ apiKey, baseURL: baseUrl });
 
@@ -122,7 +200,6 @@ async function callOpenAICompatible(
 }
 
 function parseLlmResponse(text: string): AgentDecision[] {
-  // Try to extract JSON array from response
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) return [];
 
@@ -179,14 +256,24 @@ export async function generateLlmDecisions(
   try {
     const apiKey = decrypt(config.api_key_encrypted);
 
-    // Fetch active markets
-    const markets = (await db.query(
-      "SELECT id, title, yes_price, category FROM markets WHERE status = 'active'"
-    )).rows as { id: string; title: string; yes_price: number; category: string }[];
+    // Fetch active markets with enriched data
+    const markets = (await db.query(`
+      SELECT m.id, m.title, m.yes_price, m.category, m.description, m.end_time,
+             m.volume, m.total_liquidity as liquidity, m.total_lp_shares,
+             (SELECT COUNT(*) FROM comments c WHERE c.market_id = m.id) as comment_count
+      FROM markets m WHERE m.status = 'active'
+    `)).rows as EnrichedMarket[];
 
     if (markets.length === 0 || walletBalance < 1) return [];
 
-    const userPrompt = buildMarketPrompt(markets, strategy, walletBalance);
+    const marketIds = markets.map(m => m.id);
+    const [priceTrends, agentHistory, ownerProfile] = await Promise.all([
+      fetchPriceTrends(db, marketIds),
+      fetchAgentHistory(db, agentId),
+      fetchOwnerProfile(db, agentId),
+    ]);
+
+    const userPrompt = buildMarketPrompt(markets, strategy, walletBalance, priceTrends, agentHistory, ownerProfile);
 
     let responseText: string;
 

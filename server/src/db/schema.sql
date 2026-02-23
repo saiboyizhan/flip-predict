@@ -769,3 +769,11 @@ END $$;
 ALTER TABLE open_orders ADD COLUMN IF NOT EXISTS on_chain_order_id BIGINT;
 ALTER TABLE open_orders ADD COLUMN IF NOT EXISTS tx_hash TEXT;
 CREATE INDEX IF NOT EXISTS idx_open_orders_on_chain ON open_orders(on_chain_order_id);
+
+-- ============================================
+-- Agent autonomous decision system: pending trade lifecycle
+-- ============================================
+ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'settled';
+ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS reasoning TEXT;
+ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS settled_at BIGINT;
+CREATE INDEX IF NOT EXISTS idx_agent_trades_market ON agent_trades(market_id);
