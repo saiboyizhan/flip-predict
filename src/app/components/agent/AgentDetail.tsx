@@ -115,7 +115,7 @@ export function AgentDetail() {
   const isOwner = address && agent && agent.owner_address.toLowerCase() === address.toLowerCase();
 
   // NFA Contract hooks
-  const tokenId = agent?.nft_token_id ? BigInt(agent.nft_token_id) : undefined;
+  const tokenId = agent?.token_id ? BigInt(agent.token_id) : undefined;
   const { stateValue, stateName, refetch: refetchState, isLoading: stateLoading } = useAgentState(tokenId);
   const { balanceUSDT, refetch: refetchBalance, isLoading: balanceLoading } = useAgentBalance(tokenId);
   const { fundAgent, isPending: isFunding, isSuccess: fundSuccess, error: fundError, approveNeeded, isApproving } = useFundAgent();
@@ -1192,6 +1192,7 @@ export function AgentDetail() {
                     { id: 'llm', label: t('agentDetail.tabLlm') },
                     { id: 'copyTrading', label: t('copyTrade.title') },
                     { id: 'earnings', label: t('earnings.title') },
+                    { id: 'onchain', label: t('agentDetail.tabOnchain', { defaultValue: 'On-chain' }) },
                   ]
                 : [
                     { id: 'trades', label: t('agentDetail.tabTrades') },
