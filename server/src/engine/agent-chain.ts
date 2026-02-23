@@ -29,6 +29,7 @@ const NFA_ABI = [
   'function predictionMarketBalances(uint256 tokenId) view returns (uint256)',
   'function ownerOf(uint256 tokenId) view returns (address)',
   'function getAgentBalance(uint256 tokenId) view returns (uint256)',
+  'function getAutoTradeAuth(uint256 tokenId) view returns (tuple(bool authorized, address authorizedCaller, uint256 maxAmountPerTrade, uint256 maxDailyAmount, uint256 dailyUsed, uint256 lastResetDay, uint256 expiresAt))',
 ];
 
 let wallet: ethers.Wallet | null = null;
@@ -36,10 +37,20 @@ let nfaContract: ethers.Contract | null = null;
 let initialized = false;
 
 export function initAgentChain(): boolean {
-  const privateKey = process.env.AGENT_HOT_WALLET_KEY || '';
-  if (!privateKey || !NFA_ADDRESS || !ethers.isAddress(NFA_ADDRESS)) {
-    console.warn('[agent-chain] AGENT_HOT_WALLET_KEY or NFA_CONTRACT_ADDRESS not set, on-chain agent trading disabled');
+  if (!NFA_ADDRESS || !ethers.isAddress(NFA_ADDRESS)) {
+    console.warn('[agent-chain] NFA_CONTRACT_ADDRESS not set, on-chain agent trading disabled');
     return false;
+  }
+
+  let privateKey = process.env.AGENT_HOT_WALLET_KEY || '';
+
+  // Auto-generate a hot wallet if none is configured
+  if (!privateKey) {
+    const generated = ethers.Wallet.createRandom();
+    privateKey = generated.privateKey;
+    console.info(`[agent-chain] No AGENT_HOT_WALLET_KEY set, generated hot wallet: ${generated.address}`);
+    console.info('[agent-chain] To persist this wallet, set AGENT_HOT_WALLET_KEY in your environment');
+    console.info('[agent-chain] Users must call NFA.authorizeAutoTrade(tokenId, hotWalletAddress, ...) to grant trading permission');
   }
 
   try {
@@ -64,16 +75,20 @@ export function getHotWalletAddress(): string | null {
 }
 
 /**
- * Check if the hot wallet owns the given NFA token and has sufficient PM balance.
+ * Check if the hot wallet can trade for the given NFA token.
+ * The hot wallet is ready if it either:
+ *   1. Owns the token, OR
+ *   2. Has been authorized via NFA.authorizeAutoTrade()
  */
 export async function checkAgentOnChainReady(tokenId: number): Promise<{
   ready: boolean;
   owner: string;
   pmBalance: bigint;
+  isAutoTrader: boolean;
   reason?: string;
 }> {
   if (!nfaContract || !wallet) {
-    return { ready: false, owner: '', pmBalance: 0n, reason: 'Chain module not initialized' };
+    return { ready: false, owner: '', pmBalance: 0n, isAutoTrader: false, reason: 'Chain module not initialized' };
   }
 
   try {
@@ -82,13 +97,35 @@ export async function checkAgentOnChainReady(tokenId: number): Promise<{
       nfaContract.predictionMarketBalances(tokenId) as Promise<bigint>,
     ]);
 
-    if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
-      return { ready: false, owner, pmBalance, reason: `Token ${tokenId} owned by ${owner}, not hot wallet ${wallet.address}` };
+    // Case 1: hot wallet is the token owner
+    if (owner.toLowerCase() === wallet.address.toLowerCase()) {
+      return { ready: true, owner, pmBalance, isAutoTrader: false };
     }
 
-    return { ready: true, owner, pmBalance };
+    // Case 2: check on-chain auto-trade authorization
+    try {
+      const auth = await nfaContract.getAutoTradeAuth(tokenId);
+      const authorized = auth.authorized;
+      const caller = (auth.authorizedCaller as string).toLowerCase();
+      const expiresAt = Number(auth.expiresAt);
+      const now = Math.floor(Date.now() / 1000);
+
+      if (authorized && caller === wallet.address.toLowerCase() && expiresAt > now) {
+        return { ready: true, owner, pmBalance, isAutoTrader: true };
+      }
+    } catch {
+      // getAutoTradeAuth may fail if token doesn't exist or contract mismatch
+    }
+
+    return {
+      ready: false,
+      owner,
+      pmBalance,
+      isAutoTrader: false,
+      reason: `Token ${tokenId} owned by ${owner}, hot wallet ${wallet.address} is not owner and not authorized`,
+    };
   } catch (err: any) {
-    return { ready: false, owner: '', pmBalance: 0n, reason: err.message };
+    return { ready: false, owner: '', pmBalance: 0n, isAutoTrader: false, reason: err.message };
   }
 }
 

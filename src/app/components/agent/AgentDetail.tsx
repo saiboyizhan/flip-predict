@@ -1285,7 +1285,7 @@ export function AgentDetail() {
           )}
 
           {(activeDetailTab === 'predictions' || activeDetailTab === 'suggestions' || activeDetailTab === 'auto') && (
-            <AgentInteraction agentId={agent.id} isOwner={!!isOwner} markets={markets} />
+            <AgentInteraction agentId={agent.id} isOwner={!!isOwner} tokenId={agent.token_id} markets={markets} />
           )}
 
           {activeDetailTab === 'style' && (

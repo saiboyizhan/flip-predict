@@ -536,7 +536,10 @@ export const NFA_ABI = [
   {
     inputs: [
       { name: 'tokenId', type: 'uint256' },
-      { name: 'operator', type: 'address' },
+      { name: 'caller', type: 'address' },
+      { name: 'maxPerTrade', type: 'uint256' },
+      { name: 'maxDaily', type: 'uint256' },
+      { name: 'duration', type: 'uint256' },
     ],
     name: 'authorizeAutoTrade',
     outputs: [],
@@ -544,11 +547,79 @@ export const NFA_ABI = [
     type: 'function',
   },
   {
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    name: 'revokeAutoTrade',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    name: 'getAutoTradeAuth',
+    outputs: [
+      {
+        components: [
+          { name: 'authorized', type: 'bool' },
+          { name: 'authorizedCaller', type: 'address' },
+          { name: 'maxAmountPerTrade', type: 'uint256' },
+          { name: 'maxDailyAmount', type: 'uint256' },
+          { name: 'dailyUsed', type: 'uint256' },
+          { name: 'lastResetDay', type: 'uint256' },
+          { name: 'expiresAt', type: 'uint256' },
+        ],
+        name: '',
+        type: 'tuple',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+
+  // --- Prediction Market Bridge (additional) ---
+  {
     inputs: [
       { name: 'tokenId', type: 'uint256' },
-      { name: 'operator', type: 'address' },
+      { name: 'marketId', type: 'uint256' },
     ],
-    name: 'revokeAutoTrade',
+    name: 'agentPredictionClaimWinnings',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'marketId', type: 'uint256' },
+    ],
+    name: 'agentPredictionClaimRefund',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'withdrawFromPredictionMarketToAgent',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    name: 'predictionMarketBalances',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'marketId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'agentPredictionSplitPosition',
     outputs: [],
     stateMutability: 'nonpayable',
     type: 'function',

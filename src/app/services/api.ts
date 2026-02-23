@@ -798,6 +798,15 @@ export async function getAutoTradeAuth(agentId: string): Promise<any> {
   return data.agent ?? null
 }
 
+export async function getHotWalletAddress(): Promise<string | null> {
+  try {
+    const data = await request<{ address: string }>('/api/agents/hot-wallet')
+    return data.address ?? null
+  } catch {
+    return null
+  }
+}
+
 // --- Learning ---
 
 // Available but not yet wired to UI - see AgentDetail for integration point

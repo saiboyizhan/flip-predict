@@ -7,6 +7,7 @@ import { getLearningMetrics } from '../engine/agent-learning';
 import { encrypt, decrypt, maskApiKey } from '../utils/crypto';
 import { ethers } from 'ethers';
 import { BSC_CHAIN_ID, getRpcUrl } from '../config/network';
+import { getHotWalletAddress } from '../engine/agent-chain';
 
 const router = Router();
 
@@ -252,6 +253,16 @@ router.get('/', async (req: Request, res: Response) => {
     console.error('Agents error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// GET /api/agents/hot-wallet — get the backend hot wallet address for auto-trade authorization
+router.get('/hot-wallet', (_req: Request, res: Response) => {
+  const address = getHotWalletAddress();
+  if (!address) {
+    res.status(503).json({ error: 'Agent chain module not initialized' });
+    return;
+  }
+  res.json({ address });
 });
 
 // GET /api/agents/leaderboard — top 20 by ROI

@@ -661,12 +661,12 @@ describe("NFA", function () {
         ).to.be.revertedWith("Insufficient agent balance");
       });
 
-      it("should revert if caller is not token owner", async function () {
+      it("should revert if caller is not token owner or authorized", async function () {
         await setupBridge();
 
         await expect(
           nfa.connect(user2).depositToPredictionMarket(agentTokenId, depositAmount)
-        ).to.be.revertedWith("Not token owner");
+        ).to.be.revertedWith("Not authorized");
       });
 
       it("should revert if agent is not active", async function () {
@@ -702,13 +702,13 @@ describe("NFA", function () {
           .withArgs(agentTokenId, withdrawAmount);
       });
 
-      it("should revert withdrawFromPredictionMarketToAgent if caller is not token owner", async function () {
+      it("should revert withdrawFromPredictionMarketToAgent if caller is not token owner or authorized", async function () {
         await setupBridge();
         await nfa.connect(user1).depositToPredictionMarket(agentTokenId, depositAmount);
 
         await expect(
           nfa.connect(user2).withdrawFromPredictionMarketToAgent(agentTokenId, ethers.parseEther("1"))
-        ).to.be.revertedWith("Not token owner");
+        ).to.be.revertedWith("Not authorized");
       });
     });
 
@@ -738,7 +738,7 @@ describe("NFA", function () {
           .withArgs(agentTokenId, marketId, true, positionAmount);
       });
 
-      it("should revert if caller is not token owner", async function () {
+      it("should revert if caller is not token owner or authorized", async function () {
         await setupBridge();
         await nfa.connect(user1).depositToPredictionMarket(agentTokenId, depositAmount);
 
@@ -746,7 +746,7 @@ describe("NFA", function () {
           nfa.connect(user2).agentPredictionTakePosition(
             agentTokenId, marketId, true, positionAmount
           )
-        ).to.be.revertedWith("Not token owner");
+        ).to.be.revertedWith("Not authorized");
       });
     });
 
@@ -780,7 +780,7 @@ describe("NFA", function () {
           .withArgs(agentTokenId, marketId, positionAmount);
       });
 
-      it("should revert if caller is not token owner", async function () {
+      it("should revert if caller is not token owner or authorized", async function () {
         await setupBridge();
         await nfa.connect(user1).depositToPredictionMarket(agentTokenId, depositAmount);
 
@@ -788,7 +788,7 @@ describe("NFA", function () {
           nfa.connect(user2).agentPredictionSplitPosition(
             agentTokenId, marketId, positionAmount
           )
-        ).to.be.revertedWith("Not token owner");
+        ).to.be.revertedWith("Not authorized");
       });
     });
 
@@ -874,7 +874,7 @@ describe("NFA", function () {
         await expect(tx).to.emit(nfa, "AgentRefundViaPM");
       });
 
-      it("should revert if caller is not token owner", async function () {
+      it("should revert if caller is not token owner or authorized", async function () {
         await setupBridge();
         await nfa.connect(user1).depositToPredictionMarket(agentTokenId, depositAmount);
         await nfa.connect(user1).agentPredictionTakePosition(
@@ -884,7 +884,7 @@ describe("NFA", function () {
 
         await expect(
           nfa.connect(user2).agentPredictionClaimRefund(agentTokenId, marketId)
-        ).to.be.revertedWith("Not token owner");
+        ).to.be.revertedWith("Not authorized");
       });
     });
   });

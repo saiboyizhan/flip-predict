@@ -54,6 +54,37 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     // Vault permissions
     mapping(uint256 => mapping(address => Permission)) private _vaultPermissions;
 
+    // ─── Modifiers for Auto Trade ──────────────────────────────
+    /// @dev Allows token owner OR authorized auto-trader (with amount limit checks)
+    modifier onlyTokenOwnerOrAutoTrader(uint256 tokenId, uint256 amount) {
+        if (msg.sender != ownerOf(tokenId)) {
+            AutoTradeAuth storage auth = _autoTradeAuth[tokenId];
+            require(auth.authorized, "Not authorized");
+            require(msg.sender == auth.authorizedCaller, "Not authorized caller");
+            require(block.timestamp < auth.expiresAt, "Authorization expired");
+            require(amount <= auth.maxAmountPerTrade, "Exceeds per-trade limit");
+            uint256 today = block.timestamp / 1 days;
+            if (today > auth.lastResetDay) {
+                auth.dailyUsed = 0;
+                auth.lastResetDay = today;
+            }
+            require(auth.dailyUsed + amount <= auth.maxDailyAmount, "Exceeds daily limit");
+            auth.dailyUsed += amount;
+        }
+        _;
+    }
+
+    /// @dev Allows token owner OR authorized auto-trader (no amount limit, for claim/refund/withdraw)
+    modifier onlyTokenOwnerOrAutoTraderNoLimit(uint256 tokenId) {
+        if (msg.sender != ownerOf(tokenId)) {
+            AutoTradeAuth storage auth = _autoTradeAuth[tokenId];
+            require(auth.authorized, "Not authorized");
+            require(msg.sender == auth.authorizedCaller, "Not authorized caller");
+            require(block.timestamp < auth.expiresAt, "Authorization expired");
+        }
+        _;
+    }
+
     // ─── Events ─────────────────────────────────────────────────
     event AutoTradeAuthorized(uint256 indexed tokenId, uint256 maxPerTrade, uint256 maxDaily, uint256 expiresAt);
     event AutoTradeRevoked(uint256 indexed tokenId);
@@ -366,7 +397,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
 
     /// @notice Deposit agent's USDT into PredictionMarket balance (so agent can trade)
     function depositToPredictionMarket(uint256 tokenId, uint256 amount)
-        external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
+        external onlyTokenOwnerOrAutoTrader(tokenId, amount) onlyActiveAgent(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         require(amount > 0, "Amount must be > 0");
@@ -386,7 +417,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
 
     /// @notice Withdraw this agent's PredictionMarket balance back into local agent balance
     function withdrawFromPredictionMarketToAgent(uint256 tokenId, uint256 amount)
-        external onlyTokenOwner(tokenId) nonReentrant
+        external onlyTokenOwnerOrAutoTraderNoLimit(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         require(amount > 0, "Amount must be > 0");
@@ -409,7 +440,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
 
     /// @notice Take a YES/NO position on a market via PredictionMarket
     function agentPredictionTakePosition(uint256 tokenId, uint256 marketId, bool isYes, uint256 amount)
-        external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
+        external onlyTokenOwnerOrAutoTrader(tokenId, amount) onlyActiveAgent(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         require(amount > 0, "Amount must be > 0");
@@ -425,7 +456,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
 
     /// @notice Split collateral into YES+NO tokens via PredictionMarket (CTF)
     function agentPredictionSplitPosition(uint256 tokenId, uint256 marketId, uint256 amount)
-        external onlyTokenOwner(tokenId) onlyActiveAgent(tokenId) nonReentrant
+        external onlyTokenOwnerOrAutoTrader(tokenId, amount) onlyActiveAgent(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         require(amount > 0, "Amount must be > 0");
@@ -441,7 +472,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
 
     /// @notice Claim agent winnings from a resolved market via PredictionMarket
     function agentPredictionClaimWinnings(uint256 tokenId, uint256 marketId)
-        external onlyTokenOwner(tokenId) nonReentrant
+        external onlyTokenOwnerOrAutoTraderNoLimit(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         uint256 pmBalanceBefore = _getPredictionMarketBalance();
@@ -461,7 +492,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
 
     /// @notice Claim agent refund from a cancelled market via PredictionMarket
     function agentPredictionClaimRefund(uint256 tokenId, uint256 marketId)
-        external onlyTokenOwner(tokenId) nonReentrant
+        external onlyTokenOwnerOrAutoTraderNoLimit(tokenId) nonReentrant
     {
         require(predictionMarket != address(0), "Prediction market not set");
         uint256 pmBalanceBefore = _getPredictionMarketBalance();

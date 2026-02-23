@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Brain, Lightbulb, Zap, TrendingUp, Target, Clock, AlertTriangle } from "lucide-react";
+import { Brain, Lightbulb, Zap, TrendingUp, Target, Clock, AlertTriangle, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { parseUnits } from "viem";
 import {
   recordPrediction,
   getAgentPredictions,
@@ -11,15 +13,18 @@ import {
   authorizeAutoTrade,
   revokeAutoTrade,
   getAutoTradeAuth,
+  getHotWalletAddress,
 } from "@/app/services/api";
+import { NFA_CONTRACT_ADDRESS, NFA_ABI } from "@/app/config/nfaContracts";
 
 interface AgentInteractionProps {
   agentId: string;
   isOwner: boolean;
+  tokenId?: number | null;
   markets: Array<{ id: string; title: string; yes_price?: number; yesPrice?: number; status: string }>;
 }
 
-export function AgentInteraction({ agentId, isOwner, markets }: AgentInteractionProps) {
+export function AgentInteraction({ agentId, isOwner, tokenId, markets }: AgentInteractionProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'predict' | 'suggest' | 'auto'>('predict');
 
@@ -44,11 +49,30 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
   const [duration, setDuration] = useState('24');
   const [autoLoading, setAutoLoading] = useState(false);
 
+  // On-chain auto-trade authorization state
+  const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
+  const [onChainAuthorized, setOnChainAuthorized] = useState(false);
+  const [onChainLoading, setOnChainLoading] = useState(false);
+
+  // wagmi write contract hook for on-chain authorization
+  const { writeContract, data: txHash, isPending: isTxPending } = useWriteContract();
+  const { isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
+
   useEffect(() => {
     // Load predictions on mount
     loadPredictions();
     loadAutoTradeState();
+    loadHotWalletAddress();
   }, [agentId]);
+
+  // When on-chain tx confirms, mark as authorized
+  useEffect(() => {
+    if (isTxConfirmed && txHash) {
+      setOnChainAuthorized(true);
+      setOnChainLoading(false);
+      toast.success(t('agentInteraction.onChainAuthSuccess', 'On-chain auto-trade authorized'));
+    }
+  }, [isTxConfirmed, txHash]);
 
   const loadPredictions = async () => {
     try {
@@ -78,6 +102,52 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
       }
     } catch {
       // ignore initialization errors
+    }
+  };
+
+  const loadHotWalletAddress = async () => {
+    try {
+      const addr = await getHotWalletAddress();
+      setHotWalletAddress(addr);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleOnChainAuthorize = () => {
+    if (!hotWalletAddress || tokenId == null) return;
+    setOnChainLoading(true);
+    try {
+      const maxPerTradeWei = parseUnits(maxPerTrade || '50', 18);
+      const maxDailyWei = parseUnits(maxDaily || '200', 18);
+      const durationSeconds = BigInt(Number(duration || '24') * 3600);
+
+      writeContract({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: 'authorizeAutoTrade',
+        args: [BigInt(tokenId), hotWalletAddress as `0x${string}`, maxPerTradeWei, maxDailyWei, durationSeconds],
+      });
+    } catch (err: any) {
+      setOnChainLoading(false);
+      toast.error(err?.shortMessage || err?.message || 'Failed to authorize on-chain');
+    }
+  };
+
+  const handleOnChainRevoke = () => {
+    if (tokenId == null) return;
+    setOnChainLoading(true);
+    try {
+      writeContract({
+        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+        abi: NFA_ABI,
+        functionName: 'revokeAutoTrade',
+        args: [BigInt(tokenId)],
+      });
+      setOnChainAuthorized(false);
+    } catch (err: any) {
+      setOnChainLoading(false);
+      toast.error(err?.shortMessage || err?.message || 'Failed to revoke on-chain');
     }
   };
 
@@ -434,6 +504,7 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
               </div>
             </div>
 
+            {/* Step 1: Backend authorization (DB) */}
             {!autoEnabled ? (
               <button
                 onClick={handleAuthorize}
@@ -456,6 +527,48 @@ export function AgentInteraction({ agentId, isOwner, markets }: AgentInteraction
                 >
                   {autoLoading ? t('agentInteraction.revoking') : t('agentInteraction.revokeAuth')}
                 </button>
+              </div>
+            )}
+
+            {/* Step 2: On-chain authorization (NFA contract) */}
+            {tokenId != null && hotWalletAddress && (
+              <div className="mt-4 p-4 bg-card border border-border space-y-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Shield className="w-4 h-4 text-blue-400" />
+                  {t('agentInteraction.onChainAuth', 'On-chain Authorization')}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('agentInteraction.onChainAuthDesc', 'Authorize the backend hot wallet to execute trades on-chain via your NFA. Your private key stays in your wallet.')}
+                </p>
+                <div className="text-xs text-muted-foreground font-mono bg-muted/50 p-2 break-all">
+                  Hot Wallet: {hotWalletAddress}
+                </div>
+                {!onChainAuthorized ? (
+                  <button
+                    onClick={handleOnChainAuthorize}
+                    disabled={onChainLoading || isTxPending}
+                    className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Shield className="w-4 h-4" />
+                    {onChainLoading || isTxPending
+                      ? t('agentInteraction.onChainAuthorizing', 'Authorizing on-chain...')
+                      : t('agentInteraction.onChainAuthorizeBtn', 'Authorize On-chain')}
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
+                      <Shield className="w-3 h-3" />
+                      {t('agentInteraction.onChainAuthActive', 'On-chain authorization active')}
+                    </div>
+                    <button
+                      onClick={handleOnChainRevoke}
+                      disabled={onChainLoading || isTxPending}
+                      className="w-full py-2 bg-red-500/20 border border-red-500/50 hover:bg-red-500/30 text-red-400 font-bold text-xs transition-colors"
+                    >
+                      {t('agentInteraction.onChainRevokeBtn', 'Revoke On-chain')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
