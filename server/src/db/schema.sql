@@ -776,4 +776,6 @@ CREATE INDEX IF NOT EXISTS idx_open_orders_on_chain ON open_orders(on_chain_orde
 ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'settled';
 ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS reasoning TEXT;
 ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS settled_at BIGINT;
+ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+ALTER TABLE agent_trades ADD COLUMN IF NOT EXISTS on_chain_market_id BIGINT;
 CREATE INDEX IF NOT EXISTS idx_agent_trades_market ON agent_trades(market_id);

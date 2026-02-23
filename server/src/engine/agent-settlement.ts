@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { isAgentChainEnabled, executeAgentClaimOnChain } from './agent-chain';
 
 const roundTo = (n: number, decimals: number): number => {
   const multiplier = 10 ** decimals;
@@ -8,6 +9,11 @@ const roundTo = (n: number, decimals: number): number => {
 /**
  * Settle all pending agent trades for a resolved market.
  * Called after market resolution (keeper oracle or on-chain MarketResolved event).
+ *
+ * 1. Updates trade records with real outcome/profit
+ * 2. Returns principal+profit for winners
+ * 3. Calls NFA.agentPredictionClaimWinnings on-chain if enabled
+ * 4. Recalculates agent stats
  */
 export async function settleAgentTrades(db: Pool, marketId: string, outcome: string): Promise<number> {
   const trades = await db.query(
@@ -15,6 +21,34 @@ export async function settleAgentTrades(db: Pool, marketId: string, outcome: str
     [marketId]
   );
   if (trades.rows.length === 0) return 0;
+
+  // On-chain claim: group by agent token_id and claim once per agent
+  const chainEnabled = isAgentChainEnabled();
+  if (chainEnabled) {
+    // Get on_chain_market_id from market or from trades
+    const marketRow = (await db.query(
+      'SELECT on_chain_market_id FROM markets WHERE id = $1', [marketId]
+    )).rows[0];
+    const onChainMarketId = marketRow?.on_chain_market_id;
+
+    if (onChainMarketId != null) {
+      // Get unique agent token_ids that have winning trades
+      const agentIds = [...new Set(trades.rows.map((t: any) => t.agent_id))];
+      for (const agentId of agentIds) {
+        const agent = (await db.query('SELECT token_id FROM agents WHERE id=$1', [agentId])).rows[0];
+        if (agent?.token_id != null) {
+          // Check if this agent has any winning trades (worth claiming)
+          const hasWinner = trades.rows.some((t: any) => t.agent_id === agentId && t.side === outcome);
+          if (hasWinner) {
+            const txHash = await executeAgentClaimOnChain(agent.token_id, onChainMarketId);
+            if (txHash) {
+              console.info(`[agent-settlement] On-chain claim tx: ${txHash} (agent=${agentId}, market=${onChainMarketId})`);
+            }
+          }
+        }
+      }
+    }
+  }
 
   const client = await db.connect();
   try {
@@ -30,14 +64,13 @@ export async function settleAgentTrades(db: Pool, marketId: string, outcome: str
         [tradeOutcome, profit, Date.now(), trade.id]
       );
 
-      // Winner: return principal + profit
+      // Winner: return principal + profit (DB-level tracking)
       if (won) {
         await client.query(
           "UPDATE agents SET wallet_balance = wallet_balance + $1 WHERE id = $2",
           [roundTo(trade.amount + profit, 2), trade.agent_id]
         );
       }
-      // Loser: principal already deducted in runner, no refund
     }
 
     // Recalculate stats for all affected agents

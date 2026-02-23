@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { StrategyType } from './agent-strategy';
 import { generateLlmDecisions } from './agent-llm-adapter';
+import { isAgentChainEnabled, executeAgentBuyOnChain } from './agent-chain';
 
 const roundTo = (n: number, decimals: number): number => {
   const multiplier = 10 ** decimals;
@@ -19,6 +20,7 @@ interface AgentRow {
   experience: number;
   level: number;
   combo_weights: string | null;
+  token_id: number | null;
 }
 
 export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
@@ -35,6 +37,9 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
 
   if (decisions.length === 0) return;
 
+  const chainEnabled = isAgentChainEnabled();
+  const tokenId = agent.token_id;
+
   let { wallet_balance, total_trades, experience, level } = agent;
 
   const client = await db.connect();
@@ -44,6 +49,13 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
     for (const d of decisions) {
       if (d.action !== 'buy') continue;
       if (d.amount > wallet_balance || d.amount < 0.01) continue;
+
+      // Look up on_chain_market_id for this market
+      const marketRow = (await client.query(
+        'SELECT on_chain_market_id FROM markets WHERE id = $1',
+        [d.marketId]
+      )).rows[0];
+      const onChainMarketId = marketRow?.on_chain_market_id;
 
       wallet_balance -= d.amount;
       total_trades += 1;
@@ -55,12 +67,26 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
       const newLevel = Math.min(10, Math.floor(experience / 100) + 1);
       if (newLevel > level) level = newLevel;
 
+      // On-chain execution
+      let txHash: string | null = null;
+      if (chainEnabled && tokenId != null && onChainMarketId != null) {
+        const isYes = d.side === 'yes';
+        txHash = await executeAgentBuyOnChain(tokenId, onChainMarketId, isYes, d.amount);
+        if (!txHash) {
+          // On-chain failed — revert this trade's balance deduction and skip
+          wallet_balance += d.amount;
+          total_trades -= 1;
+          console.warn(`[agent-runner] On-chain buy failed for agent ${agentId}, market ${d.marketId}, skipping`);
+          continue;
+        }
+      }
+
       const tradeId = randomUUID();
 
       await client.query(`
         INSERT INTO agent_trades (id, agent_id, market_id, side, amount, shares, price,
-                                  outcome, profit, status, reasoning, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, 'pending', $8, $9)
+                                  outcome, profit, status, reasoning, tx_hash, on_chain_market_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, 'pending', $8, $9, $10, $11)
       `, [
         tradeId,
         agentId,
@@ -70,6 +96,8 @@ export async function runAgentCycle(db: Pool, agentId: string): Promise<void> {
         roundTo(shares, 2),
         roundTo(price, 4),
         d.reasoning || null,
+        txHash,
+        onChainMarketId,
         Date.now()
       ]);
     }

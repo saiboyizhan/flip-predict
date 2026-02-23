@@ -17,6 +17,7 @@ import agentRoutes from './routes/agents';
 import { startKeeper } from './engine/keeper';
 import { startEventListener, stopEventListener } from './engine/event-listener';
 import { startAgentRunner } from './engine/agent-runner';
+import { initAgentChain } from './engine/agent-chain';
 
 import marketCreationRoutes from './routes/market-creation';
 import leaderboardRoutes from './routes/leaderboard';
@@ -311,6 +312,7 @@ async function main() {
     console.log(`WebSocket available on ws://localhost:${PORT}`);
     const keeperInterval = startKeeper(pool, 30000);
     startEventListener(pool);
+    initAgentChain();
     const agentRunnerInterval = startAgentRunner(pool, 60000);
 
     // Graceful shutdown handler
