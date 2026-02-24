@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
+import { isPrivateUrl } from '../utils/url-validation';
 
 const router = Router();
 
@@ -113,6 +114,11 @@ router.put('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         const url = new URL(avatarUrl);
         if (!['http:', 'https:', 'data:'].includes(url.protocol)) {
           res.status(400).json({ error: 'Invalid avatarUrl protocol' });
+          return;
+        }
+        // SSRF protection: reject private/internal URLs
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && isPrivateUrl(url.hostname)) {
+          res.status(400).json({ error: 'avatarUrl must not point to a private/internal address' });
           return;
         }
       } catch {

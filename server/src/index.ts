@@ -72,6 +72,14 @@ const commentLimiter = isTestEnv ? noopLimiter : rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
+const settlementLimiter = isTestEnv ? noopLimiter : rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many settlement requests, please try again later.' },
+});
+
 async function main() {
   logNetworkConfigSummary();
 
@@ -132,7 +140,7 @@ async function main() {
   app.use('/api/markets', publicReadLimiter, marketCreationRoutes);
   app.use('/api/markets', publicReadLimiter, marketsRoutes);
   app.use('/api', portfolioRoutes);
-  app.use('/api/settlement', publicReadLimiter, settlementRoutes);
+  app.use('/api/settlement', settlementLimiter, settlementRoutes);
   app.use('/api/agents', publicReadLimiter, agentRoutes);
   app.use('/api/leaderboard', publicReadLimiter, leaderboardRoutes);
   app.use('/api/comments', commentLimiter, commentsRoutes);
@@ -278,7 +286,8 @@ async function main() {
       }
       const agentName = name || `Agent #${tid}`;
       const agentAvatar = avatar || '/avatars/default.png';
-      const id = 'agent-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+      const { randomUUID } = await import('crypto');
+      const id = 'agent-' + randomUUID().replace(/-/g, '').slice(0, 16);
       const now = Date.now();
       // Upsert: skip if tokenId already exists
       const existing = await pool.query('SELECT id FROM agents WHERE token_id = $1 LIMIT 1', [tid]);

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { getDb } from '../db';
 import { recordPrediction, analyzeStyle } from '../engine/agent-prediction';
@@ -63,7 +64,7 @@ function getNfaProvider(): ethers.JsonRpcProvider {
 }
 
 function generateId(): string {
-  return 'agent-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+  return 'agent-' + randomUUID().replace(/-/g, '').slice(0, 16);
 }
 
 function parsePositiveNumber(value: unknown): number | null {

@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect } from "react";
-import { Routes, Route, Link } from "react-router-dom";
+import { Routes, Route, Link, Navigate } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
@@ -79,6 +79,15 @@ function NotFoundPage() {
   );
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const isAdmin = useAuthStore((s) => s.isAdmin);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (!isAuthenticated || !isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
 function AnimatedRoutes() {
   return (
     <ErrorBoundary>
@@ -99,7 +108,7 @@ function AnimatedRoutes() {
         <Route path="/user/:address" element={<PageTransition><UserProfilePage /></PageTransition>} />
         <Route path="/feed" element={<PageTransition><FeedPage /></PageTransition>} />
         <Route path="/notifications" element={<PageTransition><NotificationsPage /></PageTransition>} />
-        <Route path="/admin/pending" element={<PageTransition><AdminPendingPage /></PageTransition>} />
+        <Route path="/admin/pending" element={<AdminRoute><PageTransition><AdminPendingPage /></PageTransition></AdminRoute>} />
         <Route path="*" element={
           <PageTransition>
             <NotFoundPage />
@@ -208,7 +217,7 @@ export default function App() {
           toast.error(t('auth.sessionExpired', { defaultValue: 'Session expired. Please reconnect your wallet.' }));
           return;
         }
-      } catch { return; }
+      } catch (e) { console.warn('[Auth] JWT parse error:', e); return; }
 
       // Auto-refresh if token is within 1 hour of expiry
       if (isTokenNearExpiry()) {

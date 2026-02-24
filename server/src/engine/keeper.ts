@@ -224,7 +224,7 @@ export async function settleMarketPositions(client: any, marketId: string, winni
 
   const now = Date.now();
 
-  await client.query("UPDATE markets SET status = 'settling' WHERE id = $1", [marketId]);
+  await client.query("UPDATE markets SET status = 'settling' WHERE id = $1 AND status IN ('resolved', 'pending_resolution')", [marketId]);
 
   // LP Settlement: record LP position cleanup
   const lpRes = await client.query(
@@ -267,7 +267,7 @@ export async function settleMarketPositions(client: any, marketId: string, winni
   // Clean up positions and reserves
   await client.query('DELETE FROM positions WHERE market_id = $1', [marketId]);
   await client.query('UPDATE markets SET yes_reserve = 0, no_reserve = 0 WHERE id = $1', [marketId]);
-  await client.query("UPDATE markets SET status = 'settled' WHERE id = $1", [marketId]);
+  await client.query("UPDATE markets SET status = 'settled' WHERE id = $1 AND status = 'settling'", [marketId]);
 }
 
 export function startKeeper(db: Pool, intervalMs: number = 30000): NodeJS.Timeout {

@@ -93,56 +93,77 @@ router.post('/verify', async (req: Request, res: Response) => {
 
     const db = getDb();
     const normalizedAddress = address.toLowerCase();
-    const user = (await db.query('SELECT * FROM users WHERE address = $1', [normalizedAddress])).rows[0] as any;
 
-    if (!user || !user.nonce) {
-      res.status(400).json({ error: 'Nonce not found. Request a nonce first.' });
-      return;
-    }
-
-    const message = `Sign this message to verify your identity: ${user.nonce}`;
-
+    // Use a transaction with FOR UPDATE to prevent nonce race conditions
+    // (concurrent verify requests reusing the same nonce)
+    const client = await db.connect();
     try {
-      const recoveredAddress = ethers.verifyMessage(message, signature);
-      if (recoveredAddress.toLowerCase() !== normalizedAddress) {
-        // Invalidate nonce on failed attempt to prevent replay attacks
-        const newNonce = crypto.randomBytes(16).toString('hex');
-        await db.query('UPDATE users SET nonce = $1 WHERE address = $2', [newNonce, normalizedAddress]);
-        res.status(401).json({ error: 'Signature verification failed' });
+      await client.query('BEGIN');
+
+      const user = (await client.query(
+        'SELECT * FROM users WHERE address = $1 FOR UPDATE',
+        [normalizedAddress]
+      )).rows[0] as any;
+
+      if (!user || !user.nonce) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: 'Nonce not found. Request a nonce first.' });
         return;
       }
-    } catch {
-      // Invalidate nonce on failed attempt to prevent replay attacks
-      const newNonce = crypto.randomBytes(16).toString('hex');
-      await db.query('UPDATE users SET nonce = $1 WHERE address = $2', [newNonce, normalizedAddress]);
-      res.status(401).json({ error: 'Invalid signature' });
-      return;
+
+      const message = `Sign this message to verify your identity: ${user.nonce}`;
+
+      try {
+        const recoveredAddress = ethers.verifyMessage(message, signature);
+        if (recoveredAddress.toLowerCase() !== normalizedAddress) {
+          // Invalidate nonce on failed attempt to prevent replay attacks
+          const newNonce = crypto.randomBytes(16).toString('hex');
+          await client.query('UPDATE users SET nonce = $1 WHERE address = $2', [newNonce, normalizedAddress]);
+          await client.query('COMMIT');
+          res.status(401).json({ error: 'Signature verification failed' });
+          return;
+        }
+      } catch {
+        // Invalidate nonce on failed attempt to prevent replay attacks
+        const newNonce = crypto.randomBytes(16).toString('hex');
+        await client.query('UPDATE users SET nonce = $1 WHERE address = $2', [newNonce, normalizedAddress]);
+        await client.query('COMMIT');
+        res.status(401).json({ error: 'Invalid signature' });
+        return;
+      }
+
+      // Rotate nonce to a new random value (prevents replay; never set to NULL)
+      const freshNonce = crypto.randomBytes(16).toString('hex');
+      await client.query('UPDATE users SET nonce = $1 WHERE address = $2', [freshNonce, normalizedAddress]);
+
+      await client.query('COMMIT');
+
+      const isAdmin = ADMIN_ADDRESSES.has(normalizedAddress);
+
+      // Generate JWT
+      const token = jwt.sign(
+        { address: normalizedAddress, isAdmin },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRATION } as jwt.SignOptions
+      );
+
+      const balance = (await db.query('SELECT * FROM balances WHERE user_address = $1', [normalizedAddress])).rows[0] as any;
+      const safeBalance = Number(balance?.available ?? getInitialSignupBalance()) || 0;
+
+      res.json({
+        token,
+        user: {
+          address: normalizedAddress,
+          balance: safeBalance,
+          isAdmin,
+        },
+      });
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
     }
-
-    // Rotate nonce to a new random value (prevents replay; never set to NULL)
-    const freshNonce = crypto.randomBytes(16).toString('hex');
-    await db.query('UPDATE users SET nonce = $1 WHERE address = $2', [freshNonce, normalizedAddress]);
-
-    const isAdmin = ADMIN_ADDRESSES.has(normalizedAddress);
-
-    // Generate JWT
-    const token = jwt.sign(
-      { address: normalizedAddress, isAdmin },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRATION } as jwt.SignOptions
-    );
-
-    const balance = (await db.query('SELECT * FROM balances WHERE user_address = $1', [normalizedAddress])).rows[0] as any;
-    const safeBalance = Number(balance?.available ?? getInitialSignupBalance()) || 0;
-
-    res.json({
-      token,
-      user: {
-        address: normalizedAddress,
-        balance: safeBalance,
-        isAdmin,
-      },
-    });
   } catch (err: any) {
     console.error('Auth verify error:', err);
     res.status(500).json({ error: 'Internal server error' });

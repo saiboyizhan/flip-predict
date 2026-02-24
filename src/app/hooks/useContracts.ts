@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 // ----------------------------------------------------------------
 
 export function useBuy() {
+  const chainId = useChainId();
   const {
     writeContract,
     data: txHash,
@@ -44,6 +45,7 @@ export function useBuy() {
 
   const buy = useCallback(
     (marketId: bigint, buyYes: boolean, amountUSDT: string) => {
+      if (chainId !== 97) { toast.error('Please switch to BSC Testnet'); return; }
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
@@ -52,7 +54,7 @@ export function useBuy() {
         args: [marketId, buyYes, parseUnits(amountUSDT, 18)],
       });
     },
-    [writeContract, reset],
+    [writeContract, reset, chainId],
   );
 
   return {
@@ -71,6 +73,7 @@ export function useBuy() {
 // ----------------------------------------------------------------
 
 export function useSell() {
+  const chainId = useChainId();
   const {
     writeContract,
     data: txHash,
@@ -87,6 +90,7 @@ export function useSell() {
 
   const sell = useCallback(
     (marketId: bigint, sellYes: boolean, sharesWei: bigint) => {
+      if (chainId !== 97) { toast.error('Please switch to BSC Testnet'); return; }
       reset();
       writeContract({
         address: PREDICTION_MARKET_ADDRESS,
@@ -95,7 +99,7 @@ export function useSell() {
         args: [marketId, sellYes, sharesWei],
       });
     },
-    [writeContract, reset],
+    [writeContract, reset, chainId],
   );
 
   return {
@@ -243,6 +247,7 @@ export function useClaimWinnings() {
 // ----------------------------------------------------------------
 
 export function useCreateUserMarket() {
+  const chainId = useChainId();
   const {
     writeContract,
     data: txHash,
@@ -279,8 +284,8 @@ export function useCreateUserMarket() {
             break;
           }
         }
-      } catch {
-        // Ignore non-matching logs
+      } catch (e) {
+        console.warn('[useCreateUserMarket] Non-matching log:', e);
       }
     }
 
@@ -293,6 +298,7 @@ export function useCreateUserMarket() {
       endTimeUnix: bigint,
       initialLiquidityWei: bigint,
     ) => {
+      if (chainId !== 97) { toast.error('Please switch to BSC Testnet'); return; }
       reset();
       setCreatedMarketId(null);
       writeContract({
@@ -302,7 +308,7 @@ export function useCreateUserMarket() {
         args: [title, endTimeUnix, initialLiquidityWei],
       });
     },
-    [writeContract, reset],
+    [writeContract, reset, chainId],
   );
 
   return {
@@ -396,6 +402,7 @@ export function useUsdtAllowance(owner?: `0x${string}`, spender?: `0x${string}`)
 // ----------------------------------------------------------------
 
 export function useUsdtApprove() {
+  const chainId = useChainId();
   const {
     writeContract,
     data: txHash,
@@ -412,6 +419,8 @@ export function useUsdtApprove() {
 
   const approve = useCallback(
     (spender: `0x${string}`, amountWei: bigint) => {
+      if (chainId !== 97) { toast.error('Please switch to BSC Testnet'); return; }
+      if (amountWei <= 0n) { console.warn('Invalid approve amount'); return; }
       reset();
       writeContract({
         address: USDT_ADDRESS,
@@ -420,7 +429,7 @@ export function useUsdtApprove() {
         args: [spender, amountWei],
       });
     },
-    [writeContract, reset],
+    [writeContract, reset, chainId],
   );
 
   return {
@@ -771,6 +780,7 @@ export function useTxNotifier(
 // ----------------------------------------------------------------
 
 export function usePlaceLimitOrder() {
+  const chainId = useChainId();
   const {
     writeContract,
     data: txHash,
@@ -787,6 +797,7 @@ export function usePlaceLimitOrder() {
 
   const placeLimitOrder = useCallback(
     (marketId: bigint, orderSide: number, priceWei: bigint, amountWei: bigint) => {
+      if (chainId !== 97) { toast.error('Please switch to BSC Testnet'); return; }
       reset();
       writeContract({
         address: LIMIT_ORDER_BOOK_ADDRESS,
@@ -795,7 +806,7 @@ export function usePlaceLimitOrder() {
         args: [marketId, orderSide, priceWei, amountWei],
       });
     },
-    [writeContract, reset],
+    [writeContract, reset, chainId],
   );
 
   return {

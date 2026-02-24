@@ -48,22 +48,30 @@ router.get('/', async (req: Request, res: Response) => {
       FROM orders o
       LEFT JOIN (
         SELECT
-          s.user_address,
-          SUM(s.amount) AS total_won,
-          COUNT(s.id) AS win_count
-        FROM settlement_log s
-        WHERE s.action = 'settle_winner'
-        ${settlementTimeFilter}
-        GROUP BY s.user_address
+          user_address,
+          SUM(amount) AS total_won,
+          COUNT(*) AS win_count
+        FROM (
+          SELECT DISTINCT ON (market_id, user_address) user_address, amount
+          FROM settlement_log
+          WHERE action = 'settle_winner'
+          ${settlementTimeFilter}
+          ORDER BY market_id, user_address, created_at DESC
+        ) deduped_winners
+        GROUP BY user_address
       ) w ON o.user_address = w.user_address
       LEFT JOIN (
         SELECT
-          s.user_address,
-          COUNT(s.id) AS resolved_count
-        FROM settlement_log s
-        WHERE s.action IN ('settle_winner', 'settle_loser')
-        ${settlementTimeFilter}
-        GROUP BY s.user_address
+          user_address,
+          COUNT(*) AS resolved_count
+        FROM (
+          SELECT DISTINCT ON (market_id, user_address) user_address, action
+          FROM settlement_log
+          WHERE action IN ('settle_winner', 'settle_loser')
+          ${settlementTimeFilter}
+          ORDER BY market_id, user_address, created_at DESC
+        ) deduped_all
+        GROUP BY user_address
       ) r ON o.user_address = r.user_address
       LEFT JOIN (
         SELECT

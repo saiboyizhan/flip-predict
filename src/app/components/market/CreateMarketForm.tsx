@@ -62,7 +62,7 @@ interface RecoveryData {
 }
 
 function saveRecovery(data: RecoveryData) {
-  try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(data)); } catch {}
+  try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(data)); } catch (e) { console.warn('[CreateMarket] Failed to save recovery data:', e); }
 }
 function loadRecovery(): RecoveryData | null {
   try {
@@ -74,10 +74,10 @@ function loadRecovery(): RecoveryData | null {
       return null;
     }
     return data;
-  } catch { return null; }
+  } catch (e) { console.warn('[CreateMarket] Failed to load recovery data:', e); return null; }
 }
 function clearRecovery() {
-  try { localStorage.removeItem(RECOVERY_KEY); } catch {}
+  try { localStorage.removeItem(RECOVERY_KEY); } catch (e) { console.warn('[CreateMarket] Failed to clear recovery data:', e); }
 }
 
 export function CreateMarketForm({ onSuccess }: CreateMarketFormProps) {

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, pbkdf2Sync } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -13,7 +13,7 @@ function getKey(): Buffer {
     console.warn('WARNING: LLM_ENCRYPTION_KEY not set, falling back to JWT_SECRET. Set LLM_ENCRYPTION_KEY for production.');
     llmKeyWarningLogged = true;
   }
-  return createHash('sha256').update(raw).digest();
+  return pbkdf2Sync(raw, 'flip-predict-llm-keys', 100000, 32, 'sha256');
 }
 
 export function encrypt(text: string): string {

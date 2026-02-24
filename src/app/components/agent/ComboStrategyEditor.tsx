@@ -33,7 +33,7 @@ export function ComboStrategyEditor({ agentId }: ComboStrategyEditorProps) {
             if (parsed && typeof parsed === "object") {
               setWeights((prev) => ({ ...prev, ...parsed }));
             }
-          } catch {}
+          } catch (e) { console.warn('[ComboStrategy] Failed to parse combo_weights:', e); }
         }
       })
       .catch((e) => { console.warn('[ComboStrategy] Failed to load agent:', e.message) })

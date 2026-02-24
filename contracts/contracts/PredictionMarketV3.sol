@@ -554,9 +554,10 @@ contract PredictionMarketV3 is
         if (!m.oracleEnabled) revert NotOracleMarket();
         if (block.timestamp < m.endTime) revert MarketEnded();
 
-        (, int256 currentPrice, , uint256 updatedAt, ) = AggregatorV2V3Interface(m.priceFeed).latestRoundData();
-        if (currentPrice <= 0) revert InvalidOraclePrice();
-        if (block.timestamp - updatedAt >= 1 hours) revert StaleOraclePrice();
+        (uint80 roundId, int256 currentPrice, , uint256 updatedAt, uint80 answeredInRound) = AggregatorV2V3Interface(m.priceFeed).latestRoundData();
+        require(answeredInRound >= roundId, "Stale oracle round");
+        require(currentPrice > 0, "Invalid oracle price");
+        if (block.timestamp - updatedAt >= 15 minutes) revert StaleOraclePrice();
 
         bool oracleOutcome;
         if (m.resolutionType == 1) {

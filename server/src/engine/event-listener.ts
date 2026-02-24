@@ -51,6 +51,7 @@ let lobContract: ethers.Contract | null = null;
 /**
  * Shared Trade event handler (used for both PM and LOB Trade events).
  * Fetches CPMM price from PM contract for K-line data.
+ * Wrapped in a DB transaction with tx_hash dedup, position tracking, and reserve updates.
  */
 function createTradeHandler(db: Pool, source: string) {
   return async (marketId: any, user: any, isBuy: any, side: any, amount: any, shares: any, fee: any, event: any) => {
@@ -66,66 +67,127 @@ function createTradeHandler(db: Pool, source: string) {
       const eventTimestamp = Date.now();
       const orderId = randomUUID();
 
-      const marketRes = await db.query(
-        'SELECT id, yes_price, no_price, volume FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
-        [mId]
-      );
-      if (marketRes.rows.length === 0) {
-        console.warn(`[event-listener] ${source} Trade for unknown on-chain market ${mId}`);
-        return;
-      }
-      const market = marketRes.rows[0];
-      const internalId = market.id;
-
-      // Always fetch CPMM price from PM contract (even for LOB trades)
-      let yesPrice = market.yes_price;
-      let noPrice = market.no_price;
+      // Pre-fetch on-chain price outside transaction to avoid holding DB locks during RPC
+      let fetchedYesPrice: number | null = null;
+      let fetchedNoPrice: number | null = null;
+      let fetchedYesReserve: number | null = null;
+      let fetchedNoReserve: number | null = null;
       try {
         if (pmContract) {
           const [yp, np] = await pmContract.getPrice(marketId);
-          yesPrice = Number(ethers.formatUnits(yp, 18));
-          noPrice = Number(ethers.formatUnits(np, 18));
+          fetchedYesPrice = Number(ethers.formatUnits(yp, 18));
+          fetchedNoPrice = Number(ethers.formatUnits(np, 18));
+          // Fetch reserves for reserve updates
+          try {
+            const info = await pmContract.getLpInfo(marketId, ethers.ZeroAddress);
+            fetchedYesReserve = Number(ethers.formatUnits(info[4], 18));
+            fetchedNoReserve = Number(ethers.formatUnits(info[5], 18));
+          } catch { /* reserves update is best-effort */ }
         }
       } catch { /* use existing prices */ }
 
-      await db.query(
-        `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
-        [userAddr, Date.now()]
-      );
+      // Wrap all DB operations in a transaction
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
 
-      await db.query(
-        `INSERT INTO orders (id, market_id, user_address, type, side, amount, shares, price, fee, status, tx_hash, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'filled', $10, $11)`,
-        [
-          orderId, internalId, userAddr, typeStr, sideStr, amountNum, sharesNum,
-          sharesNum > 0 ? amountNum / sharesNum : 0, feeNum, txHash, eventTimestamp,
-        ]
-      );
+        const marketRes = await client.query(
+          'SELECT id, yes_price, no_price, volume, yes_reserve, no_reserve FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+          [mId]
+        );
+        if (marketRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          console.warn(`[event-listener] ${source} Trade for unknown on-chain market ${mId}`);
+          return;
+        }
+        const market = marketRes.rows[0];
+        const internalId = market.id;
 
-      await db.query(
-        'UPDATE markets SET yes_price = $1, no_price = $2, volume = volume + $3 WHERE id = $4',
-        [yesPrice, noPrice, amountNum, internalId]
-      );
+        const yesPrice = fetchedYesPrice ?? market.yes_price;
+        const noPrice = fetchedNoPrice ?? market.no_price;
 
-      await db.query(
-        'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
-        [internalId, yesPrice, noPrice]
-      );
+        // tx_hash dedup: skip if this tx_hash already produced an order
+        if (txHash) {
+          const dupCheck = await client.query(
+            'SELECT 1 FROM orders WHERE tx_hash = $1 LIMIT 1',
+            [txHash]
+          );
+          if (dupCheck.rows.length > 0) {
+            await client.query('ROLLBACK');
+            console.warn(`[event-listener] ${source} Trade duplicate tx_hash ${txHash}, skipping`);
+            return;
+          }
+        }
 
-      broadcastPriceUpdate(internalId, yesPrice, noPrice);
-      broadcastNewTrade({
-        orderId,
-        marketId: internalId,
-        userAddress: userAddr,
-        side: sideStr,
-        type: typeStr,
-        amount: amountNum,
-        shares: sharesNum,
-        price: sharesNum > 0 ? amountNum / sharesNum : 0,
-        timestamp: eventTimestamp,
-      });
+        await client.query(
+          `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
+          [userAddr, eventTimestamp]
+        );
 
-      console.info(`[event-listener] ${source} Trade: ${typeStr} ${sideStr} ${amountNum.toFixed(2)} USDT on market ${mId}`);
+        await client.query(
+          `INSERT INTO orders (id, market_id, user_address, type, side, amount, shares, price, fee, status, tx_hash, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'filled', $10, $11)`,
+          [
+            orderId, internalId, userAddr, typeStr, sideStr, amountNum, sharesNum,
+            sharesNum > 0 ? amountNum / sharesNum : 0, feeNum, txHash, eventTimestamp,
+          ]
+        );
+
+        // Position tracking: upsert user position
+        const positionShares = typeStr === 'buy' ? sharesNum : -sharesNum;
+        const avgCost = sharesNum > 0 ? amountNum / sharesNum : 0;
+        const posId = randomUUID();
+        await client.query(
+          `INSERT INTO positions (id, user_address, market_id, side, shares, avg_cost, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (user_address, market_id, side)
+           DO UPDATE SET
+             shares = positions.shares + EXCLUDED.shares,
+             avg_cost = CASE
+               WHEN positions.shares + EXCLUDED.shares > 0
+               THEN (positions.shares * positions.avg_cost + EXCLUDED.shares * EXCLUDED.avg_cost) / (positions.shares + EXCLUDED.shares)
+               ELSE positions.avg_cost
+             END`,
+          [posId, userAddr, internalId, sideStr, positionShares, avgCost, eventTimestamp]
+        );
+
+        // Reserve updates: use on-chain data if available, otherwise leave as-is
+        const yesReserve = fetchedYesReserve ?? market.yes_reserve;
+        const noReserve = fetchedNoReserve ?? market.no_reserve;
+
+        await client.query(
+          'UPDATE markets SET yes_price = $1, no_price = $2, volume = volume + $3, yes_reserve = $4, no_reserve = $5 WHERE id = $6',
+          [yesPrice, noPrice, amountNum, yesReserve, noReserve, internalId]
+        );
+
+        await client.query(
+          'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
+          [internalId, yesPrice, noPrice]
+        );
+
+        await client.query('COMMIT');
+
+        // Broadcast outside transaction
+        broadcastPriceUpdate(internalId, yesPrice, noPrice);
+        broadcastNewTrade({
+          orderId,
+          marketId: internalId,
+          userAddress: userAddr,
+          side: sideStr,
+          type: typeStr,
+          amount: amountNum,
+          shares: sharesNum,
+          price: sharesNum > 0 ? amountNum / sharesNum : 0,
+          timestamp: eventTimestamp,
+        });
+
+        console.info(`[event-listener] ${source} Trade: ${typeStr} ${sideStr} ${amountNum.toFixed(2)} USDT on market ${mId}`);
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       console.error(`[event-listener] Error processing ${source} Trade event:`, err);
     }
@@ -155,53 +217,70 @@ export function startEventListener(db: Pool): void {
       const lpSharesNum = Number(ethers.formatUnits(lpShares, 18));
       const txHash = event?.log?.transactionHash || '';
 
-      const marketRes = await db.query(
-        'SELECT id, yes_reserve, no_reserve, total_lp_shares FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
-        [mId]
-      );
-      if (marketRes.rows.length === 0) {
-        console.warn(`[event-listener] LiquidityAdded for unknown on-chain market ${mId}`);
-        return;
-      }
-      const internalId = marketRes.rows[0].id;
-
-      let yesReserve = Number(marketRes.rows[0].yes_reserve);
-      let noReserve = Number(marketRes.rows[0].no_reserve);
-      let totalLpShares = Number(marketRes.rows[0].total_lp_shares);
+      // Pre-fetch on-chain data outside transaction
+      let fetchedYesReserve: number | null = null;
+      let fetchedNoReserve: number | null = null;
+      let fetchedTotalLpShares: number | null = null;
       try {
         if (pmContract) {
           const info = await pmContract.getLpInfo(marketId, user);
-          yesReserve = Number(ethers.formatUnits(info[4], 18));
-          noReserve = Number(ethers.formatUnits(info[5], 18));
-          totalLpShares = Number(ethers.formatUnits(info[0], 18));
+          fetchedYesReserve = Number(ethers.formatUnits(info[4], 18));
+          fetchedNoReserve = Number(ethers.formatUnits(info[5], 18));
+          fetchedTotalLpShares = Number(ethers.formatUnits(info[0], 18));
         }
       } catch { /* use existing values */ }
 
-      await db.query(
-        `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
-        [userAddr, Date.now()]
-      );
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
 
-      const totalLiq = yesReserve + noReserve;
-      const yesPrice = noReserve / totalLiq;
-      const noPrice = yesReserve / totalLiq;
-      await db.query(
-        `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
-         total_liquidity = $4, yes_price = $5, no_price = $6 WHERE id = $7`,
-        [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, internalId]
-      );
+        const marketRes = await client.query(
+          'SELECT id, yes_reserve, no_reserve, total_lp_shares FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+          [mId]
+        );
+        if (marketRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          console.warn(`[event-listener] LiquidityAdded for unknown on-chain market ${mId}`);
+          return;
+        }
+        const internalId = marketRes.rows[0].id;
 
-      await db.query(`
-        INSERT INTO lp_positions (id, user_address, market_id, lp_shares, deposit_amount, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (user_address, market_id)
-        DO UPDATE SET lp_shares = lp_positions.lp_shares + EXCLUDED.lp_shares,
-                      deposit_amount = lp_positions.deposit_amount + EXCLUDED.deposit_amount
-      `, [`lp-${txHash.slice(0, 16)}-${Date.now()}`, userAddr, internalId, lpSharesNum, amountNum, Date.now()]);
+        const yesReserve = fetchedYesReserve ?? Number(marketRes.rows[0].yes_reserve);
+        const noReserve = fetchedNoReserve ?? Number(marketRes.rows[0].no_reserve);
+        const totalLpShares = fetchedTotalLpShares ?? Number(marketRes.rows[0].total_lp_shares);
 
-      broadcastPriceUpdate(internalId, yesPrice, noPrice);
+        await client.query(
+          `INSERT INTO users (address, created_at) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`,
+          [userAddr, Date.now()]
+        );
 
-      console.info(`[event-listener] LiquidityAdded: ${userAddr} added ${amountNum.toFixed(2)} USDT to market ${mId}`);
+        const totalLiq = yesReserve + noReserve;
+        const yesPrice = totalLiq > 0 ? noReserve / totalLiq : 0.5;
+        const noPrice = totalLiq > 0 ? yesReserve / totalLiq : 0.5;
+        await client.query(
+          `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
+           total_liquidity = $4, yes_price = $5, no_price = $6 WHERE id = $7`,
+          [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, internalId]
+        );
+
+        await client.query(`
+          INSERT INTO lp_positions (id, user_address, market_id, lp_shares, deposit_amount, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (user_address, market_id)
+          DO UPDATE SET lp_shares = lp_positions.lp_shares + EXCLUDED.lp_shares,
+                        deposit_amount = lp_positions.deposit_amount + EXCLUDED.deposit_amount
+        `, [`lp-${txHash.slice(0, 16)}-${Date.now()}`, userAddr, internalId, lpSharesNum, amountNum, Date.now()]);
+
+        await client.query('COMMIT');
+
+        broadcastPriceUpdate(internalId, yesPrice, noPrice);
+        console.info(`[event-listener] LiquidityAdded: ${userAddr} added ${amountNum.toFixed(2)} USDT to market ${mId}`);
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       console.error('[event-listener] Error processing LiquidityAdded event:', err);
     }
@@ -215,50 +294,67 @@ export function startEventListener(db: Pool): void {
       const sharesNum = Number(ethers.formatUnits(shares, 18));
       const outNum = Number(ethers.formatUnits(usdtOut, 18));
 
-      const marketRes = await db.query(
-        'SELECT id, yes_reserve, no_reserve, total_lp_shares FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
-        [mId]
-      );
-      if (marketRes.rows.length === 0) {
-        console.warn(`[event-listener] LiquidityRemoved for unknown on-chain market ${mId}`);
-        return;
-      }
-      const internalId = marketRes.rows[0].id;
-
-      let yesReserve = Number(marketRes.rows[0].yes_reserve);
-      let noReserve = Number(marketRes.rows[0].no_reserve);
-      let totalLpShares = Number(marketRes.rows[0].total_lp_shares);
+      // Pre-fetch on-chain data outside transaction
+      let fetchedYesReserve: number | null = null;
+      let fetchedNoReserve: number | null = null;
+      let fetchedTotalLpShares: number | null = null;
       try {
         if (pmContract) {
           const info = await pmContract.getLpInfo(marketId, user);
-          yesReserve = Number(ethers.formatUnits(info[4], 18));
-          noReserve = Number(ethers.formatUnits(info[5], 18));
-          totalLpShares = Number(ethers.formatUnits(info[0], 18));
+          fetchedYesReserve = Number(ethers.formatUnits(info[4], 18));
+          fetchedNoReserve = Number(ethers.formatUnits(info[5], 18));
+          fetchedTotalLpShares = Number(ethers.formatUnits(info[0], 18));
         }
       } catch { /* use existing values */ }
 
-      const totalLiq = yesReserve + noReserve;
-      const yesPrice = totalLiq > 0 ? noReserve / totalLiq : 0.5;
-      const noPrice = totalLiq > 0 ? yesReserve / totalLiq : 0.5;
-      await db.query(
-        `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
-         total_liquidity = $4, yes_price = $5, no_price = $6 WHERE id = $7`,
-        [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, internalId]
-      );
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
 
-      await db.query(`
-        UPDATE lp_positions SET lp_shares = GREATEST(lp_shares - $1, 0)
-        WHERE user_address = $2 AND market_id = $3
-      `, [sharesNum, userAddr, internalId]);
+        const marketRes = await client.query(
+          'SELECT id, yes_reserve, no_reserve, total_lp_shares FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+          [mId]
+        );
+        if (marketRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          console.warn(`[event-listener] LiquidityRemoved for unknown on-chain market ${mId}`);
+          return;
+        }
+        const internalId = marketRes.rows[0].id;
 
-      await db.query(
-        `DELETE FROM lp_positions WHERE user_address = $1 AND market_id = $2 AND lp_shares <= 0`,
-        [userAddr, internalId]
-      );
+        const yesReserve = fetchedYesReserve ?? Number(marketRes.rows[0].yes_reserve);
+        const noReserve = fetchedNoReserve ?? Number(marketRes.rows[0].no_reserve);
+        const totalLpShares = fetchedTotalLpShares ?? Number(marketRes.rows[0].total_lp_shares);
 
-      broadcastPriceUpdate(internalId, yesPrice, noPrice);
+        const totalLiq = yesReserve + noReserve;
+        const yesPrice = totalLiq > 0 ? noReserve / totalLiq : 0.5;
+        const noPrice = totalLiq > 0 ? yesReserve / totalLiq : 0.5;
+        await client.query(
+          `UPDATE markets SET yes_reserve = $1, no_reserve = $2, total_lp_shares = $3,
+           total_liquidity = $4, yes_price = $5, no_price = $6 WHERE id = $7`,
+          [yesReserve, noReserve, totalLpShares, totalLiq, yesPrice, noPrice, internalId]
+        );
 
-      console.info(`[event-listener] LiquidityRemoved: ${userAddr} removed ${sharesNum.toFixed(2)} LP shares from market ${mId}`);
+        await client.query(`
+          UPDATE lp_positions SET lp_shares = GREATEST(lp_shares - $1, 0)
+          WHERE user_address = $2 AND market_id = $3
+        `, [sharesNum, userAddr, internalId]);
+
+        await client.query(
+          `DELETE FROM lp_positions WHERE user_address = $1 AND market_id = $2 AND lp_shares <= 0`,
+          [userAddr, internalId]
+        );
+
+        await client.query('COMMIT');
+
+        broadcastPriceUpdate(internalId, yesPrice, noPrice);
+        console.info(`[event-listener] LiquidityRemoved: ${userAddr} removed ${sharesNum.toFixed(2)} LP shares from market ${mId}`);
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       console.error('[event-listener] Error processing LiquidityRemoved event:', err);
     }
@@ -269,26 +365,45 @@ export function startEventListener(db: Pool): void {
     try {
       const mId = marketId.toString();
       const outcomeStr = outcome ? 'yes' : 'no';
+      let internalId: string | null = null;
 
-      const marketRes = await db.query(
-        'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
-        [mId]
-      );
-      if (marketRes.rows.length > 0) {
-        const internalId = marketRes.rows[0].id;
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
 
+        const marketRes = await client.query(
+          'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1',
+          [mId]
+        );
+        if (marketRes.rows.length > 0) {
+          internalId = marketRes.rows[0].id;
+
+          const finalYesPrice = outcomeStr === 'yes' ? 1 : 0;
+          const finalNoPrice = outcomeStr === 'yes' ? 0 : 1;
+
+          await client.query(
+            `UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW(),
+             yes_price = $2, no_price = $3 WHERE id = $4`,
+            [outcomeStr, finalYesPrice, finalNoPrice, internalId]
+          );
+          await client.query(
+            'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
+            [internalId, finalYesPrice, finalNoPrice]
+          );
+        }
+
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      // Post-commit actions (broadcasts + async settlement)
+      if (internalId) {
         const finalYesPrice = outcomeStr === 'yes' ? 1 : 0;
         const finalNoPrice = outcomeStr === 'yes' ? 0 : 1;
-
-        await db.query(
-          `UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW(),
-           yes_price = $2, no_price = $3 WHERE id = $4`,
-          [outcomeStr, finalYesPrice, finalNoPrice, internalId]
-        );
-        await db.query(
-          'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
-          [internalId, finalYesPrice, finalNoPrice]
-        );
 
         broadcastPriceUpdate(internalId, finalYesPrice, finalNoPrice);
         broadcastMarketResolved(internalId, outcomeStr);

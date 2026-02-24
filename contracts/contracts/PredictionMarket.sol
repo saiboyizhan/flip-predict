@@ -615,9 +615,10 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
         require(m.oracleEnabled, "Not oracle market");
         require(block.timestamp >= m.endTime, "Market not ended");
 
-        (, int256 currentPrice, , uint256 updatedAt, ) = AggregatorV2V3Interface(m.priceFeed).latestRoundData();
+        (uint80 roundId, int256 currentPrice, , uint256 updatedAt, uint80 answeredInRound) = AggregatorV2V3Interface(m.priceFeed).latestRoundData();
+        require(answeredInRound >= roundId, "Stale oracle round");
         require(currentPrice > 0, "Invalid oracle price");
-        require(block.timestamp - updatedAt < 1 hours, "Stale oracle price");
+        require(block.timestamp - updatedAt < 15 minutes, "Stale oracle price");
 
         bool outcome;
         if (m.resolutionType == 1) {

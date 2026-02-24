@@ -134,6 +134,7 @@ contract LimitOrderBook is
     ) external nonReentrant whenNotPaused returns (uint256 orderId) {
         if (amount == 0) revert ZeroAmount();
         if (!predictionMarket.isMarketActive(marketId)) revert MarketNotActive();
+        require(price > 0 && price < 1e18, "Price must be between 0 and 1");
         if (price < MIN_ORDER_PRICE || price > MAX_ORDER_PRICE) revert PriceOutOfRange();
 
         orderId = nextOrderId++;
@@ -240,7 +241,7 @@ contract LimitOrderBook is
             if (remainingAmount == 0) continue;
             order.cancelled = true;
             if (order.orderSide == OrderSide.BUY_YES || order.orderSide == OrderSide.BUY_NO) {
-                usdtToken.transfer(order.maker, remainingAmount);
+                require(usdtToken.transfer(order.maker, remainingAmount), "Transfer failed");
             } else if (order.orderSide == OrderSide.SELL_YES) {
                 predictionMarket.safeTransferFrom(address(this), order.maker, predictionMarket.getYesTokenId(marketId), remainingAmount, "");
             } else {

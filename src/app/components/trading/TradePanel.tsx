@@ -47,7 +47,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   // On-chain market ID
   const marketIdBigint = useMemo(() => {
     if (!onChainMarketId) return undefined;
-    try { return BigInt(onChainMarketId); } catch { return undefined; }
+    try { return BigInt(onChainMarketId); } catch (e) { console.warn('[TradePanel] Invalid onChainMarketId for BigInt:', e); return undefined; }
   }, [onChainMarketId]);
 
   // Read on-chain price
@@ -161,7 +161,8 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         const priceWei = parseUnits(limitPrice, 18);
         const amountWei = parseUnits(params.amount, 18);
         placeLimitOrder(mid, orderSideEnum, priceWei, amountWei);
-      } catch {
+      } catch (e) {
+        console.warn('[TradePanel] ERC1155 approve follow-up error:', e);
         if (isMountedRef.current) toast.error(t('trade.invalidMarketId'));
       }
     }
@@ -180,7 +181,8 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
         if (params.tradeMode === "buy") {
           buy(mid, params.side === "yes", params.amount);
         }
-      } catch {
+      } catch (e) {
+        console.warn('[TradePanel] USDT approve follow-up error:', e);
         if (isMountedRef.current) toast.error(t('trade.invalidMarketId'));
       }
     }

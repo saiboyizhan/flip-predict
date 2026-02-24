@@ -11,6 +11,7 @@ import { getOraclePrice, SUPPORTED_PAIRS } from '../engine/oracle';
 import { fetchTokenPrice } from '../engine/dexscreener';
 import { ADMIN_ADDRESSES } from '../config';
 import { getRpcUrl } from '../config/network';
+import { isPrivateUrl as isPrivateUrlShared } from '../utils/url-validation';
 
 const router = Router();
 const DEFAULT_CHALLENGE_WINDOW_MS = Math.max(
@@ -1019,11 +1020,16 @@ router.post('/:marketId/challenge', authMiddleware, async (req: AuthRequest, res
 
     const MAX_CHALLENGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
     const marketRes = await client.query('SELECT end_time FROM markets WHERE id = $1', [marketId]);
-    const marketEndTime = marketRes.rows[0]?.end_time ? Number(marketRes.rows[0].end_time) : now;
+    const rawEndTime = marketRes.rows[0]?.end_time;
+    const parsedEndTime = rawEndTime != null ? Number(rawEndTime) : NaN;
+    const marketEndTime = Number.isFinite(parsedEndTime) ? parsedEndTime : now;
     const absoluteMax = marketEndTime + MAX_CHALLENGE_WINDOW_MS;
+    const rawChallengeWindow = proposal.challenge_window_ends_at;
+    const parsedChallengeWindow = rawChallengeWindow != null ? Number(rawChallengeWindow) : NaN;
+    const currentChallengeWindowEnd = Number.isFinite(parsedChallengeWindow) ? parsedChallengeWindow : 0;
     const extendedChallengeWindowEndsAt = Math.min(
       Math.max(
-        Number(proposal.challenge_window_ends_at || 0),
+        currentChallengeWindowEnd,
         now + DEFAULT_CHALLENGE_WINDOW_MS,
       ),
       absoluteMax

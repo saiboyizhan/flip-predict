@@ -1,14 +1,16 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { AuthRequest, authMiddleware } from './middleware/auth';
 import { adminMiddleware } from './middleware/admin';
 import { getDb } from '../db';
 import { ethers } from 'ethers';
 import { BSC_RPC_URL } from '../config/network';
+import { isPrivateUrl } from '../utils/url-validation';
 
 const router = Router();
 
 function generateId(): string {
-  return 'ucm-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+  return 'ucm-' + randomUUID().replace(/-/g, '').slice(0, 16);
 }
 
 const VALID_CATEGORIES = [
@@ -62,6 +64,8 @@ function normalizeOptionalUrl(value: unknown): string | null {
   try {
     const url = new URL(trimmed);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    // SSRF protection: reject private/internal URLs
+    if (isPrivateUrl(url.hostname)) return null;
     return trimmed;
   } catch {
     return null;

@@ -164,9 +164,9 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         bytes calldata data,
         uint256 value
     ) external onlyActiveAgent(tokenId) nonReentrant returns (bytes memory) {
-        require(target != address(0), "Invalid target address");
+        require(target != address(0), "Invalid target");
         require(target != address(this), "Cannot call self");
-        require(target != address(usdtToken), "Cannot call USDT token");
+        require(target != address(usdtToken), "Cannot call USDT directly");
         require(target != predictionMarket, "Cannot call prediction market directly");
         address tokenOwner = ownerOf(tokenId);
         AutoTradeAuth storage auth = _autoTradeAuth[tokenId];
@@ -385,7 +385,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
         predictionMarketBalances[tokenId] += amount;
         totalAllocatedPredictionMarketBalance += amount;
         // Approve PM to pull USDT when agentBuy is called
-        require(usdtToken.approve(predictionMarket, usdtToken.allowance(address(this), predictionMarket) + amount), "USDT approve failed");
+        require(usdtToken.approve(predictionMarket, amount), "USDT approve failed");
         emit AgentDepositedToPM(tokenId, amount);
     }
 
