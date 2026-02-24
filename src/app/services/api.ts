@@ -207,6 +207,7 @@ function normalizeMarketStatus(status: unknown): Market['status'] {
   if (normalized === 'closed') return 'closed'
   if (normalized === 'disputed') return 'disputed'
   if (normalized === 'pending' || normalized === 'pending_resolution') return 'pending'
+  if (normalized === 'expired') return 'expired'
   return 'active'
 }
 

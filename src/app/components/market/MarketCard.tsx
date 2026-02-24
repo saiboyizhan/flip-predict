@@ -22,7 +22,7 @@ interface Market {
   volume: number;
   participants: number;
   endTime: string;
-  status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved";
+  status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved" | "expired";
   description?: string;
   resolution?: string;
   resolvedOutcome?: string;

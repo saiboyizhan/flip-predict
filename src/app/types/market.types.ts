@@ -4,7 +4,7 @@ export type MarketCategory =
   | 'flap'           // Flap.sh 发射台预测
   | 'nfa'            // NFA Agent 生态预测
 
-export type MarketStatus = 'active' | 'pending' | 'pending_resolution' | 'closed' | 'resolved' | 'disputed'
+export type MarketStatus = 'active' | 'pending' | 'pending_resolution' | 'closed' | 'resolved' | 'disputed' | 'expired'
 
 export type MarketType = 'binary' | 'multi'
 

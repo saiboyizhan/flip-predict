@@ -59,7 +59,13 @@ router.get('/', async (req: Request, res: Response) => {
       }
     } else {
       // Public listing: exclude pending_approval, rejected, and expired markets
-      query += ` AND status NOT IN ('pending_approval', 'rejected', 'expired')`;
+      // Admin can see expired markets (for settlement)
+      const adminAddr = extractAdminAddress(req);
+      if (adminAddr) {
+        query += ` AND status NOT IN ('pending_approval', 'rejected')`;
+      } else {
+        query += ` AND status NOT IN ('pending_approval', 'rejected', 'expired')`;
+      }
     }
 
     if (category && category !== 'all') {

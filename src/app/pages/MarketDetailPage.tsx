@@ -14,7 +14,7 @@ function toCardMarket(m: Market) {
   const cat = CATEGORIES.find(c => c.id === m.category);
 
   // Map store MarketStatus to the card/detail status union
-  let cardStatus: "active" | "expiring" | "settled" | "pending_resolution" | "resolved";
+  let cardStatus: "active" | "expiring" | "settled" | "pending_resolution" | "resolved" | "expired";
   switch (m.status) {
     case "active":
       cardStatus = "active";
@@ -29,6 +29,9 @@ function toCardMarket(m: Market) {
       break;
     case "disputed":
       cardStatus = "expiring";
+      break;
+    case "expired":
+      cardStatus = "expired";
       break;
     default:
       cardStatus = "active";

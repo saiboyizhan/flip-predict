@@ -46,7 +46,7 @@ interface Market {
   volume: number;
   participants: number;
   endTime: string;
-  status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved";
+  status: "active" | "expiring" | "settled" | "pending_resolution" | "resolved" | "expired";
   description?: string;
   resolution?: string;
   resolutionType?: string;
@@ -158,6 +158,9 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
     }
     if (isPending) {
       return { label: t("market.status.pending"), className: "bg-amber-500/20 text-amber-400 border border-amber-500/30" };
+    }
+    if (market.status === "expired") {
+      return { label: t("market.status.expired"), className: "bg-amber-500/20 text-amber-400 border border-amber-500/30" };
     }
     const now = Date.now();
     const end = new Date(market.endTime).getTime();
@@ -276,7 +279,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
           </motion.div>
         )}
 
-        {isAdmin && (isPending || (market.status === "active" && new Date(market.endTime).getTime() <= Date.now())) && (
+        {isAdmin && !isResolved && (
           <SettlementActionPanel
             market={market}
             settlementData={settlementData}
