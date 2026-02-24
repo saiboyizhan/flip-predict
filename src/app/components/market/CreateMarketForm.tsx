@@ -32,12 +32,6 @@ const QUICK_TIME_KEYS = [
 
 interface CreateMarketFormProps {
   onSuccess?: () => void;
-  creationStats?: {
-    dailyCount: number;
-    maxPerDay: number;
-    creationFee: number;
-    balance: number;
-  };
 }
 
 interface PendingMarketPayload {
@@ -85,7 +79,7 @@ function clearRecovery() {
   try { localStorage.removeItem(RECOVERY_KEY); } catch {}
 }
 
-export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormProps) {
+export function CreateMarketForm({ onSuccess }: CreateMarketFormProps) {
   const { t } = useTranslation();
   const chainId = useChainId();
   const { address } = useAccount();
@@ -156,8 +150,6 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     "USDT Approve",
   );
 
-  const stats = creationStats || { dailyCount: 0, maxPerDay: 3, creationFee: 0, balance: 0 };
-  const canCreate = stats.dailyCount < stats.maxPerDay;
   const isProcessing = createWriting || createConfirming || syncing || approveWriting || approveConfirming;
   const titleLength = title.length;
   const titleValid = titleLength >= 10 && titleLength <= 200;
@@ -364,10 +356,6 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       toast.error('价格类自动结算需要 oracle pair 和 target price');
       return;
     }
-    if (stats.dailyCount >= stats.maxPerDay) {
-      toast.error(t('createMarket.dailyLimitReached'));
-      return;
-    }
     if (isProcessing) {
       return;
     }
@@ -459,17 +447,9 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       )}
 
       {/* Proposal Info Bar */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-secondary border border-border p-3">
-          <div className="text-muted-foreground text-xs mb-1">{t('createMarket.reviewStatus')}</div>
-          <div className="text-blue-400 font-bold font-mono">{t('createMarket.adminReview')}</div>
-        </div>
-        <div className="bg-secondary border border-border p-3">
-          <div className="text-muted-foreground text-xs mb-1">{t('createMarket.createdToday')}</div>
-          <div className={`font-bold font-mono ${stats.dailyCount >= stats.maxPerDay ? 'text-red-400' : 'text-foreground'}`}>
-            {stats.dailyCount} / {stats.maxPerDay}
-          </div>
-        </div>
+      <div className="bg-secondary border border-border p-3">
+        <div className="text-muted-foreground text-xs mb-1">{t('createMarket.reviewStatus')}</div>
+        <div className="text-blue-400 font-bold font-mono">{t('createMarket.adminReview')}</div>
       </div>
 
       {/* Title */}
@@ -792,18 +772,10 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
         </motion.div>
       )}
 
-      {/* Warnings */}
-      {!canCreate && (
-        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          {t('createMarket.dailyLimitReached')}
-        </div>
-      )}
-
       {/* Create Button */}
       <button
         onClick={handleCreate}
-        disabled={isProcessing || !canCreate || !titleValid || !multiOptionsValid || !resolutionRuleValid || !autoResolutionValid || !initialLiqValid}
+        disabled={isProcessing || !titleValid || !multiOptionsValid || !resolutionRuleValid || !autoResolutionValid || !initialLiqValid}
         className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors flex items-center justify-center gap-2"
       >
         <Plus className="w-5 h-5" />
@@ -817,7 +789,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       </button>
 
       <p className="text-muted-foreground text-xs text-center">
-        {t('createMarket.footer', { max: stats.maxPerDay })}
+        {t('createMarket.footer')}
       </p>
     </div>
   );

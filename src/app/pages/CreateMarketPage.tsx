@@ -1,32 +1,14 @@
-import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { ArrowLeft, Plus, Wallet } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CreateMarketForm } from "../components/market/CreateMarketForm";
-import { getMarketCreationStats } from "@/app/services/api";
 import { useAuthStore } from "@/app/stores/useAuthStore";
-import { toast } from "sonner";
 
 export default function CreateMarketPage() {
   const { navigate } = useTransitionNavigate();
   const { t } = useTranslation();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const [stats, setStats] = useState({
-    dailyCount: 0,
-    maxPerDay: 3,
-    creationFee: 0,
-    balance: 0,
-    totalCreated: 0,
-  });
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      getMarketCreationStats()
-        .then(setStats)
-        .catch(() => { console.warn('[CreateMarket] Failed to load creation stats') });
-    }
-  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (
@@ -81,10 +63,7 @@ export default function CreateMarketPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <CreateMarketForm
-            creationStats={stats}
-            onSuccess={() => navigate('/')}
-          />
+          <CreateMarketForm onSuccess={() => navigate('/')} />
         </motion.div>
       </div>
     </div>

@@ -349,20 +349,13 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
         last_reset_day = $2
       `, [userAddress, today]);
 
-      // Atomically increment daily_count only if under the limit (FOR UPDATE locks the row)
-      const rateLimitResult = await client.query(
+      // Increment counters (no daily limit)
+      await client.query(
         `UPDATE market_creation_ratelimit
          SET daily_count = daily_count + 1, total_created = total_created + 1
-         WHERE user_address = $1 AND daily_count < 3
-         RETURNING *`,
+         WHERE user_address = $1`,
         [userAddress]
       );
-
-      if (rateLimitResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        res.status(429).json({ error: '今日创建市场数量已达上限 (3/天)' });
-        return;
-      }
 
       const existingOnChainMarket = await client.query(
         'SELECT id FROM markets WHERE on_chain_market_id = $1 LIMIT 1 FOR UPDATE',
