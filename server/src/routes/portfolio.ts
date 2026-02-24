@@ -257,11 +257,12 @@ router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest,
       WHERE p.user_address = $1
     `, [address]);
 
-    // Win rate from settlement logs (positions are cleaned up after settlement).
+    // Win rate and total profit from settlement logs (positions are cleaned up after settlement).
     const winStats = await db.query(`
       SELECT
         COUNT(*) FILTER (WHERE action IN ('settle_winner', 'settle_loser')) as resolved_trades,
-        COUNT(*) FILTER (WHERE action = 'settle_winner') as winning_trades
+        COUNT(*) FILTER (WHERE action = 'settle_winner') as winning_trades,
+        COALESCE(SUM(amount) FILTER (WHERE action = 'settle_winner'), 0) as total_won
       FROM settlement_log
       WHERE user_address = $1
     `, [address]);
@@ -287,6 +288,7 @@ router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest,
         resolvedTrades,
         winningTrades,
         winRate,
+        totalProfit: parseFloat(wins.total_won) || 0,
       },
     });
   } catch (err: any) {
