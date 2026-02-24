@@ -1,5 +1,5 @@
 // BSC Mainnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_NFA_ADDRESS = '0x1E431Df5A028d91E269085280a5FCe085d5469C4'
+const DEFAULT_NFA_ADDRESS = '0xfD9fdB8B4aEE14133c29B16E7b9f4eC55650f953'
 
 export const NFA_CONTRACT_ADDRESS = (
   import.meta.env.VITE_NFA_CONTRACT_ADDRESS ||
@@ -8,7 +8,7 @@ export const NFA_CONTRACT_ADDRESS = (
 )
 
 // FLIP Token (ERC-20) — kept for other uses (funding, etc.)
-export const FLIP_TOKEN_ADDRESS = '0x713eF4574954988df53a2A051C7aC10a6c1E8586'
+export const FLIP_TOKEN_ADDRESS = '0x1ad1d35a9b443ed4501a6da16a688e86b5b07777'
 // NFA mint price in BNB (native token)
 export const NFA_MINT_PRICE = 10_000_000_000_000_000n // 0.01 BNB
 
