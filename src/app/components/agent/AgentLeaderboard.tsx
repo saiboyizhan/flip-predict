@@ -21,7 +21,7 @@ export function AgentLeaderboard() {
   useEffect(() => {
     getAgentLeaderboard()
       .then(setAgents)
-      .catch(() => {})
+      .catch((e) => { console.warn('[AgentLeaderboard] Failed to load:', e.message) })
       .finally(() => setLoading(false));
   }, []);
 

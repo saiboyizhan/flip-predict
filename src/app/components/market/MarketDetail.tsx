@@ -122,7 +122,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
       setLiveParticipants(m.participants);
       setLiveYesPrice(m.yesPrice);
       setLiveNoPrice(m.noPrice);
-    }).catch(() => {});
+    }).catch((e) => { console.warn('[MarketDetail] Failed to refresh after trade:', e.message) });
   }, [market.id]);
 
   // Build a live version of market for child components
@@ -182,7 +182,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
             logs: Array.isArray(data.logs) ? data.logs as Record<string, unknown>[] : [],
           });
         })
-        .catch(() => {});
+        .catch((e) => { console.warn('[MarketDetail] Failed to load settlement:', e.message) });
     }
   }, [market.id, isResolved, isPending]);
 
@@ -194,14 +194,14 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
   useEffect(() => {
     fetchMarketActivity(market.id)
       .then(setActivity)
-      .catch(() => {});
+      .catch((e) => { console.warn('[MarketDetail] Failed to load activity:', e.message) });
   }, [market.id]);
 
   // Fetch related markets
   useEffect(() => {
     fetchRelatedMarkets(market.id)
       .then(setRelatedMarkets)
-      .catch(() => {});
+      .catch((e) => { console.warn('[MarketDetail] Failed to load related markets:', e.message) });
   }, [market.id]);
 
   const resolutionType =

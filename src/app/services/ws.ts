@@ -105,12 +105,12 @@ function handleMessage(event: MessageEvent) {
       // Notify user before clearing session
       import('sonner').then(({ toast }) => {
         toast.error('Session expired. Please reconnect your wallet.')
-      }).catch(() => {})
+      }).catch((e) => { console.warn('[WS] Failed to show toast:', e) })
       localStorage.removeItem('jwt_token')
       // Trigger logout in auth store to sync state
       import('@/app/stores/useAuthStore').then(({ useAuthStore }) => {
         useAuthStore.getState().logout()
-      }).catch(() => {})
+      }).catch((e) => { console.warn('[WS] Failed to trigger logout:', e) })
       return
     }
 
@@ -129,12 +129,12 @@ function handleMessage(event: MessageEvent) {
         if (market) {
           store.updateMarketPrices(data.marketId, data.yesPrice, data.noPrice, market.volume)
         }
-      }).catch(() => {})
+      }).catch((e) => { console.warn('[WS] Failed to sync price update:', e) })
     }
     if (data.type === 'multi_price_update' && data.marketId) {
       import('@/app/stores/useMarketStore').then(({ useMarketStore }) => {
         useMarketStore.getState().updateMultiOptionPrices(data.marketId, data.prices)
-      }).catch(() => {})
+      }).catch((e) => { console.warn('[WS] Failed to sync multi price update:', e) })
     }
 
     // Handle user-targeted notification messages
@@ -214,7 +214,7 @@ export function connectWS(): void {
       setConnectionStatus('dead')
       import('sonner').then(({ toast }) => {
         toast.error('Real-time connection lost. Prices may be stale. Please refresh.')
-      }).catch(() => {})
+      }).catch((e) => { console.warn('[WS] Failed to show reconnect toast:', e) })
       return
     }
 

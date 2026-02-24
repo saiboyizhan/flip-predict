@@ -80,8 +80,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       .then((data) => {
         if (get().address === address) set({ balance: data.available })
       })
-      .catch(() => {
-        // API not available — keep balance at 0
+      .catch((e) => {
+        console.warn('[Auth] Failed to fetch balance on connect:', e.message)
       })
   },
 
@@ -134,8 +134,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           .then((data) => {
             if (get().address === address) set({ balance: data.available })
           })
-          .catch(() => {
-            // API not available — keep balance at 0
+          .catch((e) => {
+            console.warn('[Auth] Failed to fetch balance after login:', e.message)
           })
         // Fetch user's agents (no forced popup)
         useAgentStore.getState().fetchMyAgents()

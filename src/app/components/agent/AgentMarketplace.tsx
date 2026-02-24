@@ -17,7 +17,7 @@ export function AgentMarketplace() {
   useEffect(() => {
     getAgentMarketplace()
       .then(setAgents)
-      .catch(() => {})
+      .catch((e) => { console.warn('[AgentMarketplace] Failed to load:', e.message) })
       .finally(() => setLoading(false));
   }, []);
 

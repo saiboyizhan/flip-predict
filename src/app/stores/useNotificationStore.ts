@@ -77,11 +77,16 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
   markAllAsRead: () => {
     const hasSyncedUnread = get().notifications.some((n) => n.synced && !n.read)
+    const previousNotifications = get().notifications
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, read: true })),
     }))
     if (hasSyncedUnread) {
-      apiMarkAllRead().catch(() => {})
+      apiMarkAllRead().catch(() => {
+        // Revert to previous read states on API failure
+        set({ notifications: previousNotifications })
+        console.warn('[Notifications] Failed to mark all as read on server')
+      })
     }
   },
 

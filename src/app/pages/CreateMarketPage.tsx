@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { CreateMarketForm } from "../components/market/CreateMarketForm";
 import { getMarketCreationStats } from "@/app/services/api";
 import { useAuthStore } from "@/app/stores/useAuthStore";
+import { toast } from "sonner";
 
 export default function CreateMarketPage() {
   const { navigate } = useTransitionNavigate();
@@ -23,7 +24,7 @@ export default function CreateMarketPage() {
     if (isAuthenticated) {
       getMarketCreationStats()
         .then(setStats)
-        .catch(() => {});
+        .catch(() => { console.warn('[CreateMarket] Failed to load creation stats') });
     }
   }, [isAuthenticated]);
 

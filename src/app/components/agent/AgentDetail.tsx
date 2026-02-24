@@ -154,7 +154,7 @@ export function AgentDetail() {
   }, [id]);
 
   useEffect(() => {
-    fetchMarkets().then((data) => setMarkets(data)).catch(() => {});
+    fetchMarkets().then((data) => setMarkets(data)).catch((e) => { console.warn('[AgentDetail] Failed to load markets:', e.message) });
   }, []);
 
   // Handle fund success

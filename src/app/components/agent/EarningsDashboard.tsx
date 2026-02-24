@@ -21,7 +21,7 @@ export function EarningsDashboard({ agentId }: EarningsDashboardProps) {
         setUnclaimed(data.unclaimed);
         setEarnings(data.earnings);
       })
-      .catch(() => {})
+      .catch((e) => { console.warn('[EarningsDashboard] Failed to load:', e.message) })
       .finally(() => setLoading(false));
   };
 

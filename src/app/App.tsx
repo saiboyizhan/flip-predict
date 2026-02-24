@@ -13,6 +13,7 @@ import { useAuthStore } from "./stores/useAuthStore";
 import { useAgentStore } from "./stores/useAgentStore";
 import { connectWS, disconnectWS, authenticateWS, subscribeNotifications } from "./services/ws";
 import { useNotificationStore } from "./stores/useNotificationStore";
+import { isTokenNearExpiry, refreshToken } from "./services/api";
 
 
 const SUPPORTED_CHAIN_ID = 97; // BSC Testnet only
@@ -193,19 +194,30 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  // JWT expiry monitoring
+  // JWT expiry monitoring — auto-refresh when near expiry, logout only if refresh fails
   useEffect(() => {
     if (!isAuthenticated) return;
-    const checkExpiry = () => {
-      const token = localStorage.getItem('jwt_token') || localStorage.getItem('token');
-      if (!token) return;
+    const checkExpiry = async () => {
+      const storedToken = localStorage.getItem('jwt_token') || localStorage.getItem('token');
+      if (!storedToken) return;
       try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
+        const payload = JSON.parse(atob(storedToken.split('.')[1]));
         if (payload.exp && payload.exp * 1000 < Date.now()) {
+          // Token already expired — logout
           useAuthStore.getState().disconnect();
           toast.error(t('auth.sessionExpired', { defaultValue: 'Session expired. Please reconnect your wallet.' }));
+          return;
         }
-      } catch { /* invalid token format */ }
+      } catch { return; }
+
+      // Auto-refresh if token is within 1 hour of expiry
+      if (isTokenNearExpiry()) {
+        const newToken = await refreshToken();
+        if (newToken) {
+          useAuthStore.getState().restoreToken();
+          authenticateWS(newToken);
+        }
+      }
     };
     const interval = setInterval(checkExpiry, 60000); // Check every minute
     return () => clearInterval(interval);

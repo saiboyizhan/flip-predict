@@ -54,7 +54,7 @@ export function PredictionStyleDashboard({ agentId }: PredictionStyleDashboardPr
     setLoading(true);
     getAgentStyleProfile(agentId)
       .then((data) => setProfile(data))
-      .catch(() => {})
+      .catch((e) => { console.warn('[PredictionStyle] Failed to load profile:', e.message) })
       .finally(() => setLoading(false));
   }, [agentId]);
 

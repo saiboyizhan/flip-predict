@@ -36,10 +36,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                   hasAgent: agents.length > 0,
                   agentCount: agents.length,
                 })
-              }).catch(() => {})
+              }).catch((e) => { console.warn('[AgentStore] Failed to reload agents after sync:', e.message) })
             }
           })
-          .catch(() => {})
+          .catch((e) => { console.warn('[AgentStore] Auto-sync failed:', e.message) })
           .finally(() => { syncInFlight = false })
       }
 

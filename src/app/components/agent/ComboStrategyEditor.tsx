@@ -36,7 +36,7 @@ export function ComboStrategyEditor({ agentId }: ComboStrategyEditorProps) {
           } catch {}
         }
       })
-      .catch(() => {})
+      .catch((e) => { console.warn('[ComboStrategy] Failed to load agent:', e.message) })
       .finally(() => setLoaded(true));
   }, [agentId]);
 

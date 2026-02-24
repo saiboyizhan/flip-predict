@@ -31,6 +31,57 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// --- JWT refresh ---
+let refreshPromise: Promise<string | null> | null = null
+
+export async function refreshToken(): Promise<string | null> {
+  const currentToken = getToken()
+  if (!currentToken) return null
+
+  // Deduplicate concurrent refresh calls
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentToken}`,
+        },
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+      if (data.token) {
+        setToken(data.token)
+        return data.token as string
+      }
+      return null
+    } catch {
+      return null
+    } finally {
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
+
+/** Check if JWT is close to expiry (within 1 hour) */
+export function isTokenNearExpiry(): boolean {
+  const t = getToken()
+  if (!t) return false
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1]))
+    if (!payload.exp) return false
+    const expiresAt = payload.exp * 1000
+    const oneHour = 60 * 60 * 1000
+    return expiresAt - Date.now() < oneHour
+  } catch {
+    return false
+  }
+}
+
 // --- Generic request helper ---
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
@@ -56,6 +107,28 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       throw new Error('Network error. Please check your internet connection.')
     }
     throw err
+  }
+
+  // Auto-refresh on 401 (token expired) and retry once
+  if (res.status === 401 && currentToken && !path.includes('/auth/refresh')) {
+    const newToken = await refreshToken()
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`
+      try {
+        res = await fetch(`${API_BASE}${path}`, {
+          ...options,
+          headers: {
+            ...headers,
+            ...(options?.headers as Record<string, string>),
+          },
+        })
+      } catch (err) {
+        if (err instanceof TypeError) {
+          throw new Error('Network error. Please check your internet connection.')
+        }
+        throw err
+      }
+    }
   }
 
   if (!res.ok) {

@@ -29,7 +29,7 @@ export function AgentDashboard() {
       setMyLoading(true);
       getMyAgents()
         .then(setMyAgents)
-        .catch(() => {})
+        .catch((e) => { console.warn('[AgentDashboard] Failed to load my agents:', e.message) })
         .finally(() => setMyLoading(false));
     }
   }, [tab]);

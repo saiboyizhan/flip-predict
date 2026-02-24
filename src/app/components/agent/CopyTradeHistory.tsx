@@ -17,7 +17,7 @@ export function CopyTradeHistory() {
         setTrades(data.trades);
         setTotal(data.total);
       })
-      .catch(() => {})
+      .catch((e) => { console.warn('[CopyTradeHistory] Failed to load:', e.message) })
       .finally(() => setLoading(false));
   }, [offset]);
 

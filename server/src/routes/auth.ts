@@ -149,4 +149,43 @@ router.post('/verify', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/auth/refresh — issue a new JWT if the current one is still valid
+router.post('/refresh', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'No token provided' });
+      return;
+    }
+
+    const token = authHeader.substring(7);
+    let decoded: { address?: string; isAdmin?: boolean };
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as { address?: string; isAdmin?: boolean };
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
+
+    if (typeof decoded.address !== 'string') {
+      res.status(401).json({ error: 'Invalid token payload' });
+      return;
+    }
+
+    const normalizedAddress = decoded.address.toLowerCase();
+    const isAdmin = ADMIN_ADDRESSES.has(normalizedAddress);
+
+    const newToken = jwt.sign(
+      { address: normalizedAddress, isAdmin },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRATION } as jwt.SignOptions
+    );
+
+    res.json({ token: newToken });
+  } catch (err: any) {
+    console.error('Token refresh error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;
