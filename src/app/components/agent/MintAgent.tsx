@@ -221,7 +221,7 @@ export function MintAgent() {
       });
       if (pendingNonce > latestNonce) {
         throw new Error(
-          "You have pending wallet transactions. Please Speed Up or Cancel pending tx first, then mint again."
+          t("agent.pendingTxWarning", "你有待处理的钱包交易。请先在钱包中加速或取消待处理交易，然后重新铸造。")
         );
       }
 
@@ -349,7 +349,7 @@ export function MintAgent() {
           message.toLowerCase().includes("nonce too low"))
       ) {
         toast.error(
-          "Pending transaction conflict detected. Please Speed Up/Cancel the pending tx in wallet, then retry mint."
+          t("agent.pendingTxConflict", "检测到待处理交易冲突。请在钱包中加速/取消待处理交易后重试。")
         );
       } else {
         toast.error(message);

@@ -360,7 +360,7 @@ export function AgentDetail() {
     // On-chain purchase: initiate NFT transfer
     // Transfer requires seller to have approved buyer first
     // In a real marketplace, seller would approve the marketplace contract
-    toast.info("Initiating on-chain transfer...");
+    toast.info(t("agentDetail.initiatingTransfer", "正在发起链上转移..."));
     transferAgent(agent.owner_address as `0x${string}`, address as `0x${string}`, tokenId);
   };
 

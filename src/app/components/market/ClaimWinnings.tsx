@@ -145,7 +145,7 @@ export function ClaimWinnings({
   async function handleClaim() {
     if (useOnChain) {
       if (!isBinaryOutcome) {
-        toast.error("On-chain claim currently supports binary YES/NO markets only");
+        toast.error(t("claim.binaryOnly", "链上领取目前仅支持二元 (YES/NO) 市场"));
         return;
       }
       if (!onChainMarketId) {

@@ -195,11 +195,11 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
                   <div className="font-mono font-semibold">{totalSharesNum.toFixed(2)}</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-lg px-3 py-2">
-                  <div className="text-muted-foreground">YES Reserve</div>
+                  <div className="text-muted-foreground">{t('lp.yesReserve', 'YES Reserve')}</div>
                   <div className="font-mono font-semibold text-emerald-400">{formatUsd(yesReserveNum)}</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-lg px-3 py-2">
-                  <div className="text-muted-foreground">NO Reserve</div>
+                  <div className="text-muted-foreground">{t('lp.noReserve', 'NO Reserve')}</div>
                   <div className="font-mono font-semibold text-red-400">{formatUsd(noReserveNum)}</div>
                 </div>
               </div>
@@ -257,7 +257,7 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
 
                   {mode === "add" && (
                     <div className="text-xs text-muted-foreground">
-                      Wallet: <span className="text-blue-400 font-mono">{parseFloat(walletBalance).toFixed(2)} USDT</span>
+                      {t('lp.walletLabel', 'Wallet: ')}<span className="text-blue-400 font-mono">{parseFloat(walletBalance).toFixed(2)} USDT</span>
                     </div>
                   )}
 
@@ -266,7 +266,7 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
                       type="number"
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
-                      placeholder={mode === "add" ? "USDT amount" : "LP shares to burn"}
+                      placeholder={mode === "add" ? t('lp.usdtAmount', 'USDT 数量') : t('lp.sharesToBurn', 'LP 份额')}
                       className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500/40"
                     />
                     <button

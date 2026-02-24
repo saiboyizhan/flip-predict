@@ -190,7 +190,7 @@ export function OrderbookPanel({ marketId, onPriceClick }: OrderbookPanelProps) 
           {/* Spread indicator */}
           {bids.length > 0 && asks.length > 0 && (
             <div className="text-center text-[10px] text-muted-foreground py-1 border-y border-border/50">
-              Spread: ${(asks[0].price - bids[0].price).toFixed(2)}
+              {t('lp.spread', 'Spread: $')}{(asks[0].price - bids[0].price).toFixed(2)}
             </div>
           )}
 
@@ -225,7 +225,7 @@ export function OrderbookPanel({ marketId, onPriceClick }: OrderbookPanelProps) 
                 <span className={`px-1.5 py-0.5 text-[10px] font-bold ${
                   order.orderSide === "buy" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
                 }`}>
-                  {order.orderSide.toUpperCase()}
+                  {order.orderSide === "buy" ? t('trade.buy') : t('trade.sell')}
                 </span>
                 <span className={`font-semibold ${order.side === "yes" ? "text-emerald-400" : "text-red-400"}`}>
                   {order.side.toUpperCase()}
@@ -242,7 +242,7 @@ export function OrderbookPanel({ marketId, onPriceClick }: OrderbookPanelProps) 
                   onClick={() => handleCancel(order.onChainOrderId!)}
                   disabled={cancelWriting || cancelConfirming}
                   className="text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-50"
-                  title="Cancel order"
+                  title={t('lp.cancelOrder', '取消订单')}
                 >
                   {cancelWriting || cancelConfirming ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />

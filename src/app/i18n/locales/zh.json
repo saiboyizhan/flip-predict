@@ -246,7 +246,9 @@
     "approveAndMint": "授权 FLIP 并铸造",
     "flipBalance": "FLIP 余额",
     "needsApproval": "铸造前需先授权 FLIP",
-    "mintWithFlip": "铸造 ({{cost}} FLIP)"
+    "mintWithFlip": "铸造 ({{cost}} FLIP)",
+    "pendingTxWarning": "你有待处理的钱包交易。请先在钱包中加速或取消待处理交易，然后重新铸造。",
+    "pendingTxConflict": "检测到待处理交易冲突。请在钱包中加速/取消待处理交易后重试。"
   },
   "leaderboard": {
     "title": "排行榜",
@@ -559,7 +561,14 @@
     "remove": "移除",
     "removeAll": "全部移除",
     "addSuccess": "流动性添加成功",
-    "removeSuccess": "流动性移除成功"
+    "removeSuccess": "流动性移除成功",
+    "yesReserve": "YES 储备",
+    "noReserve": "NO 储备",
+    "walletLabel": "钱包: ",
+    "cancelOrder": "取消订单",
+    "spread": "价差: $",
+    "usdtAmount": "USDT 数量",
+    "sharesToBurn": "LP 份额"
   },
   "trade": {
     "currentPrice": "{{side}} 当前价格",
@@ -619,7 +628,10 @@
     "limit": "限价",
     "limitPrice": "限价价格",
     "placeLimitBuy": "限价买入 {{side}}",
-    "placeLimitSell": "限价卖出 {{side}}"
+    "placeLimitSell": "限价卖出 {{side}}",
+    "priceOutOfRange": "价格必须在 0.01 到 0.99 之间",
+    "approvingUsdt": "正在授权 USDT...",
+    "approvingErc1155": "正在授权 ERC1155..."
   },
   "claim": {
     "missedTitle": "预测未命中",
@@ -635,7 +647,8 @@
     "claimFailed": "领取失败",
     "claimedOnChain": "链上奖金已领取！",
     "claimOnChain": "链上领取",
-    "syncFailed": "链上领取成功，但平台同步失败。请联系客服。"
+    "syncFailed": "链上领取成功，但平台同步失败。请联系客服。",
+    "binaryOnly": "链上领取目前仅支持二元 (YES/NO) 市场"
   },
   "resolved": {
     "won": "{{side}} 胜出",
@@ -683,7 +696,9 @@
     "connectRequiredDesc": "连接钱包后可以查看你的持仓、交易历史和盈亏情况。",
     "description": "追踪你的持仓和交易历史",
     "loadHistoryFailed": "交易历史加载失败",
-    "loadHistoryFailedDesc": "持仓数据仍然可见，交易历史将自动重新加载。"
+    "loadHistoryFailedDesc": "持仓数据仍然可见，交易历史将自动重新加载。",
+    "pending": "进行中",
+    "noLpPositions": "暂无 LP 持仓"
   },
   "notification": {
     "title": "通知",
@@ -894,6 +909,7 @@
     "expiry": "过期时间:",
     "revoking": "撤销中...",
     "revokeAccess": "撤销访问权",
+    "initiatingTransfer": "正在发起链上转移...",
     "llmConfig": {
       "title": "AI 模型配置",
       "subtitle": "接入 LLM API 增强 Agent 决策能力",
@@ -1131,6 +1147,10 @@
     "source": "来源",
     "copyTrading": "跟单分成",
     "amount": "金额"
+  },
+  "ws": {
+    "connectionLost": "实时连接已断开，价格可能不是最新的。",
+    "reconnecting": "重连中..."
   },
   "lang": {
     "zh": "中",
