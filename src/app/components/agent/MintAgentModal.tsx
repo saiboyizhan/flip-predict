@@ -189,7 +189,12 @@ export function MintAgentModal() {
         value: NFA_MINT_PRICE,
       });
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      const receipt = await Promise.race([
+        publicClient.waitForTransactionReceipt({ hash: txHash }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Transaction confirmation timeout. Your mint may have succeeded — check your wallet or refresh the Agents page.")), 60_000)
+        ),
+      ]);
 
       if (receipt.status === "reverted") {
         throw new Error("Mint transaction reverted on-chain");
@@ -229,7 +234,22 @@ export function MintAgentModal() {
         payload.tokenId = tokenId.toString();
       }
 
-      const agent = await mintAgent(payload);
+      let agent;
+      try {
+        agent = await mintAgent(payload);
+      } catch (backendErr: any) {
+        // On-chain mint succeeded but backend registration failed — auto-sync will recover
+        const scanUrl = getBscScanUrl(chainId);
+        toast.error(
+          t("agent.backendRegisterFailed", {
+            defaultValue: "链上铸造成功但后端注册失败。请刷新页面或前往 Agents 页面，系统会自动同步。",
+          }),
+          { duration: 10000 }
+        );
+        window.open(`${scanUrl}/tx/${txHash}`, "_blank");
+        resetAndClose();
+        return;
+      }
       addAgent(agent);
       toast.success(tokenId != null ? `${t("agent.mintSuccess")} #${tokenId.toString()}` : t("agent.mintSuccess"));
       const scanUrl = getBscScanUrl(chainId);

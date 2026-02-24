@@ -247,7 +247,12 @@ export function MintAgent() {
         value: NFA_MINT_PRICE,
       });
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      const receipt = await Promise.race([
+        publicClient.waitForTransactionReceipt({ hash: txHash }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Transaction confirmation timeout. Your mint may have succeeded — check your wallet or refresh the Agents page.")), 60_000)
+        ),
+      ]);
 
       if (receipt.status === "reverted") {
         throw new Error("Mint transaction reverted on-chain");
