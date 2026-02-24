@@ -41,26 +41,16 @@ function countMarketsInWindow(markets: Market[], tw: TimeWindow): number {
 
 function getWindowEnd(tw: TimeWindow): number | null {
   if (tw === "all") return null;
-  const now = new Date();
+  const now = Date.now();
   switch (tw) {
-    case "today": {
-      const e = new Date(now);
-      e.setHours(23, 59, 59, 999);
-      return e.getTime();
-    }
-    case "week": {
-      const e = new Date(now);
-      e.setDate(e.getDate() + (7 - e.getDay()));
-      e.setHours(23, 59, 59, 999);
-      return e.getTime();
-    }
-    case "month": {
-      return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
-    }
-    case "quarter": {
-      const qMonth = Math.ceil((now.getMonth() + 1) / 3) * 3;
-      return new Date(now.getFullYear(), qMonth, 0, 23, 59, 59, 999).getTime();
-    }
+    case "today":
+      return now + 24 * 3600000;
+    case "week":
+      return now + 7 * 24 * 3600000;
+    case "month":
+      return now + 30 * 24 * 3600000;
+    case "quarter":
+      return now + 90 * 24 * 3600000;
   }
 }
 
