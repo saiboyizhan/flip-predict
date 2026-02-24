@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Users, TrendingUp, BarChart3 } from "lucide-react";
+import { Clock, Users, TrendingUp, BarChart3, Droplets } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ShareButton } from "./ShareButton";
 
@@ -26,6 +26,7 @@ interface Market {
   resolution?: string;
   marketType?: "binary" | "multi";
   options?: MarketOptionDisplay[];
+  totalLiquidity?: number;
 }
 
 interface MarketHeaderProps {
@@ -105,7 +106,7 @@ export function MarketHeader({ market }: MarketHeaderProps) {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <div className="bg-secondary/50 border border-border/50 px-3 py-2">
           <div className="flex items-center gap-1.5 mb-1">
             <Clock className="w-3 h-3 text-blue-400" />
@@ -123,6 +124,16 @@ export function MarketHeader({ market }: MarketHeaderProps) {
           </div>
           <div className="text-sm font-bold text-foreground font-mono">
             {formatVolume(market.volume)}
+          </div>
+        </div>
+
+        <div className="bg-secondary/50 border border-border/50 px-3 py-2">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Droplets className="w-3 h-3 text-cyan-400" />
+            <span className="text-[10px] text-muted-foreground tracking-wider uppercase">{t('market.liquidity', 'Liquidity')}</span>
+          </div>
+          <div className="text-sm font-bold text-foreground font-mono">
+            {market.totalLiquidity != null && market.totalLiquidity > 0 ? formatVolume(market.totalLiquidity) : '0'}
           </div>
         </div>
 

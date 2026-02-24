@@ -248,7 +248,13 @@ const MarketCardComponent = ({ market, size = "medium", onClick }: MarketCardPro
 
       {/* Stats Row */}
       <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground ${isCompact ? "text-xs" : "text-xs"}`}>
-        <span className="font-mono tabular-nums">${formatVolume(market.volume)}</span>
+        <span className="font-mono tabular-nums">${formatVolume(market.volume)} <span className="text-muted-foreground/60">vol</span></span>
+        {market.totalLiquidity != null && market.totalLiquidity > 0 && (
+          <>
+            <span className="text-white/10">|</span>
+            <span className="font-mono tabular-nums">${formatVolume(market.totalLiquidity)} <span className="text-muted-foreground/60">liq</span></span>
+          </>
+        )}
         <span className="text-white/10">|</span>
         <span className="whitespace-nowrap">{market.participants} {t('market.participants').toLowerCase()}</span>
         <span className="text-white/10">|</span>

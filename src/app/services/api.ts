@@ -259,7 +259,7 @@ function normalizeMarket(raw: RawMarket): Market {
     resolutionSource: String(raw.resolution_type ?? raw.resolution_source ?? raw.resolutionSource ?? 'auto'),
     marketType,
     options,
-    totalLiquidity: Number(raw.totalLiquidity ?? raw.total_liquidity) || undefined,
+    totalLiquidity: raw.totalLiquidity != null || raw.total_liquidity != null ? Number(raw.totalLiquidity ?? raw.total_liquidity) : undefined,
     yesReserve: Number(raw.yesReserve ?? raw.yes_reserve) || undefined,
     noReserve: Number(raw.noReserve ?? raw.no_reserve) || undefined,
   }
