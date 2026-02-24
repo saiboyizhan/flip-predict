@@ -93,6 +93,22 @@ router.get('/', async (req: Request, res: Response) => {
     query += ' LIMIT 200';
 
     const { rows: markets } = await db.query(query, params);
+
+    // Compute participants (distinct traders) per market
+    if (markets.length > 0) {
+      const ids = markets.map((m: any) => m.id);
+      const placeholders = ids.map((_: any, i: number) => `$${i + 1}`).join(',');
+      const { rows: pRows } = await db.query(
+        `SELECT market_id, COUNT(DISTINCT user_address)::int AS participants
+         FROM orders WHERE market_id IN (${placeholders}) GROUP BY market_id`,
+        ids
+      );
+      const pMap = new Map(pRows.map((r: any) => [r.market_id, r.participants]));
+      for (const m of markets) {
+        m.participants = pMap.get(m.id) ?? 0;
+      }
+    }
+
     // Normalization guard: derive no_price from yes_price to guarantee sum === 1
     for (const m of markets) {
       if (m.market_type !== 'multi') {
@@ -515,6 +531,13 @@ router.get('/:id', async (req: Request, res: Response) => {
       );
       options = rows;
     }
+
+    // Compute participants
+    const { rows: pRows } = await db.query(
+      'SELECT COUNT(DISTINCT user_address)::int AS participants FROM orders WHERE market_id = $1',
+      [id]
+    );
+    market.participants = pRows[0]?.participants ?? 0;
 
     // Normalization guard for binary markets
     if (market.market_type !== 'multi') {
