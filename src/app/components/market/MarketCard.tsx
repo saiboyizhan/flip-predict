@@ -71,6 +71,15 @@ function getEffectiveStatus(market: Market): {
     };
   }
 
+  if (market.status === "expired") {
+    return {
+      status: "expired",
+      labelKey: "market.status.expired",
+      className: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+      isExpiringSoon: false,
+    };
+  }
+
   // Active -- check if expiring soon (<24h)
   const now = Date.now();
   const end = new Date(market.endTime).getTime();

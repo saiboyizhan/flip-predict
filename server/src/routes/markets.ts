@@ -55,11 +55,11 @@ router.get('/', async (req: Request, res: Response) => {
         params.push(status);
       } else {
         // Non-admin: ignore the protected status filter, default to public listing
-        query += ` AND status NOT IN ('pending_approval', 'rejected')`;
+        query += ` AND status NOT IN ('pending_approval', 'rejected', 'expired')`;
       }
     } else {
-      // Public listing: exclude pending_approval and rejected markets
-      query += ` AND status NOT IN ('pending_approval', 'rejected')`;
+      // Public listing: exclude pending_approval, rejected, and expired markets
+      query += ` AND status NOT IN ('pending_approval', 'rejected', 'expired')`;
     }
 
     if (category && category !== 'all') {
