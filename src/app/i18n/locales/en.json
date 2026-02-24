@@ -150,8 +150,8 @@
       "random": "Random",
       "randomDesc": "No limits, freely explores all types of predictions"
     },
-    "switchChainFailed": "Please switch to BSC Testnet (Chain ID: 97)",
-    "wrongChain": "Please switch to BSC Testnet to mint",
+    "switchChainFailed": "Please switch to BSC Mainnet",
+    "wrongChain": "Please switch to BSC Mainnet to mint",
     "switchChain": "Switch Network",
     "notAuthenticated": "Please login first: go to Wallet page and sign the authentication message.",
     "onChainSuccessBackendFailed": "On-chain mint succeeded but backend registration failed. Please go to Agents page and use auto-sync to recover."

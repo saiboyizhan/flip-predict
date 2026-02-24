@@ -50,8 +50,8 @@ export function MintAgent() {
   const { addAgent } = useAgentStore();
   const { isAuthenticated } = useAuthStore();
 
-  const BSC_TESTNET_CHAIN_ID = 97;
-  const isWrongChain = isConnected && chainId !== BSC_TESTNET_CHAIN_ID;
+  const BSC_CHAIN_ID = 56;
+  const isWrongChain = isConnected && chainId !== BSC_CHAIN_ID;
 
   // Read on-chain mintCount for the connected address
   const { data: onChainMintCount } = useReadContract({
@@ -162,11 +162,11 @@ export function MintAgent() {
       toast.error(t("auth.pleaseLogin", { defaultValue: "Please login first (sign message to authenticate)" }));
       return;
     }
-    if (chainId !== BSC_TESTNET_CHAIN_ID) {
+    if (chainId !== BSC_CHAIN_ID) {
       try {
-        await switchChainAsync({ chainId: BSC_TESTNET_CHAIN_ID });
+        await switchChainAsync({ chainId: BSC_CHAIN_ID });
       } catch {
-        toast.error(t("agent.switchChainFailed", { defaultValue: "Please switch to BSC Testnet (Chain ID: 97)" }));
+        toast.error(t("agent.switchChainFailed", { defaultValue: "Please switch to BSC Mainnet" }));
         return;
       }
     }
@@ -186,7 +186,7 @@ export function MintAgent() {
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
       });
       if (!bytecode || bytecode === "0x") {
-        throw new Error(`NFA contract not deployed on chain ${BSC_TESTNET_CHAIN_ID}: ${NFA_CONTRACT_ADDRESS}`);
+        throw new Error(`NFA contract not deployed on chain ${BSC_CHAIN_ID}: ${NFA_CONTRACT_ADDRESS}`);
       }
 
       // Guard against nonce replacement failures caused by existing pending txs.
@@ -565,12 +565,12 @@ export function MintAgent() {
             {isWrongChain && (
               <div className="border border-yellow-500/30 bg-yellow-500/5 p-3 flex items-center justify-between">
                 <span className="text-yellow-400 text-xs">
-                  {t("agent.wrongChain", { defaultValue: "Please switch to BSC Testnet to mint" })}
+                  {t("agent.wrongChain", { defaultValue: "Please switch to BSC Mainnet to mint" })}
                 </span>
                 <button
                   onClick={async () => {
                     try {
-                      await switchChainAsync({ chainId: BSC_TESTNET_CHAIN_ID });
+                      await switchChainAsync({ chainId: BSC_CHAIN_ID });
                     } catch {
                       toast.error(t("agent.switchChainFailed", { defaultValue: "Failed to switch network" }));
                     }

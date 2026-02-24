@@ -826,11 +826,6 @@ contract PredictionMarketV3 is
         noAmount = balanceOf(user, getNoTokenId(marketId));
     }
 
-    function isMarketCancelled(uint256 marketId) external view returns (bool) {
-        Market storage m = _existingMarket(marketId);
-        return m.cancelled;
-    }
-
     function getAgentPosition(uint256 marketId, uint256 agentTokenId) external view returns (uint256 yesAmount, uint256 noAmount, bool claimed) {
         yesAmount = agentYesBalance[marketId][agentTokenId];
         noAmount = agentNoBalance[marketId][agentTokenId];

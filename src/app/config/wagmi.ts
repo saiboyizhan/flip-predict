@@ -3,28 +3,23 @@ import { defineChain, parseGwei } from "viem";
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 
-const bscTestnet = defineChain({
-  id: 97,
-  name: "BNB Smart Chain Testnet",
-  nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
+const bscMainnet = defineChain({
+  id: 56,
+  name: "BNB Smart Chain",
+  nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
   rpcUrls: {
     default: {
       http: [
-        "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
-        "https://data-seed-prebsc-2-s1.bnbchain.org:8545",
-        "https://data-seed-prebsc-1-s2.bnbchain.org:8545",
+        "https://bsc-dataseed.bnbchain.org",
+        "https://bsc-dataseed1.defibit.io",
+        "https://bsc-dataseed1.ninicoin.io",
       ],
     },
   },
   blockExplorers: {
-    default: { name: "BscScan Testnet", url: "https://testnet.bscscan.com" },
+    default: { name: "BscScan", url: "https://bscscan.com" },
   },
-  testnet: true,
-  fees: {
-    async estimateFeesPerGas() {
-      return { gasPrice: parseGwei("5") };
-    },
-  },
+  testnet: false,
 });
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
@@ -34,16 +29,16 @@ if (!projectId || projectId === "YOUR_WALLETCONNECT_PROJECT_ID") {
   );
 }
 
-const chains = [bscTestnet] as const;
+const chains = [bscMainnet] as const;
 
 const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks: chains,
   transports: {
-    [bscTestnet.id]: fallback([
-      http("https://data-seed-prebsc-1-s1.bnbchain.org:8545"),
-      http("https://data-seed-prebsc-2-s1.bnbchain.org:8545"),
-      http("https://data-seed-prebsc-1-s2.bnbchain.org:8545"),
+    [bscMainnet.id]: fallback([
+      http("https://bsc-dataseed.bnbchain.org"),
+      http("https://bsc-dataseed1.defibit.io"),
+      http("https://bsc-dataseed1.ninicoin.io"),
     ]),
   },
 });
@@ -51,7 +46,7 @@ const wagmiAdapter = new WagmiAdapter({
 createAppKit({
   adapters: [wagmiAdapter],
   networks: chains,
-  defaultNetwork: bscTestnet,
+  defaultNetwork: bscMainnet,
   projectId,
   allowUnsupportedChain: true,
   enableEIP6963: true,

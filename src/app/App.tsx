@@ -16,7 +16,7 @@ import { useNotificationStore } from "./stores/useNotificationStore";
 import { isTokenNearExpiry, refreshToken } from "./services/api";
 
 
-const SUPPORTED_CHAIN_ID = 97; // BSC Testnet only
+const SUPPORTED_CHAIN_ID = 56; // BSC Mainnet
 
 function ChainWarningBanner() {
   const { t } = useTranslation();

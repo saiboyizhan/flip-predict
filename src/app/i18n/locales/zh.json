@@ -233,8 +233,8 @@
       "random": "随机",
       "randomDesc": "不设限制，自由探索各类预测"
     },
-    "switchChainFailed": "请切换到 BSC 测试网 (Chain ID: 97)",
-    "wrongChain": "请切换到 BSC 测试网后再铸造",
+    "switchChainFailed": "请切换到 BSC 主网",
+    "wrongChain": "请切换到 BSC 主网后再铸造",
     "switchChain": "切换网络",
     "notAuthenticated": "请先登录: 前往钱包页面签名认证消息。",
     "onChainSuccessBackendFailed": "链上铸造成功但后端注册失败。请前往 Agent 页面使用自动同步恢复。",

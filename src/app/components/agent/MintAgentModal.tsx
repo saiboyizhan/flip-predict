@@ -42,7 +42,7 @@ function resizeImage(file: File, size: number): Promise<string> {
 export function MintAgentModal() {
   const { t } = useTranslation();
   const chainId = useChainId();
-  const BSC_TESTNET_CHAIN_ID = 97;
+  const BSC_CHAIN_ID = 56;
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
@@ -105,11 +105,11 @@ export function MintAgentModal() {
       toast.error(t("auth.pleaseConnectWallet", "Please connect wallet first"));
       return;
     }
-    if (chainId !== BSC_TESTNET_CHAIN_ID) {
+    if (chainId !== BSC_CHAIN_ID) {
       try {
-        await switchChainAsync({ chainId: BSC_TESTNET_CHAIN_ID });
+        await switchChainAsync({ chainId: BSC_CHAIN_ID });
       } catch {
-        toast.error(t("agent.switchChainFailed", { defaultValue: "Please switch to BSC Testnet (Chain ID: 97)" }));
+        toast.error(t("agent.switchChainFailed", { defaultValue: "Please switch to BSC Mainnet" }));
         return;
       }
     }
@@ -129,7 +129,7 @@ export function MintAgentModal() {
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
       });
       if (!bytecode || bytecode === "0x") {
-        throw new Error(`NFA contract not deployed on chain ${BSC_TESTNET_CHAIN_ID}: ${NFA_CONTRACT_ADDRESS}`);
+        throw new Error(`NFA contract not deployed on chain ${BSC_CHAIN_ID}: ${NFA_CONTRACT_ADDRESS}`);
       }
 
       const latestNonce = await publicClient.getTransactionCount({
