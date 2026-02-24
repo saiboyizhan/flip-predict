@@ -265,7 +265,9 @@
     "replyTo": "回复 {{name}}",
     "replies": "{{count}} 条回复",
     "showReplies": "展开回复",
-    "hideReplies": "收起回复"
+    "hideReplies": "收起回复",
+    "replyFailed": "回复发送失败",
+    "loadFailed": "评论加载失败"
   },
   "createMarket": {
     "title": "创建预测市场",
@@ -514,6 +516,20 @@
     "tradeFailed": "交易失败",
     "insufficientBalance": "余额不足，请先充值"
   },
+  "lp": {
+    "title": "流动性池",
+    "poolValue": "池总价值",
+    "totalLpShares": "LP 总份额",
+    "yourShares": "你的 LP 份额",
+    "yourValue": "你的价值",
+    "poolShare": "池占比",
+    "feeInfo": "LP 提供者按份额比例赚取 80% 交易手续费。",
+    "add": "添加",
+    "remove": "移除",
+    "removeAll": "全部移除",
+    "addSuccess": "流动性添加成功",
+    "removeSuccess": "流动性移除成功"
+  },
   "trade": {
     "currentPrice": "{{side}} 当前价格",
     "probability": "概率 {{pct}}%",
@@ -561,7 +577,18 @@
     "riskWarningTitle": "风险提示",
     "riskWarningMessage": "预测市场存在风险，您可能损失全部投入资金。请确认您已了解相关风险后再继续。",
     "riskAccept": "我已了解，继续",
-    "onChainSellNotSupported": "链上模式目前仅支持买入"
+    "onChainSellNotSupported": "链上模式目前仅支持买入",
+    "orderbook": "订单簿",
+    "noOrders": "暂无挂单",
+    "priceCol": "价格",
+    "amountCol": "数量",
+    "ordersCol": "订单数",
+    "myOrders": "我的订单",
+    "market": "市价",
+    "limit": "限价",
+    "limitPrice": "限价价格",
+    "placeLimitBuy": "限价买入 {{side}}",
+    "placeLimitSell": "限价卖出 {{side}}"
   },
   "claim": {
     "missedTitle": "预测未命中",
@@ -647,7 +674,18 @@
     "loading": "加载中...",
     "noHistory": "暂无价格历史",
     "tradeToGenerate": "交易后将生成数据",
-    "loadFailed": "加载价格历史失败"
+    "loadFailed": "加载价格历史失败",
+    "volume": "成交量"
+  },
+  "settlement": {
+    "settleMarket": "结算市场",
+    "settleDesc": "选择获胜结果并在链上结算。",
+    "settling": "结算中...",
+    "settle": "结算",
+    "marketFinalized": "市场结算成功",
+    "multiMarketNotSupported": "多选项市场结算暂未支持。",
+    "walletClientUnavailable": "钱包客户端不可用",
+    "invalidOnChainMarketId": "无效的链上市场 ID"
   },
   "agentDetail": {
     "notFound": "Agent 未找到",

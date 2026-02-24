@@ -184,7 +184,9 @@
     "replyTo": "Reply to {{name}}",
     "replies": "{{count}} replies",
     "showReplies": "Show replies",
-    "hideReplies": "Hide replies"
+    "hideReplies": "Hide replies",
+    "replyFailed": "Failed to post reply",
+    "loadFailed": "Failed to load comments"
   },
   "createMarket": {
     "title": "Create Prediction Market",
@@ -484,6 +486,20 @@
     "tradeFailed": "Trade failed",
     "insufficientBalance": "Insufficient balance, please deposit first"
   },
+  "lp": {
+    "title": "Liquidity Pool",
+    "poolValue": "Pool Value",
+    "totalLpShares": "Total LP Shares",
+    "yourShares": "Your LP Shares",
+    "yourValue": "Your Value",
+    "poolShare": "Pool Share",
+    "feeInfo": "LP providers earn 80% of trading fees proportional to their share.",
+    "add": "Add",
+    "remove": "Remove",
+    "removeAll": "Remove all",
+    "addSuccess": "Liquidity added successfully",
+    "removeSuccess": "Liquidity removed successfully"
+  },
   "trade": {
     "currentPrice": "{{side}} Current Price",
     "probability": "Probability {{pct}}%",
@@ -531,7 +547,18 @@
     "riskWarningTitle": "Risk Warning",
     "riskWarningMessage": "Prediction markets involve risk, and you may lose all of your invested capital. Please confirm you understand the risks before proceeding.",
     "riskAccept": "I Understand, Continue",
-    "onChainSellNotSupported": "On-chain mode currently supports buy only"
+    "onChainSellNotSupported": "On-chain mode currently supports buy only",
+    "orderbook": "Order Book",
+    "noOrders": "No open orders",
+    "priceCol": "Price",
+    "amountCol": "Amount",
+    "ordersCol": "Orders",
+    "myOrders": "My Orders",
+    "market": "Market",
+    "limit": "Limit",
+    "limitPrice": "Limit Price",
+    "placeLimitBuy": "Limit Buy {{side}}",
+    "placeLimitSell": "Limit Sell {{side}}"
   },
   "claim": {
     "missedTitle": "Prediction Missed",
@@ -617,7 +644,18 @@
     "loading": "Loading...",
     "noHistory": "No price history yet",
     "tradeToGenerate": "Trade to generate data",
-    "loadFailed": "Failed to load price history"
+    "loadFailed": "Failed to load price history",
+    "volume": "Volume"
+  },
+  "settlement": {
+    "settleMarket": "Settle Market",
+    "settleDesc": "Select the winning outcome and settle on-chain.",
+    "settling": "Settling...",
+    "settle": "Settle",
+    "marketFinalized": "Market settled successfully",
+    "multiMarketNotSupported": "Multi-option market settlement is not yet supported in the UI.",
+    "walletClientUnavailable": "Wallet client unavailable",
+    "invalidOnChainMarketId": "Invalid on-chain market ID"
   },
   "agentDetail": {
     "notFound": "Agent not found",
