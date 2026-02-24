@@ -56,11 +56,22 @@ interface AuthState {
   restoreToken: () => void
 }
 
+/** Extract address from JWT payload (client-side, no verification) */
+function getTokenAddress(token: string | null): string | null {
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1])) as { address?: string }
+    return payload.address ?? null
+  } catch {
+    return null
+  }
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
-  address: null,
+  address: (() => { const t = getValidToken(); return getTokenAddress(t); })(),
   balance: 0,
-  displayName: '',
-  isConnected: false,
+  displayName: (() => { const a = getTokenAddress(getValidToken()); return a ? `${a.slice(0, 6)}...${a.slice(-4)}` : ''; })(),
+  isConnected: !!getTokenAddress(getValidToken()),
   token: (() => { const t = getValidToken(); return t; })(),
   isAuthenticated: !!getValidToken(),
   isAdmin: (() => {
@@ -156,7 +167,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   restoreToken: () => {
     const token = getValidToken()
-    set({ token, isAuthenticated: !!token, isAdmin: getTokenAdminFlag(token) })
+    const update: Partial<AuthState> = { token, isAuthenticated: !!token, isAdmin: getTokenAdminFlag(token) }
+    // Restore address from JWT payload so portfolio/profile pages work after refresh
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1])) as { address?: string }
+        if (payload.address) {
+          update.address = payload.address
+          update.isConnected = true
+          update.displayName = `${payload.address.slice(0, 6)}...${payload.address.slice(-4)}`
+        }
+      } catch { /* ignore malformed token */ }
+    }
+    set(update)
     // If authenticated, fetch agents (no forced popup)
     if (token) {
       useAgentStore.getState().fetchMyAgents()
