@@ -24,12 +24,13 @@
   },
   "category": {
     "all": "全部",
+    "flap": "Flap",
+    "four-meme": "Four.meme",
+    "versus": "对决",
     "trending": "实时热点",
     "ai": "AI",
     "sports": "体育",
-    "news": "新闻",
-    "four-meme": "Four.meme",
-    "flap": "Flap"
+    "news": "新闻"
   },
   "common": {
     "loading": "加载中...",
@@ -331,12 +332,13 @@
     "syncParamsLost": "链上创建成功，但本地同步参数丢失，请刷新后重试",
     "oraclePairPlaceholder": "BTC/USD 或 0x...",
     "categories": {
+      "flap": "Flap",
+      "four-meme": "Four.meme",
+      "versus": "对决",
       "trending": "实时热点",
       "ai": "AI",
       "sports": "体育",
-      "news": "新闻",
-      "four-meme": "Four.meme",
-      "flap": "Flap"
+      "news": "新闻"
     }
   },
   "rewards": {

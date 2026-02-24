@@ -19,7 +19,7 @@ interface OptionInput {
 }
 
 const CATEGORY_IDS = [
-  'trending', 'ai', 'sports', 'news', 'flap', 'four-meme',
+  'flap', 'four-meme', 'versus', 'trending', 'ai', 'sports', 'news',
 ];
 
 const QUICK_TIME_KEYS = [
@@ -85,7 +85,7 @@ export function CreateMarketForm({ onSuccess }: CreateMarketFormProps) {
   const { address } = useAccount();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('trending');
+  const [category, setCategory] = useState('flap');
   const [endTime, setEndTime] = useState<number>(Date.now() + 24 * 3600000);
   const [syncing, setSyncing] = useState(false);
   const [marketType, setMarketType] = useState<'binary' | 'multi'>('binary');

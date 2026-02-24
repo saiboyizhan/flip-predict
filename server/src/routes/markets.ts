@@ -20,7 +20,7 @@ function extractAdminAddress(req: Request): string | null {
 
 const router = Router();
 
-const VALID_CATEGORIES = ['trending', 'ai', 'sports', 'news', 'flap', 'four-meme', 'other'];
+const VALID_CATEGORIES = ['flap', 'four-meme', 'versus', 'trending', 'ai', 'sports', 'news', 'other'];
 
 function parseTimestampFilter(value: unknown): string | null {
   if (value == null || value === '') return null;
