@@ -142,8 +142,8 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         timestamp: Number(p.timestamp ?? p.created_at) || Date.now(),
       }))
       set({ positions, lastFetchTime: now })
-    } catch {
-      // API not available — keep existing positions
+    } catch (err) {
+      console.warn('[Portfolio] Failed to fetch positions:', err instanceof Error ? err.message : err)
     }
   },
 }))

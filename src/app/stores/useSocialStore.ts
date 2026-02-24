@@ -33,8 +33,8 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       const data = await getFollowing(addr)
       const addresses = (data.following ?? []).map((f) => f.address.toLowerCase())
       set({ following: new Set(addresses) })
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.warn('[Social] Failed to load following:', err instanceof Error ? err.message : err)
     }
   },
 
@@ -47,8 +47,8 @@ export const useSocialStore = create<SocialState>((set, get) => ({
         next.add(normalized)
         return { following: next }
       })
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.warn('[Social] Failed to follow user:', err instanceof Error ? err.message : err)
     }
   },
 
@@ -61,8 +61,8 @@ export const useSocialStore = create<SocialState>((set, get) => ({
         next.delete(normalized)
         return { following: next }
       })
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.warn('[Social] Failed to unfollow user:', err instanceof Error ? err.message : err)
     }
   },
 
@@ -85,7 +85,8 @@ export const useSocialStore = create<SocialState>((set, get) => ({
         const limited = items.slice(0, 50);
         set({ feedItems: limited, feedLoading: false, feedError: false })
       }
-    } catch {
+    } catch (err) {
+      console.warn('[Social] Failed to load feed:', err instanceof Error ? err.message : err)
       set({ feedLoading: false, feedError: true })
     }
   },

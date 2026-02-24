@@ -258,7 +258,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
     if (orderType === "limit") {
       const priceNum = parseFloat(limitPrice);
       if (priceNum < 0.01 || priceNum > 0.99) {
-        toast.error("Price must be between 0.01 and 0.99");
+        toast.error(t("trade.priceOutOfRange", "Price must be between 0.01 and 0.99"));
         return;
       }
 
@@ -675,9 +675,9 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   {approveWriting || approveConfirming
-                    ? 'Approving USDT...'
+                    ? t('trade.approvingUsdt', 'Approving USDT...')
                     : erc1155ApproveWriting || erc1155ApproveConfirming
-                      ? 'Approving ERC1155...'
+                      ? t('trade.approvingErc1155', 'Approving ERC1155...')
                       : activeConfirming
                         ? t('trade.confirmingOnChain')
                         : activeWriting

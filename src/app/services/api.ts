@@ -57,7 +57,8 @@ export async function refreshToken(): Promise<string | null> {
         return data.token as string
       }
       return null
-    } catch {
+    } catch (err) {
+      console.warn('[Auth] Token refresh failed:', err instanceof Error ? err.message : err)
       return null
     } finally {
       refreshPromise = null
@@ -77,7 +78,8 @@ export function isTokenNearExpiry(): boolean {
     const expiresAt = payload.exp * 1000
     const oneHour = 60 * 60 * 1000
     return expiresAt - Date.now() < oneHour
-  } catch {
+  } catch (err) {
+    console.warn('[Auth] Failed to parse JWT expiry:', err instanceof Error ? err.message : err)
     return false
   }
 }

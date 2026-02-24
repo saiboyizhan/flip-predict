@@ -6,9 +6,10 @@ import { useTranslation } from "react-i18next";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { mintAgent } from "@/app/services/api";
 import { PRESET_AVATARS } from "@/app/config/avatars";
-import { NFA_ABI, NFA_CONTRACT_ADDRESS } from "@/app/config/nfaContracts";
+import { NFA_ABI, NFA_CONTRACT_ADDRESS, FLIP_TOKEN_ADDRESS, NFA_MINT_PRICE } from "@/app/config/nfaContracts";
+import { ERC20_ABI } from "@/app/config/contracts";
 import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract, useSwitchChain } from "wagmi";
-import { zeroAddress, zeroHash } from "viem";
+import { zeroAddress, zeroHash, formatUnits } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -25,7 +26,6 @@ function resizeImage(file: File, size: number): Promise<string> {
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext("2d")!;
-      // Center-crop: use the largest inscribed square
       const min = Math.min(img.width, img.height);
       const sx = (img.width - min) / 2;
       const sy = (img.height - min) / 2;
@@ -51,13 +51,14 @@ export function MintAgentModal() {
   const { showMintModal, setShowMintModal, addAgent, agentCount } = useAgentStore();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
+  const [persona, setPersona] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
   const [uploadedAvatar, setUploadedAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mintInFlightRef = useRef(false);
 
-  // P1-3 fix: Read MAX_AGENTS_PER_ADDRESS from contract
+  // Read MAX_AGENTS_PER_ADDRESS from contract
   const { data: maxAgentsData } = useReadContract({
     address: NFA_CONTRACT_ADDRESS as `0x${string}`,
     abi: NFA_ABI,
@@ -68,11 +69,35 @@ export function MintAgentModal() {
   });
   const MAX_AGENTS_PER_ADDRESS = maxAgentsData ? Number(maxAgentsData) : 3;
 
+  // Read FLIP token balance
+  const { data: flipBalance } = useReadContract({
+    address: FLIP_TOKEN_ADDRESS as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  // Read FLIP token allowance for NFA contract
+  const { data: flipAllowance, refetch: refetchFlipAllowance } = useReadContract({
+    address: FLIP_TOKEN_ADDRESS as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: address ? [address, NFA_CONTRACT_ADDRESS as `0x${string}`] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const flipBalanceBigInt = (flipBalance as bigint) ?? 0n;
+  const flipAllowanceBigInt = (flipAllowance as bigint) ?? 0n;
+  const hasEnoughFlip = flipBalanceBigInt >= NFA_MINT_PRICE;
+  const needsApproval = flipAllowanceBigInt < NFA_MINT_PRICE;
+
   const avatarSrc = uploadedAvatar ?? (selectedAvatar !== null ? PRESET_AVATARS[selectedAvatar].src : null);
 
   const resetAndClose = () => {
     setStep(1);
     setName("");
+    setPersona("");
     setSelectedAvatar(null);
     setUploadedAvatar(null);
     setLoading(false);
@@ -145,20 +170,58 @@ export function MintAgentModal() {
         );
       }
 
+      // Check FLIP balance
+      if (!hasEnoughFlip) {
+        throw new Error(t("agent.insufficientFlip", {
+          required: formatUnits(NFA_MINT_PRICE, 18),
+          defaultValue: `Insufficient FLIP balance. You need ${formatUnits(NFA_MINT_PRICE, 18)} FLIP to mint.`,
+        }));
+      }
+
+      // Approve FLIP if needed
+      if (needsApproval) {
+        toast.info(t("agent.approvingFlip", { defaultValue: "Approving FLIP tokens..." }));
+        const approveTx = await writeContractAsync({
+          address: FLIP_TOKEN_ADDRESS as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [NFA_CONTRACT_ADDRESS as `0x${string}`, NFA_MINT_PRICE],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveTx });
+        await refetchFlipAllowance();
+        toast.success(t("agent.flipApproved", { defaultValue: "FLIP approved. Now minting..." }));
+      }
+
       const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
+      const mintArgs = [{
+        name: name.trim(),
+        persona: persona.trim(),
+        voiceHash: zeroHash,
+        animationURI: "",
+        vaultURI: "",
+        vaultHash: zeroHash,
+        avatarId,
+      }] as const;
+
+      // Simulate first
+      try {
+        await publicClient.simulateContract({
+          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+          abi: NFA_ABI,
+          functionName: "mint",
+          args: mintArgs,
+          account: address,
+        });
+      } catch (simErr: any) {
+        const reason = simErr?.cause?.reason || simErr?.shortMessage || simErr?.message || "Unknown simulation error";
+        throw new Error(`Mint simulation failed: ${reason}`);
+      }
+
       const txHash = await writeContractAsync({
         address: NFA_CONTRACT_ADDRESS as `0x${string}`,
         abi: NFA_ABI,
         functionName: "mint",
-        args: [{
-          name: name.trim(),
-          persona: "",
-          voiceHash: zeroHash,
-          animationURI: "",
-          vaultURI: "",
-          vaultHash: zeroHash,
-          avatarId,
-        }],
+        args: mintArgs,
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
@@ -167,8 +230,7 @@ export function MintAgentModal() {
         throw new Error("Mint transaction reverted on-chain");
       }
 
-      // Parse Transfer(address,address,uint256) event directly from topics
-      // topic[0] = keccak256("Transfer(address,address,uint256)")
+      // Parse Transfer event to get tokenId
       const TRANSFER_SIG = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
       let tokenId: bigint | null = null;
       for (const log of receipt.logs) {
@@ -186,6 +248,7 @@ export function MintAgentModal() {
         name: string;
         strategy: string;
         description: string;
+        persona: string;
         avatar: string;
         tokenId?: string;
         mintTxHash: string;
@@ -193,6 +256,7 @@ export function MintAgentModal() {
         name: name.trim(),
         strategy: "random",
         description: "",
+        persona: persona.trim(),
         avatar: avatarSrc,
         mintTxHash: txHash,
       };
@@ -228,6 +292,8 @@ export function MintAgentModal() {
   if (!showMintModal) return null;
 
   const remaining = MAX_AGENTS_PER_ADDRESS - agentCount;
+  const flipDisplay = formatUnits(flipBalanceBigInt, 18);
+  const mintCostDisplay = formatUnits(NFA_MINT_PRICE, 18);
 
   return (
     <AnimatePresence>
@@ -286,7 +352,7 @@ export function MintAgentModal() {
           {/* Content */}
           <div className="p-5 min-h-[280px]">
             <AnimatePresence mode="wait">
-              {/* Step 1: Name */}
+              {/* Step 1: Name + Persona */}
               {step === 1 && (
                 <motion.div
                   key="step1"
@@ -311,6 +377,17 @@ export function MintAgentModal() {
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>{name.length}/30</span>
                     <span>{t("agent.remainingSlots", { count: remaining })}</span>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-muted-foreground mb-1">{t("agent.persona", "Persona (optional)")}</label>
+                    <input
+                      type="text"
+                      value={persona}
+                      onChange={(e) => setPersona(e.target.value)}
+                      placeholder={t("agent.personaPlaceholder", "e.g. Aggressive bull trader")}
+                      maxLength={100}
+                      className="w-full bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-muted-foreground"
+                    />
                   </div>
                 </motion.div>
               )}
@@ -418,23 +495,31 @@ export function MintAgentModal() {
                     )}
                     <div>
                       <div className="font-bold text-lg">{name}</div>
-                      <div className="text-sm text-muted-foreground">{t("agent.freeMintLabel")}</div>
+                      {persona && <div className="text-xs text-muted-foreground">{persona}</div>}
                     </div>
                   </div>
 
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">{t("agent.mintCost")}</span>
-                      <span className="text-emerald-400 font-semibold">FREE</span>
+                      <span className="text-amber-400 font-semibold font-mono">{Number(mintCostDisplay).toLocaleString()} FLIP</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">{t("agent.initialBalance")}</span>
-                      <span className="text-foreground font-mono">$1,000</span>
+                      <span className="text-muted-foreground">{t("agent.flipBalance", "FLIP Balance")}</span>
+                      <span className={`font-mono ${hasEnoughFlip ? 'text-foreground' : 'text-red-400'}`}>
+                        {Number(flipDisplay).toLocaleString()} FLIP
+                      </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">{t("agent.strategy")}</span>
-                      <span className="text-foreground">{t("agent.strategies.random")}</span>
-                    </div>
+                    {needsApproval && hasEnoughFlip && (
+                      <div className="text-xs text-amber-400 mt-1">
+                        {t("agent.needsApproval", "FLIP approval required before minting")}
+                      </div>
+                    )}
+                    {!hasEnoughFlip && (
+                      <div className="text-xs text-red-400 mt-1">
+                        {t("agent.insufficientFlipShort", "Insufficient FLIP balance")}
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -472,7 +557,7 @@ export function MintAgentModal() {
             ) : (
               <button
                 onClick={handleMint}
-                disabled={loading}
+                disabled={loading || !hasEnoughFlip}
                 className="flex items-center gap-2 px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-white font-bold text-sm transition-colors"
               >
                 {loading ? (
@@ -483,7 +568,10 @@ export function MintAgentModal() {
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    {t("agent.mintFree")}
+                    {needsApproval
+                      ? t("agent.approveAndMint", "Approve FLIP & Mint")
+                      : t("agent.mintWithFlip", { cost: Number(mintCostDisplay).toLocaleString(), defaultValue: `Mint (${Number(mintCostDisplay).toLocaleString()} FLIP)` })
+                    }
                   </>
                 )}
               </button>

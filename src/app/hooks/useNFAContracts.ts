@@ -5,7 +5,7 @@
  * a simple interface with loading, error, and txHash state.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   useWriteContract,
   useReadContract,
@@ -191,18 +191,21 @@ export function useFundAgent() {
 
   // Track pending tokenId for auto-fund after approve
   const [pendingTokenId, setPendingTokenId] = useState<bigint | null>(null);
+  const approveHandledRef = useRef(false);
 
-  // When approve is confirmed, automatically proceed to fund
+  // When approve is confirmed, refetch allowance then proceed to fund
   useEffect(() => {
-    if (isApproveConfirmed && needsApproval && pendingAmount !== null && pendingTokenId !== null) {
+    if (isApproveConfirmed && needsApproval && pendingAmount !== null && pendingTokenId !== null && !approveHandledRef.current) {
+      approveHandledRef.current = true;
       setNeedsApproval(false);
-      refetchAllowance();
-      // Auto-execute fund after approval
-      writeFund({
-        address: NFA_CONTRACT_ADDRESS as `0x${string}`,
-        abi: NFA_ABI,
-        functionName: 'fundAgent',
-        args: [pendingTokenId, pendingAmount],
+      // Wait for allowance refetch before funding
+      refetchAllowance().then(() => {
+        writeFund({
+          address: NFA_CONTRACT_ADDRESS as `0x${string}`,
+          abi: NFA_ABI,
+          functionName: 'fundAgent',
+          args: [pendingTokenId, pendingAmount],
+        });
       });
     }
   }, [isApproveConfirmed, needsApproval, pendingAmount, pendingTokenId, refetchAllowance, writeFund]);
@@ -211,6 +214,7 @@ export function useFundAgent() {
     (tokenId: bigint, amountUSDT: string) => {
       resetApprove();
       resetFund();
+      approveHandledRef.current = false;
 
       const amountWei = parseUnits(amountUSDT, 18);
       setPendingAmount(amountWei);
