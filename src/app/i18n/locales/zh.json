@@ -84,6 +84,7 @@
     "exploreOther": "试试其他分类",
     "loadFailed": "加载市场失败",
     "loadFailedDesc": "无法连接服务器，请检查网络连接后重试。",
+    "endsAt": "截止",
     "discussion": "市场讨论",
     "notFound": "市场未找到",
     "backToHome": "返回首页",
@@ -138,6 +139,7 @@
     "approve": "批准",
     "reject": "拒绝",
     "rejectReason": "拒绝原因",
+    "accessRequired": "需要管理员权限",
     "loadFailed": "加载待审核市场失败",
     "approveFailed": "批准失败",
     "rejectFailed": "拒绝失败"
@@ -226,7 +228,12 @@
       "momentumDesc": "顺势而为，跟随市场动量操作",
       "random": "随机",
       "randomDesc": "不设限制，自由探索各类预测"
-    }
+    },
+    "switchChainFailed": "请切换到 BSC 测试网 (Chain ID: 97)",
+    "wrongChain": "请切换到 BSC 测试网后再铸造",
+    "switchChain": "切换网络",
+    "notAuthenticated": "请先登录: 前往钱包页面签名认证消息。",
+    "onChainSuccessBackendFailed": "链上铸造成功但后端注册失败。请前往 Agent 页面使用自动同步恢复。"
   },
   "leaderboard": {
     "title": "排行榜",
@@ -421,7 +428,9 @@
     "platformFaucetSuccess": "已到账 10,000 平台测试余额!",
     "approving": "授权 USDT 中...",
     "approved": "已授权",
-    "approveSubmitted": "授权已提交"
+    "approveSubmitted": "授权已提交",
+    "availableToTrade": "可用于交易",
+    "nonCustodialInfo": "非托管模式: USDT 留在你的钱包中。交易直接与链上智能合约交互，无需充值或提现。"
   },
   "agents": {
     "title": "AI Agents",
@@ -433,7 +442,9 @@
     "signFailed": "签名验证失败，请重试",
     "connectRequired": "请连接钱包",
     "connectDescription": "请连接钱包以访问此页面",
-    "pleaseConnectWallet": "请先连接钱包"
+    "pleaseConnectWallet": "请先连接钱包",
+    "pleaseLogin": "请先登录 (签名认证消息)",
+    "sessionExpired": "会话已过期，请重新连接钱包。"
   },
   "profile": {
     "title": "我的主页",
@@ -650,7 +661,9 @@
     "sell": "卖出",
     "connectRequired": "连接钱包查看投资组合",
     "connectRequiredDesc": "连接钱包后可以查看你的持仓、交易历史和盈亏情况。",
-    "description": "追踪你的持仓和交易历史"
+    "description": "追踪你的持仓和交易历史",
+    "loadHistoryFailed": "交易历史加载失败",
+    "loadHistoryFailedDesc": "持仓数据仍然可见，交易历史将自动重新加载。"
   },
   "notification": {
     "title": "通知",
@@ -664,7 +677,14 @@
     "buyFilled": "买入成交",
     "buyDesc": "买入 {{shares}} 份 {{side}}",
     "sellFilled": "卖出成交",
-    "sellDesc": "卖出 {{shares}} 份 {{side}}"
+    "sellDesc": "卖出 {{shares}} 份 {{side}}",
+    "loadFailed": "通知加载失败",
+    "connectWallet": "连接钱包查看通知",
+    "noActivity": "交易成交、市场结果等动态会在这里通知你。",
+    "unreadCount": "{{count}} 条未读",
+    "allCaughtUp": "全部已读",
+    "markReadFailed": "更新通知失败",
+    "markAllReadFailed": "更新通知失败"
   },
   "priceChart": {
     "custom": "自定义",
@@ -897,7 +917,8 @@
       "providerGoogle": "Google",
       "providerDeepseek": "DeepSeek",
       "providerZhipu": "智谱 (GLM)",
-      "providerCustom": "自定义端点"
+      "providerCustom": "自定义端点",
+      "updateKeyPlaceholder": "输入新 Key 以更新..."
     }
   },
   "agentCard": {
@@ -909,7 +930,8 @@
   "agentMarketplace": {
     "forSale": "出售中 ({{count}})",
     "forRent": "出租中 ({{count}})",
-    "noAgents": "暂无上架 Agent"
+    "noAgents": "暂无上架 Agent",
+    "noAgentsHint": "成为第一个铸造 Agent 的人!"
   },
   "agentInteraction": {
     "selectMarket": "选择市场",
@@ -1036,7 +1058,12 @@
     "bio": "个人简介",
     "saveProfile": "保存",
     "profileSaved": "资料已保存",
-    "userProfile": "用户主页"
+    "userProfile": "用户主页",
+    "profileLoadFailed": "用户资料加载失败",
+    "noFollowers": "暂无粉丝",
+    "notFollowingAnyone": "暂未关注任何人",
+    "notFollowingHint": "去排行榜发现优秀交易者。",
+    "feedLoadFailed": "加载失败，点击重试。"
   },
   "copyTrade": {
     "title": "跟单交易",
@@ -1055,7 +1082,8 @@
     "settingsSaved": "设置已保存",
     "started": "已开始跟单",
     "startFailed": "开始跟单失败",
-    "buyHoldDisclaimer": "跟单采用买入并持有模式。当 Agent 盘中卖出时，您的跟单仓位将持有至市场结算。"
+    "buyHoldDisclaimer": "跟单采用买入并持有模式。当 Agent 盘中卖出时，您的跟单仓位将持有至市场结算。",
+    "comingSoon": "跟单交易正在升级为链上模式，敬请期待!"
   },
   "comboStrategy": {
     "title": "组合策略",

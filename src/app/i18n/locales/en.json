@@ -145,7 +145,12 @@
       "momentumDesc": "Follows the trend, rides market momentum",
       "random": "Random",
       "randomDesc": "No limits, freely explores all types of predictions"
-    }
+    },
+    "switchChainFailed": "Please switch to BSC Testnet (Chain ID: 97)",
+    "wrongChain": "Please switch to BSC Testnet to mint",
+    "switchChain": "Switch Network",
+    "notAuthenticated": "Please login first: go to Wallet page and sign the authentication message.",
+    "onChainSuccessBackendFailed": "On-chain mint succeeded but backend registration failed. Please go to Agents page and use auto-sync to recover."
   },
   "leaderboard": {
     "title": "Leaderboard",
@@ -340,7 +345,9 @@
     "platformFaucetSuccess": "10,000 test balance credited!",
     "approving": "Approving USDT...",
     "approved": "Approved",
-    "approveSubmitted": "Approve submitted"
+    "approveSubmitted": "Approve submitted",
+    "availableToTrade": "Available to trade",
+    "nonCustodialInfo": "Non-custodial: Your USDT stays in your wallet. Trades interact directly with the on-chain smart contract. No deposit or withdrawal needed."
   },
   "agents": {
     "title": "AI Agents",
@@ -352,7 +359,9 @@
     "signFailed": "Signature verification failed, please retry",
     "connectRequired": "Connect Wallet",
     "connectDescription": "Please connect your wallet to access this page",
-    "pleaseConnectWallet": "Please connect wallet first"
+    "pleaseConnectWallet": "Please connect wallet first",
+    "pleaseLogin": "Please login first (sign message to authenticate)",
+    "sessionExpired": "Session expired. Please reconnect your wallet."
   },
   "market": {
     "yes": "YES",
@@ -377,6 +386,7 @@
     "exploreOther": "Try other categories",
     "loadFailed": "Failed to load markets",
     "loadFailedDesc": "Unable to connect to the server. Please check your network and try again later.",
+    "endsAt": "Ends",
     "discussion": "Discussion",
     "notFound": "Market not found",
     "backToHome": "Back to Home",
@@ -431,6 +441,7 @@
     "approve": "Approve",
     "reject": "Reject",
     "rejectReason": "Rejection reason",
+    "accessRequired": "Admin access required",
     "loadFailed": "Failed to load pending markets",
     "approveFailed": "Approve failed",
     "rejectFailed": "Reject failed"
@@ -620,7 +631,9 @@
     "sell": "Sell",
     "connectRequired": "Connect Wallet to View Portfolio",
     "connectRequiredDesc": "Connect your wallet to see your positions, trade history, and PnL.",
-    "description": "Track your active positions and trading history"
+    "description": "Track your active positions and trading history",
+    "loadHistoryFailed": "Failed to load trade history",
+    "loadHistoryFailedDesc": "Your positions are still visible. Trade history will reload automatically."
   },
   "notification": {
     "title": "Notifications",
@@ -634,7 +647,14 @@
     "buyFilled": "Buy Order Filled",
     "buyDesc": "Bought {{shares}} {{side}} shares",
     "sellFilled": "Sell Order Filled",
-    "sellDesc": "Sold {{shares}} {{side}} shares"
+    "sellDesc": "Sold {{shares}} {{side}} shares",
+    "loadFailed": "Failed to load notifications",
+    "connectWallet": "Connect wallet to view notifications",
+    "noActivity": "You'll be notified about trade fills, market outcomes, and more.",
+    "unreadCount": "{{count}} unread",
+    "allCaughtUp": "All caught up",
+    "markReadFailed": "Failed to update notification",
+    "markAllReadFailed": "Failed to update notifications"
   },
   "priceChart": {
     "custom": "Custom",
@@ -867,7 +887,8 @@
       "providerGoogle": "Google",
       "providerDeepseek": "DeepSeek",
       "providerZhipu": "Zhipu (GLM)",
-      "providerCustom": "Custom Endpoint"
+      "providerCustom": "Custom Endpoint",
+      "updateKeyPlaceholder": "Enter new key to update..."
     }
   },
   "agentCard": {
@@ -879,7 +900,8 @@
   "agentMarketplace": {
     "forSale": "For Sale ({{count}})",
     "forRent": "For Rent ({{count}})",
-    "noAgents": "No listed Agents"
+    "noAgents": "No listed Agents",
+    "noAgentsHint": "Be the first to mint one!"
   },
   "agentInteraction": {
     "selectMarket": "Select a market",
@@ -1036,7 +1058,12 @@
     "bio": "Bio",
     "saveProfile": "Save",
     "profileSaved": "Profile saved",
-    "userProfile": "User Profile"
+    "userProfile": "User Profile",
+    "profileLoadFailed": "Failed to load user profile",
+    "noFollowers": "No followers yet",
+    "notFollowingAnyone": "Not following anyone yet",
+    "notFollowingHint": "Explore the leaderboard to find traders.",
+    "feedLoadFailed": "Failed to load more. Tap to retry."
   },
   "copyTrade": {
     "title": "Copy Trading",
@@ -1055,7 +1082,8 @@
     "settingsSaved": "Settings saved",
     "started": "Copy trading started",
     "startFailed": "Failed to start copy trading",
-    "buyHoldDisclaimer": "Copy trading follows a Buy & Hold model. When the agent sells mid-market, your copied positions are held until settlement."
+    "buyHoldDisclaimer": "Copy trading follows a Buy & Hold model. When the agent sells mid-market, your copied positions are held until settlement.",
+    "comingSoon": "Copy trading is being upgraded to on-chain mode. Stay tuned!"
   },
   "comboStrategy": {
     "title": "Combo Strategy",

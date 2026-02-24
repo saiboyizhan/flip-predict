@@ -89,7 +89,7 @@ export default function NotificationsPage() {
       void syncNotificationStore();
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
-      toast.error(t("notifications.markReadFailed", { defaultValue: "Failed to update notification" }));
+      toast.error(t("notification.markReadFailed", { defaultValue: "Failed to update notification" }));
     }
   }, [syncNotificationStore]);
 
@@ -101,7 +101,7 @@ export default function NotificationsPage() {
       void syncNotificationStore();
     } catch (err) {
       console.error("Failed to mark all notifications as read:", err);
-      toast.error(t("notifications.markAllReadFailed", { defaultValue: "Failed to update notifications" }));
+      toast.error(t("notification.markAllReadFailed", { defaultValue: "Failed to update notifications" }));
     } finally {
       setMarkingAll(false);
     }
