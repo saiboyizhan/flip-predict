@@ -1,13 +1,13 @@
 import { motion } from "motion/react";
 import { useState, useEffect } from "react";
-import { Wallet, Copy, ExternalLink, ArrowUpRight, ArrowDownRight, Clock, Link2, CheckCircle2, AlertCircle, Loader2, Zap, RefreshCw } from "lucide-react";
+import { Wallet, Copy, ExternalLink, ArrowUpRight, ArrowDownRight, Clock, Link2, CheckCircle2, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAccount, useBalance, useDisconnect, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
 import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { fetchTradeHistory, fetchUserStats } from "../services/api";
-import { useContractBalance, useTxNotifier, useMintTestUSDT, getBscScanUrl } from "../hooks/useContracts";
+import { useContractBalance, getBscScanUrl } from "../hooks/useContracts";
 import { useAuthStore } from "../stores/useAuthStore";
 
 interface Transaction {
@@ -67,21 +67,6 @@ export function WalletPage() {
     refetch: refetchWalletUsdtBalance,
   } = useContractBalance(address as `0x${string}` | undefined);
 
-  // Testnet faucet (mint test USDT on-chain)
-  const mintTestUSDT = useMintTestUSDT();
-  useTxNotifier(
-    mintTestUSDT.txHash,
-    mintTestUSDT.isLoading && !mintTestUSDT.isConfirmed,
-    mintTestUSDT.isConfirmed,
-    mintTestUSDT.error as Error | null,
-    "Mint Test USDT",
-  );
-  useEffect(() => {
-    if (mintTestUSDT.isConfirmed) {
-      refetchWalletUsdtBalance();
-      mintTestUSDT.reset();
-    }
-  }, [mintTestUSDT.isConfirmed, refetchWalletUsdtBalance, mintTestUSDT.reset]);
 
   const walletAddress = address ?? "";
   const bnbBalance = balanceData?.value != null
@@ -280,21 +265,6 @@ export function WalletPage() {
               )}
             </div>
 
-            {/* Testnet Faucet */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                onClick={() => address && mintTestUSDT.mint(address as `0x${string}`, '10000')}
-                disabled={mintTestUSDT.isLoading || !address}
-                className="py-2.5 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:border-emerald-500/50 hover:bg-emerald-500/15 text-emerald-500 font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {mintTestUSDT.isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Zap className="w-4 h-4" />
-                )}
-                {mintTestUSDT.isLoading ? t('common.loading') : t('wallet.faucet', { defaultValue: 'Mint 10K Test USDT' })}
-              </button>
-            </div>
 
             {/* Non-custodial info */}
             <div className="text-xs text-muted-foreground bg-white/[0.02] border border-white/[0.06] rounded-lg px-4 py-3">

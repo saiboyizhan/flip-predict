@@ -395,7 +395,7 @@
     "connectButton": "连接钱包",
     "supportedWallets": "支持 Binance Wallet、MetaMask、WalletConnect 等主流钱包",
     "platformBalance": "平台余额",
-    "bnbBalance": "USDT 余额",
+    "bnbBalance": "BNB 余额",
     "bscMainnet": "BSC 主网",
     "bscBep20": "BSC (BEP-20)",
     "totalWinnings": "累计奖金",
