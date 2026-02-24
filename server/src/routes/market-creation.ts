@@ -94,7 +94,7 @@ async function verifyCreateMarketTxOnChain(params: {
   expectedMarketId: number;
   expectedEndTimeMs: number;
   expectedTitle: string;
-}): Promise<{ ok: true; blockNumber: number; creationFeeWei: bigint } | { ok: false; statusCode: number; error: string }> {
+}): Promise<{ ok: true; blockNumber: number; creationFeeWei: bigint; initialLiquidityWei: bigint } | { ok: false; statusCode: number; error: string }> {
   if (!PREDICTION_MARKET_CONTRACT_ADDRESS) {
     return { ok: false, statusCode: 503, error: 'Market creation verification is not configured' };
   }
@@ -159,8 +159,10 @@ async function verifyCreateMarketTxOnChain(params: {
     if (decodedEndTime !== expectedEndTime) {
       return { ok: false, statusCode: 400, error: 'createTxHash endTime does not match request payload' };
     }
-    if (decodedInitialLiquidity !== 0n) {
-      return { ok: false, statusCode: 400, error: 'createTxHash initialLiquidity must be 0 for this flow' };
+    // initialLiquidity must be >= 10 USDT (10e18 wei)
+    const MIN_INITIAL_LIQ_WEI = 10n * 10n ** 18n;
+    if (decodedInitialLiquidity < MIN_INITIAL_LIQ_WEI) {
+      return { ok: false, statusCode: 400, error: `createTxHash initialLiquidity (${decodedInitialLiquidity.toString()}) is below minimum 10 USDT` };
     }
 
     let foundCreatedEvent = false;
@@ -192,7 +194,7 @@ async function verifyCreateMarketTxOnChain(params: {
       return { ok: false, statusCode: 400, error: `Creation fee ${eventCreationFee.toString()} is below contract minimum ${minFee.toString()}` };
     }
 
-    return { ok: true, blockNumber: receipt.blockNumber, creationFeeWei: eventCreationFee };
+    return { ok: true, blockNumber: receipt.blockNumber, creationFeeWei: eventCreationFee, initialLiquidityWei: decodedInitialLiquidity };
   } catch (err) {
     console.error('Create market tx verification error:', err);
     return { ok: false, statusCode: 503, error: 'Market creation verification service unavailable' };
@@ -315,6 +317,8 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
     }
     // Use on-chain fee from event instead of client-reported value
     const verifiedCreationFee = Number(ethers.formatUnits(createTxVerification.creationFeeWei, 18));
+    // Use on-chain initial liquidity from calldata
+    const verifiedInitialLiquidity = Number(ethers.formatUnits(createTxVerification.initialLiquidityWei, 18));
 
     const resolutionTimeMs = Number.isFinite(parsedResolutionTime)
       ? Math.floor(parsedResolutionTime)
@@ -396,11 +400,8 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response) =
       // Create market (binary only - multi blocked above)
       const marketId = generateId();
 
-      // Configurable initial liquidity (default 500, range 50-100000)
-      const rawInitialLiquidity = Number(req.body.initialLiquidity);
-      const finalInitialLiquidity = Number.isFinite(rawInitialLiquidity)
-        ? Math.max(50, Math.min(100000, rawInitialLiquidity))
-        : 500;
+      // Use verified on-chain initial liquidity (already validated >= 10 USDT)
+      const finalInitialLiquidity = Math.max(10, Math.min(100000, verifiedInitialLiquidity));
       const virtualLpShares = finalInitialLiquidity * 2;
 
       await client.query(`
@@ -544,7 +545,7 @@ router.get('/creation-stats', authMiddleware, async (req: AuthRequest, res: Resp
       dailyCount,
       maxPerDay: 3,
       totalCreated,
-      creationFee: 10,
+      creationFee: 0,
       balance: balance?.available || 0,
     });
   } catch (err: any) {
