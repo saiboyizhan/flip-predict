@@ -685,6 +685,7 @@
     "vaultUpdated": "Vault updated",
     "vaultUpdateFailed": "Failed to update Vault",
     "tabLlm": "AI Model",
+    "tabOnchain": "On-chain",
     "fundSuccess": "Agent funded successfully",
     "withdrawSuccess": "Withdrawal successful",
     "pauseSuccess": "Agent paused",

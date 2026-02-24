@@ -715,6 +715,7 @@
     "vaultUpdated": "Vault 已更新",
     "vaultUpdateFailed": "更新 Vault 失败",
     "tabLlm": "AI 模型",
+    "tabOnchain": "链上管理",
     "fundSuccess": "Agent 充值成功",
     "withdrawSuccess": "提现成功",
     "pauseSuccess": "Agent 已暂停",
