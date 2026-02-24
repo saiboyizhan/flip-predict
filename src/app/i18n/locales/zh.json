@@ -237,7 +237,13 @@
     "wrongChain": "请切换到 BSC 测试网后再铸造",
     "switchChain": "切换网络",
     "notAuthenticated": "请先登录: 前往钱包页面签名认证消息。",
-    "onChainSuccessBackendFailed": "链上铸造成功但后端注册失败。请前往 Agent 页面使用自动同步恢复。"
+    "onChainSuccessBackendFailed": "链上铸造成功但后端注册失败。请前往 Agent 页面使用自动同步恢复。",
+    "yourBalance": "你的余额",
+    "needMoreFlip": "FLIP 余额不足，需要 100,000 FLIP 才能铸造 Agent。",
+    "insufficientFlipShort": "FLIP 余额不足",
+    "approvingFlip": "正在授权 FLIP...",
+    "flipApproved": "FLIP 已授权，正在铸造...",
+    "approveAndMint": "授权 FLIP 并铸造"
   },
   "leaderboard": {
     "title": "排行榜",
