@@ -5,7 +5,7 @@ async function main() {
   console.log("Deploying NFA v3 (with FLIP mint fee) with:", deployer.address);
 
   const USDT_ADDRESS = "0xf1669057F6eaF2216525eea54a32fC1abF967fb5";
-  const FLIP_ADDRESS = "0x7F34e823a0b34e87f5Fe4f0F99aFfBCd590FF744";
+  const FLIP_ADDRESS = "0x713eF4574954988df53a2A051C7aC10a6c1E8586";
   const MINT_PRICE = ethers.parseUnits("100000", 18); // 100,000 FLIP
   const PM_ADDRESS = "0xB80a8fE565663fF0b06a2b859eBd29C8492aDc25"; // PredictionMarketV3
 

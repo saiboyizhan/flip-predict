@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "./interfaces/IBAP578.sol";
 
 /// @title BAP578Base - Non-Fungible Agent Standard (BNB Agent Protocol 578)
@@ -77,6 +78,7 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
         require(mintCount[msg.sender] < MAX_AGENTS_PER_ADDRESS, "Max agents per address reached");
         if (mintPrice > 0) {
             require(flipToken.transferFrom(msg.sender, address(this), mintPrice), "FLIP transfer failed");
+            ERC20Burnable(address(flipToken)).burn(mintPrice);
         }
         uint256 tokenId = _nextTokenId++;
         mintCount[msg.sender]++;
