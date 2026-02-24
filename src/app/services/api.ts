@@ -1378,11 +1378,3 @@ export async function removeLiquidity(marketId: string, shares: number): Promise
   })
 }
 
-// === Testnet Faucet ===
-
-export async function claimPlatformFaucet(address: string, amount: number = 10000): Promise<{ success: boolean; balance: { available: number; locked: number } }> {
-  return request('/api/faucet', {
-    method: 'POST',
-    body: JSON.stringify({ address, amount }),
-  })
-}

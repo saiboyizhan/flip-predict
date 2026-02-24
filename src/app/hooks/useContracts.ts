@@ -19,7 +19,7 @@ import {
   LIMIT_ORDER_BOOK_ADDRESS,
   USDT_ADDRESS,
   ERC20_ABI,
-  MOCK_USDT_MINT_ABI,
+
 } from '@/app/config/contracts';
 import { toast } from 'sonner';
 
@@ -968,44 +968,3 @@ export function useIsApprovedForAll(account?: `0x${string}`, operator?: `0x${str
   };
 }
 
-// ----------------------------------------------------------------
-// useMintTestUSDT  --  mint test USDT on testnet (MockUSDT)
-// ----------------------------------------------------------------
-
-export function useMintTestUSDT() {
-  const {
-    writeContract,
-    data: txHash,
-    isPending: isWriting,
-    error: writeError,
-    reset,
-  } = useWriteContract();
-
-  const {
-    isLoading: isConfirming,
-    isSuccess: isConfirmed,
-    error: confirmError,
-  } = useWaitForTransactionReceipt({ hash: txHash });
-
-  const mint = useCallback(
-    (to: `0x${string}`, amount: string = '10000') => {
-      reset();
-      writeContract({
-        address: USDT_ADDRESS,
-        abi: MOCK_USDT_MINT_ABI,
-        functionName: 'mint',
-        args: [to, parseUnits(amount, 18)],
-      });
-    },
-    [writeContract, reset],
-  );
-
-  return {
-    mint,
-    txHash,
-    isLoading: isWriting || isConfirming,
-    isConfirmed,
-    error: writeError || confirmError,
-    reset,
-  };
-}

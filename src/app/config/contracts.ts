@@ -39,19 +39,6 @@ export const USDT_ADDRESS = (
 //  USDT ABI
 // ============================================================
 
-export const MOCK_USDT_MINT_ABI = [
-  {
-    name: 'mint',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const;
-
 export const ERC20_ABI = [
   {
     name: 'balanceOf',
