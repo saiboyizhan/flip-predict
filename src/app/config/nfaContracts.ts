@@ -1,5 +1,5 @@
 // BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_NFA_ADDRESS = '0x507374ae113F4d724532a827b512052dD0De90ff'
+const DEFAULT_NFA_ADDRESS = '0x11bDE3663F86788524D7D4c3227968B451bD029B'
 
 export const NFA_CONTRACT_ADDRESS = (
   import.meta.env.VITE_NFA_CONTRACT_ADDRESS ||
@@ -7,12 +7,20 @@ export const NFA_CONTRACT_ADDRESS = (
   DEFAULT_NFA_ADDRESS
 )
 
+// FLIP Token (ERC-20) for NFA mint payment
+export const FLIP_TOKEN_ADDRESS = '0x7F34e823a0b34e87f5Fe4f0F99aFfBCd590FF744'
+export const NFA_MINT_PRICE = 100_000n * 10n ** 18n // 100,000 FLIP
+
 // Complete NFA ABI extracted from contracts/artifacts/contracts/NFA.sol/NFA.json
 // Including all ERC-721, BAP-578, and custom functions
 export const NFA_ABI = [
   // --- Constructor ---
   {
-    inputs: [{ internalType: 'address', name: '_usdtToken', type: 'address' }],
+    inputs: [
+      { internalType: 'address', name: '_usdtToken', type: 'address' },
+      { internalType: 'address', name: '_flipToken', type: 'address' },
+      { internalType: 'uint256', name: '_mintPrice', type: 'uint256' },
+    ],
     stateMutability: 'nonpayable',
     type: 'constructor',
   },
@@ -193,6 +201,20 @@ export const NFA_ABI = [
     inputs: [],
     name: 'usdtToken',
     outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'flipToken',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'mintPrice',
+    outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
     type: 'function',
   },

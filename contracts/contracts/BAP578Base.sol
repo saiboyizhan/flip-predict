@@ -20,6 +20,8 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
 
     // ─── State ───────────────────────────────────────────────────
     IERC20 public usdtToken;
+    IERC20 public flipToken;
+    uint256 public mintPrice;
     uint256 internal _nextTokenId;
     string internal _baseTokenURI;
 
@@ -48,17 +50,22 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     constructor(
         string memory name_,
         string memory symbol_,
-        address _usdtToken
+        address _usdtToken,
+        address _flipToken,
+        uint256 _mintPrice
     ) ERC721(name_, symbol_) Ownable(msg.sender) {
         require(_usdtToken != address(0), "Invalid USDT address");
+        require(_flipToken != address(0), "Invalid FLIP address");
         usdtToken = IERC20(_usdtToken);
+        flipToken = IERC20(_flipToken);
+        mintPrice = _mintPrice;
     }
 
     // ═══════════════════════════════════════════════════════════════
     // MINTING
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Mint a new agent NFT (max 3 per address, free)
+    /// @notice Mint a new agent NFT (max 3 per address, requires FLIP token payment)
     /// @param metadata Agent metadata conforming to BAP-578 standard
     /// @return tokenId The minted NFT token ID
     function mint(AgentMetadata calldata metadata)
@@ -68,6 +75,9 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
         returns (uint256)
     {
         require(mintCount[msg.sender] < MAX_AGENTS_PER_ADDRESS, "Max agents per address reached");
+        if (mintPrice > 0) {
+            require(flipToken.transferFrom(msg.sender, address(this), mintPrice), "FLIP transfer failed");
+        }
         uint256 tokenId = _nextTokenId++;
         mintCount[msg.sender]++;
         _safeMint(msg.sender, tokenId);
@@ -223,6 +233,17 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
 
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice Update the mint price in FLIP tokens (owner only)
+    function setMintPrice(uint256 newPrice) external onlyOwner {
+        mintPrice = newPrice;
+    }
+
+    /// @notice Withdraw collected FLIP tokens from mint fees (owner only)
+    function withdrawFlipTokens(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(flipToken.transfer(owner(), amount), "FLIP transfer failed");
+    }
 
     /// @notice Withdraw surplus USDT not belonging to agent balances
     function withdrawSurplus(uint256 amount) external onlyOwner nonReentrant {

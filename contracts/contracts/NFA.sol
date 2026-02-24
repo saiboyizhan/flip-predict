@@ -92,7 +92,7 @@ contract NFA is BAP578Base, ILearningModule, IMemoryModuleRegistry, IVaultPermis
     event ProfileUpdated(uint256 indexed tokenId);
 
     // ─── Constructor ────────────────────────────────────────────
-    constructor(address _usdtToken) BAP578Base("NFA Prediction Agent", "NFA", _usdtToken) {}
+    constructor(address _usdtToken, address _flipToken, uint256 _mintPrice) BAP578Base("NFA Prediction Agent", "NFA", _usdtToken, _flipToken, _mintPrice) {}
 
     // ═══════════════════════════════════════════════════════════════
     // PREDICTION PROFILE
