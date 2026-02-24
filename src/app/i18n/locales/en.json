@@ -238,7 +238,10 @@
     "minOptions": "At least 2 options required",
     "maxOptions": "Maximum 10 options",
     "optionLabelRequired": "All options must have a name",
-    "footer": "Free to propose · Max {{max}} per day · Reviewed by admin before going live",
+    "initialLiquidity": "Initial Liquidity (USDT)",
+    "minLiquidity": "Minimum 10 USDT required",
+    "liquidityNote": "This USDT will be added as initial liquidity for the market pool (min 10 USDT)",
+    "footer": "Add liquidity to propose · Max {{max}} per day · Reviewed by admin before going live",
     "syncParamsLost": "On-chain creation succeeded, but local sync parameters lost. Please refresh and retry.",
     "oraclePairPlaceholder": "BTC/USD or 0x...",
     "categories": {

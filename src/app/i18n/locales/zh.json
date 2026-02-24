@@ -321,7 +321,10 @@
     "minOptions": "至少需要 2 个选项",
     "maxOptions": "最多 10 个选项",
     "optionLabelRequired": "所有选项都需要填写名称",
-    "footer": "免费提议 · 每日限 {{max}} 个 · 管理员审核后上线",
+    "initialLiquidity": "初始流动性 (USDT)",
+    "minLiquidity": "最少需要 10 USDT",
+    "liquidityNote": "该 USDT 将作为市场池的初始流动性注入 (最低 10 USDT)",
+    "footer": "添加流动性即可提议 · 每日限 {{max}} 个 · 管理员审核后上线",
     "syncParamsLost": "链上创建成功，但本地同步参数丢失，请刷新后重试",
     "oraclePairPlaceholder": "BTC/USD 或 0x...",
     "categories": {

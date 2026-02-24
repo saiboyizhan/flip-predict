@@ -134,7 +134,7 @@ contract PredictionMarketV3 is
     uint256 public constant BPS_DENOMINATOR = 10000;
     uint256 public constant LP_FEE_SHARE = 8000;
     uint256 public constant PROTOCOL_FEE_SHARE = 2000;
-    uint256 public constant MIN_INITIAL_LIQUIDITY = 50e18;
+    uint256 public constant MIN_INITIAL_LIQUIDITY = 10e18;
 
     // ============================================================
     //  EVENTS

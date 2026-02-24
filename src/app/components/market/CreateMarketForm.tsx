@@ -298,8 +298,10 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     }
   }, [approveError, resetApprove]);
 
-  // P1-2 fix: Handle approve confirmation and auto-trigger market creation
-  const initialLiqWei = 50n * 10n ** 18n; // 50 USDT initial liquidity
+  // Initial liquidity: user-configurable, min 10 USDT
+  const [initialLiqAmount, setInitialLiqAmount] = useState('10');
+  const initialLiqWei = BigInt(Math.floor(Number(initialLiqAmount) || 0)) * 10n ** 18n;
+  const initialLiqValid = Number(initialLiqAmount) >= 10;
   useEffect(() => {
     if (approveConfirmed && approveTxHash && pendingPayloadRef.current) {
       resetApprove();
@@ -381,13 +383,12 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     if (isProcessing) {
       return;
     }
-    // Fee check only relevant when contract is configured
-    if (hasPredictionContract && feeLoading) {
-      toast.error('正在读取链上创建费用，请稍后再试');
-      return;
-    }
     if (!address) {
       toast.error('请先连接钱包');
+      return;
+    }
+    if (!initialLiqValid) {
+      toast.error('初始流动性至少 10 USDT');
       return;
     }
 
@@ -407,17 +408,16 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       resolutionTimeUtc: endTime + safeDelayHours * 3600000,
     };
     pendingPayloadRef.current = payload;
-    feeAtSubmitRef.current = feeUSDT || '0'; // P0-2 fix: capture fee at submit time
+    feeAtSubmitRef.current = '0';
 
-    // P1-2 fix: Check allowance and approve if needed (fee + initial liquidity)
-    const totalApproveAmount = feeWei + initialLiqWei;
-    if (allowanceRaw < totalApproveAmount) {
+    // Check allowance and approve if needed (only initial liquidity, no creation fee)
+    if (allowanceRaw < initialLiqWei) {
       toast.info('需要先授权 USDT，正在发起授权交易...');
-      approveUsdt(PREDICTION_MARKET_ADDRESS, totalApproveAmount);
+      approveUsdt(PREDICTION_MARKET_ADDRESS, initialLiqWei);
       return;
     }
 
-    // Allowance is sufficient, proceed with market creation (3 params: title, endTime, initialLiq)
+    // Allowance is sufficient, proceed with market creation
     const endTimeUnix = BigInt(Math.floor(endTime / 1000));
     createUserMarketOnChain(payload.title, endTimeUnix, initialLiqWei);
   };
@@ -471,11 +471,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       )}
 
       {/* Proposal Info Bar */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-secondary border border-border p-3">
-          <div className="text-muted-foreground text-xs mb-1">{t('createMarket.submissionType')}</div>
-          <div className="text-emerald-400 font-bold font-mono">{t('createMarket.freeProposal')}</div>
-        </div>
+      <div className="grid grid-cols-2 gap-3">
         <div className="bg-secondary border border-border p-3">
           <div className="text-muted-foreground text-xs mb-1">{t('createMarket.reviewStatus')}</div>
           <div className="text-blue-400 font-bold font-mono">{t('createMarket.adminReview')}</div>
@@ -744,6 +740,28 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
         </div>
       </div>
 
+      {/* Initial Liquidity */}
+      <div>
+        <label className="block text-sm text-muted-foreground mb-2">
+          {t('createMarket.initialLiquidity')}
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={initialLiqAmount}
+            onChange={(e) => setInitialLiqAmount(e.target.value)}
+            min={10}
+            step="1"
+            className="w-40 bg-input-background border border-border text-foreground text-sm py-3 px-4 focus:outline-none focus:border-blue-500/50 transition-colors font-mono"
+          />
+          <span className="text-sm text-muted-foreground">USDT</span>
+        </div>
+        {!initialLiqValid && Number(initialLiqAmount) > 0 && (
+          <p className="text-red-400 text-xs mt-1">{t('createMarket.minLiquidity')}</p>
+        )}
+        <p className="text-muted-foreground text-xs mt-1">{t('createMarket.liquidityNote')}</p>
+      </div>
+
       {/* Preview Card */}
       {title && (
         <motion.div
@@ -797,7 +815,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
       {/* Create Button */}
       <button
         onClick={handleCreate}
-        disabled={isProcessing || !canCreate || !titleValid || !multiOptionsValid || !resolutionRuleValid || !autoResolutionValid}
+        disabled={isProcessing || !canCreate || !titleValid || !multiOptionsValid || !resolutionRuleValid || !autoResolutionValid || !initialLiqValid}
         className="w-full py-4 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-black font-bold text-lg transition-colors flex items-center justify-center gap-2"
       >
         <Plus className="w-5 h-5" />
