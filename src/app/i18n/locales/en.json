@@ -24,9 +24,12 @@
   },
   "category": {
     "all": "All",
+    "trending": "Trending",
+    "ai": "AI",
+    "sports": "Sports",
+    "news": "News",
     "four-meme": "Four.meme",
-    "flap": "Flap",
-    "nfa": "NFA"
+    "flap": "Flap"
   },
   "common": {
     "loading": "Loading...",
@@ -245,9 +248,12 @@
     "syncParamsLost": "On-chain creation succeeded, but local sync parameters lost. Please refresh and retry.",
     "oraclePairPlaceholder": "BTC/USD or 0x...",
     "categories": {
+      "trending": "Trending",
+      "ai": "AI",
+      "sports": "Sports",
+      "news": "News",
       "four-meme": "Four.meme",
-      "flap": "Flap",
-      "nfa": "NFA"
+      "flap": "Flap"
     }
   },
   "rewards": {

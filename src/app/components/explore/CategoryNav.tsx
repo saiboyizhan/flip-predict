@@ -11,9 +11,12 @@ interface CategoryNavProps {
 
 const CATEGORY_IDS = [
   "all",
+  "trending",
+  "ai",
+  "sports",
+  "news",
   "flap",
   "four-meme",
-  "nfa",
 ];
 
 export function CategoryNav({ selectedCategory, onCategoryChange }: CategoryNavProps) {
