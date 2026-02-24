@@ -106,7 +106,7 @@ export function WalletPage() {
             market: tx.market ?? tx.market_title ?? undefined,
             timestamp: tx.timestamp
               ? String(tx.timestamp)
-              : new Date(Number(tx.created_at) || Date.now()).toLocaleString(),
+              : new Date(Number(tx.created_at) || Date.now()).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }),
             status: tx.status === "pending" ? "pending" : "completed",
             txHash: tx.txHash ?? tx.tx_hash ?? "",
           };

@@ -335,7 +335,7 @@ export function LlmConfigPanel({ agentId }: LlmConfigPanelProps) {
               <div className="text-xs text-muted-foreground">{t("agentDetail.llmConfig.lastUsed")}</div>
               <div className="text-sm font-mono text-foreground">
                 {config.lastUsedAt
-                  ? new Date(config.lastUsedAt).toLocaleDateString()
+                  ? new Date(config.lastUsedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })
                   : t("agentDetail.llmConfig.never")}
               </div>
             </div>

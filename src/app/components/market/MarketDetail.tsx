@@ -7,6 +7,7 @@ import { BarChart3, FileText, Scale, Info, Bot, User, AlertTriangle, Activity, C
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useChainId, usePublicClient, useWriteContract } from "wagmi";
+import { formatBJDateTime } from "@/app/utils/date";
 import { MarketHeader } from "./MarketHeader";
 import { MarketCountdown } from "./MarketCountdown";
 import { ResolutionBadge } from "./ResolutionBadge";
@@ -342,7 +343,7 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
                 <div>
                   <span className="text-muted-foreground block mb-1">{t('market.settlementTime')}</span>
                   <span className="text-muted-foreground text-xs">
-                    {new Date(settlement.resolved_at).toLocaleString()}
+                    {formatBJDateTime(settlement.resolved_at)}
                   </span>
                 </div>
               )}

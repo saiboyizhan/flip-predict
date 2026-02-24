@@ -79,7 +79,7 @@ export function EarningsDashboard({ agentId }: EarningsDashboardProps) {
                     {t("earnings.source")}: {t("earnings.copyTrading")}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {new Date(Number(earning.created_at)).toLocaleString("zh-CN")}
+                    {new Date(Number(earning.created_at)).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
                   </div>
                 </div>
                 <div className="text-right">

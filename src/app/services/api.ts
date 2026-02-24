@@ -1005,7 +1005,7 @@ export async function fetchTradeHistory(address: string) {
     market: t.market ?? t.market_title ?? '',
     timestamp: t.timestamp
       ? String(t.timestamp)
-      : new Date(Number(t.created_at) || Date.now()).toLocaleString(),
+      : new Date(Number(t.created_at) || Date.now()).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }),
     status: t.status === 'pending' ? 'pending' : 'completed',
     txHash: t.txHash ?? t.tx_hash ?? '',
   }))

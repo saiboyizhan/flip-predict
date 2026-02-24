@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { createUserMarket as createUserMarketRecord } from "@/app/services/api";
 import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
+import { formatBJEndTime } from "@/app/utils/date";
 import { getBscScanUrl, useCreateUserMarket, useTxNotifier, useUsdtAllowance, useUsdtApprove } from "@/app/hooks/useContracts";
 
 const OPTION_COLORS = [
@@ -398,15 +399,7 @@ export function CreateMarketForm({ onSuccess }: CreateMarketFormProps) {
     createUserMarketOnChain(payload.title, endTimeUnix, initialLiqWei);
   };
 
-  const formatEndTime = (ts: number) => {
-    return new Date(ts).toLocaleString(undefined, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatEndTime = (ts: number) => formatBJEndTime(ts);
 
   const timeLeft = endTime - Date.now();
   const daysLeft = Math.floor(timeLeft / 86400000);

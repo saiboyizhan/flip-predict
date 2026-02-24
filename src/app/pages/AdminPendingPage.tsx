@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { CheckCircle2, XCircle, ArrowLeft, Clock, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/app/stores/useAuthStore";
 import { fetchPendingMarkets, approveMarket, rejectMarket } from "@/app/services/api";
+import { formatBJDateTime } from "@/app/utils/date";
 
 interface PendingMarket {
   id: string;
@@ -161,7 +162,7 @@ export default function AdminPendingPage() {
                   </p>
                 )}
                 <div className="text-xs text-muted-foreground">
-                  {t("market.endsAt", { defaultValue: "Ends" })}: {new Date(market.endTime).toLocaleString()}
+                  {t("market.endsAt", { defaultValue: "Ends" })}: {formatBJDateTime(market.endTime)}
                 </div>
               </div>
 

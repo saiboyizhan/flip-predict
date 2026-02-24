@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import { CheckCircle2, Bot, User, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatBJDateTime } from "@/app/utils/date";
 
 interface ResolvedMarketCardProps {
   market: {
@@ -22,8 +23,7 @@ interface ResolvedMarketCardProps {
 }
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  return formatBJDateTime(dateStr);
 }
 
 function formatPrice(price: number): string {

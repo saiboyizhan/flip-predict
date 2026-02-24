@@ -317,7 +317,7 @@ export function UserProfile() {
                       {trade.market_title || trade.market_id}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {trade.type === 'buy' ? t('trade.buy') : t('trade.sell')} &middot; {new Date(trade.created_at).toLocaleDateString()}
+                      {trade.type === 'buy' ? t('trade.buy') : t('trade.sell')} &middot; {new Date(trade.created_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}
                     </div>
                   </div>
                 </div>

@@ -84,7 +84,7 @@ function AchievementCard({ achievement, isBackendData }: { achievement: Achievem
       {/* Unlock time */}
       {unlocked && unlockedAt && (
         <div className="text-[10px] text-muted-foreground">
-          {new Date(unlockedAt).toLocaleDateString(isZh ? 'zh-CN' : 'en-US')}
+          {new Date(unlockedAt).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}
         </div>
       )}
     </div>

@@ -41,7 +41,7 @@ export default function PortfolioPage() {
           amount: Number(t.amount) || 0,
           result: t.result === "won" ? "won" : t.result === "lost" ? "lost" : "pending",
           pnl: Number(t.pnl) || 0,
-          settledAt: String(t.settled_at ?? t.settledAt ?? t.timestamp ?? new Date(Number(t.created_at) || Date.now()).toLocaleString()),
+          settledAt: String(t.settled_at ?? t.settledAt ?? t.timestamp ?? new Date(Number(t.created_at) || Date.now()).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })),
         }));
         setHistory(records);
       })

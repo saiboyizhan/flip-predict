@@ -48,7 +48,7 @@ function formatTimestamp(ts: number, t: (key: string, opts?: Record<string, unkn
   if (minutes < 60) return t('notification.minutesAgo', { count: minutes });
   if (hours < 24) return t('notification.hoursAgo', { count: hours });
   if (days < 7) return t('notification.daysAgo', { count: days });
-  return new Date(ts).toLocaleDateString();
+  return new Date(ts).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
 }
 
 export default function NotificationsPage() {

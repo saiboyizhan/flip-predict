@@ -1238,7 +1238,7 @@ export function AgentDetail() {
                       {agent.agent_trades.map((trade: AgentTrade) => (
                         <tr key={trade.id} className="hover:bg-accent transition-colors">
                           <td className="p-3 text-muted-foreground text-sm">
-                            {new Date(trade.created_at).toLocaleDateString("zh-CN")}
+                            {new Date(trade.created_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}
                           </td>
                           <td className="p-3 text-foreground text-sm font-mono">
                             #{trade.market_id.slice(0, 8)}
@@ -1338,7 +1338,7 @@ export function AgentDetail() {
                         <div className="text-muted-foreground text-xs mb-1">{t("agentDetail.lastUpdated", { defaultValue: "Last Updated" })}</div>
                         <div className="text-foreground font-mono text-sm">
                           {learningMetrics.lastUpdated > 0
-                            ? new Date(learningMetrics.lastUpdated * 1000).toLocaleString()
+                            ? new Date(learningMetrics.lastUpdated * 1000).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })
                             : t("agentDetail.never", { defaultValue: "Never" })}
                         </div>
                       </div>
@@ -1552,7 +1552,7 @@ export function AgentDetail() {
                           <span className="text-muted-foreground">{t("agentDetail.expiry", { defaultValue: "Expiry:" })}</span>{' '}
                           <span className="text-foreground">
                             {checkedPermission.expiryTime > 0
-                              ? new Date(checkedPermission.expiryTime * 1000).toLocaleString()
+                              ? new Date(checkedPermission.expiryTime * 1000).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })
                               : t("agentDetail.never", { defaultValue: "Never" })}
                           </span>
                         </div>

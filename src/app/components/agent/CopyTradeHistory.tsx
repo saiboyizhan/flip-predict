@@ -76,7 +76,7 @@ export function CopyTradeHistory() {
               return (
                 <tr key={trade.id} className="hover:bg-accent transition-colors">
                   <td className="p-3 text-muted-foreground text-sm">
-                    {new Date(Number(trade.created_at)).toLocaleDateString("zh-CN")}
+                    {new Date(Number(trade.created_at)).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}
                   </td>
                   <td className="p-3 text-foreground text-sm font-mono">
                     #{(trade.market_id || "").slice(0, 8)}
