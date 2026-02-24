@@ -20,13 +20,13 @@ import { subscribeMarket, unsubscribeMarket } from "@/app/services/ws";
 import type { MarketOption } from "@/app/types/market.types";
 
 const INTERVALS = [
-  { key: "1m", label: "1M" },
-  { key: "5m", label: "5M" },
-  { key: "15m", label: "15M" },
-  { key: "30m", label: "30M" },
-  { key: "1h", label: "1H" },
+  { key: "1m", label: "1分" },
+  { key: "5m", label: "5分" },
+  { key: "15m", label: "15分" },
+  { key: "30m", label: "30分" },
+  { key: "1h", label: "1小时" },
   { key: "4h", label: "4H" },
-  { key: "12h", label: "12H" },
+  { key: "12h", label: "12小时" },
   { key: "1d", label: "1D" },
   { key: "1w", label: "1W" },
 ] as const;
