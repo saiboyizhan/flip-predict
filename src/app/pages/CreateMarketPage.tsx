@@ -15,7 +15,7 @@ export default function CreateMarketPage() {
   const [stats, setStats] = useState({
     dailyCount: 0,
     maxPerDay: 3,
-    creationFee: 10,
+    creationFee: 0,
     balance: 0,
     totalCreated: 0,
   });

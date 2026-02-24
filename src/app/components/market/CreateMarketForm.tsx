@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "motion/react";
 import { Plus, Clock, AlertTriangle, Eye, Trash2, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { createUserMarket as createUserMarketRecord } from "@/app/services/api";
 import { PREDICTION_MARKET_ADDRESS } from "@/app/config/contracts";
-import { getBscScanUrl, useCreateUserMarket, useMarketCreationFee, useTxNotifier, useUsdtAllowance, useUsdtApprove } from "@/app/hooks/useContracts";
+import { getBscScanUrl, useCreateUserMarket, useTxNotifier, useUsdtAllowance, useUsdtApprove } from "@/app/hooks/useContracts";
 
 const OPTION_COLORS = [
   '#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6',
@@ -133,13 +133,7 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     error: createError,
     reset: resetCreateUserMarket,
   } = useCreateUserMarket();
-  const {
-    feeWei,
-    feeUSDT,
-    isLoading: feeLoading,
-  } = useMarketCreationFee();
-
-  // P1-2 fix: USDT allowance & approve hooks
+  // USDT allowance & approve hooks
   const {
     allowanceRaw,
     refetch: refetchAllowance,
@@ -162,14 +156,8 @@ export function CreateMarketForm({ onSuccess, creationStats }: CreateMarketFormP
     "USDT Approve",
   );
 
-  const stats = creationStats || { dailyCount: 0, maxPerDay: 3, creationFee: 10, balance: 0 };
-  const hasPredictionContract = PREDICTION_MARKET_ADDRESS !== '0x0000000000000000000000000000000000000000';
+  const stats = creationStats || { dailyCount: 0, maxPerDay: 3, creationFee: 0, balance: 0 };
   const canCreate = stats.dailyCount < stats.maxPerDay;
-  const contractFeeDisplay = useMemo(() => {
-    if (feeLoading) return '...';
-    if (!hasPredictionContract) return 'N/A';
-    return Number(feeUSDT || '0').toFixed(4);
-  }, [feeLoading, hasPredictionContract, feeUSDT]);
   const isProcessing = createWriting || createConfirming || syncing || approveWriting || approveConfirming;
   const titleLength = title.length;
   const titleValid = titleLength >= 10 && titleLength <= 200;
