@@ -152,7 +152,7 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     const keyword = `%${(q as string).trim()}%`;
-    let sql = `SELECT * FROM markets WHERE (title ILIKE $1 OR description ILIKE $2)`;
+    let sql = `SELECT * FROM markets WHERE (title ILIKE $1 OR description ILIKE $2) AND status NOT IN ('pending_approval', 'rejected', 'expired')`;
     const params: any[] = [keyword, keyword];
     let paramIndex = 3;
 
