@@ -560,7 +560,7 @@ export function CreateMarketForm({ onSuccess }: CreateMarketFormProps) {
 
       {/* Resolution Config */}
       <div className="space-y-3 border border-border p-4 bg-secondary/20">
-        <div className="text-sm font-medium text-foreground">结算规则（黑客松可复核）</div>
+        <div className="text-sm font-medium text-foreground">结算规则（链上可仲裁）</div>
         <div className="flex gap-2">
           <button
             onClick={() => setResolutionType('manual')}

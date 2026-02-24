@@ -2,11 +2,11 @@ import { ethers } from "hardhat";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
-  console.log("Deploying NFA v3 (with FLIP mint fee) with:", deployer.address);
+  console.log("Deploying NFA v3 (BNB mint fee) with:", deployer.address);
 
   const USDT_ADDRESS = "0xf1669057F6eaF2216525eea54a32fC1abF967fb5";
   const FLIP_ADDRESS = "0x713eF4574954988df53a2A051C7aC10a6c1E8586";
-  const MINT_PRICE = ethers.parseUnits("100000", 18); // 100,000 FLIP
+  const MINT_PRICE = ethers.parseEther("0.01"); // 0.01 BNB
   const PM_ADDRESS = "0xB80a8fE565663fF0b06a2b859eBd29C8492aDc25"; // PredictionMarketV3
 
   // Deploy NFA
@@ -30,7 +30,7 @@ async function main() {
   const mintPrice = await nfa.mintPrice();
   const flipAddr = await nfa.flipToken();
   console.log("\nNFA Config:");
-  console.log("  Mint Price:", ethers.formatUnits(mintPrice, 18), "FLIP");
+  console.log("  Mint Price:", ethers.formatEther(mintPrice), "BNB");
   console.log("  FLIP Token:", flipAddr);
   console.log("  PM Address:", PM_ADDRESS);
 

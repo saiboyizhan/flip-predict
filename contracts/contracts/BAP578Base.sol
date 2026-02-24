@@ -66,20 +66,18 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     // MINTING
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Mint a new agent NFT (max 3 per address, requires FLIP token payment)
+    /// @notice Mint a new agent NFT (max 3 per address, requires BNB payment)
     /// @param metadata Agent metadata conforming to BAP-578 standard
     /// @return tokenId The minted NFT token ID
     function mint(AgentMetadata calldata metadata)
         external
+        payable
         whenNotPaused
         nonReentrant
         returns (uint256)
     {
         require(mintCount[msg.sender] < MAX_AGENTS_PER_ADDRESS, "Max agents per address reached");
-        if (mintPrice > 0) {
-            require(flipToken.transferFrom(msg.sender, address(this), mintPrice), "FLIP transfer failed");
-            ERC20Burnable(address(flipToken)).burn(mintPrice);
-        }
+        require(msg.value >= mintPrice, "Insufficient BNB");
         uint256 tokenId = _nextTokenId++;
         mintCount[msg.sender]++;
         _safeMint(msg.sender, tokenId);
@@ -236,9 +234,16 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
-    /// @notice Update the mint price in FLIP tokens (owner only)
+    /// @notice Update the mint price in BNB (owner only)
     function setMintPrice(uint256 newPrice) external onlyOwner {
         mintPrice = newPrice;
+    }
+
+    /// @notice Withdraw collected BNB from mint fees (owner only)
+    function withdrawBNB(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0 && amount <= address(this).balance, "Invalid amount");
+        (bool ok, ) = payable(owner()).call{value: amount}("");
+        require(ok, "BNB transfer failed");
     }
 
     /// @notice Withdraw collected FLIP tokens from mint fees (owner only)
@@ -256,4 +261,6 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
         require(amount <= available, "Exceeds available surplus");
         require(usdtToken.transfer(owner(), amount), "USDT transfer failed");
     }
+
+    receive() external payable {}
 }

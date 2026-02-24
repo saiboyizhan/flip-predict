@@ -1,5 +1,5 @@
 // BSC Testnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_NFA_ADDRESS = '0x0728fB29bF3cA2272d91280476f778230e202AbB'
+const DEFAULT_NFA_ADDRESS = '0x22160bF934a016A5b9244eC7b0c79674f176d941'
 
 export const NFA_CONTRACT_ADDRESS = (
   import.meta.env.VITE_NFA_CONTRACT_ADDRESS ||
@@ -7,9 +7,10 @@ export const NFA_CONTRACT_ADDRESS = (
   DEFAULT_NFA_ADDRESS
 )
 
-// FLIP Token (ERC-20) for NFA mint payment
+// FLIP Token (ERC-20) — kept for other uses (funding, etc.)
 export const FLIP_TOKEN_ADDRESS = '0x713eF4574954988df53a2A051C7aC10a6c1E8586'
-export const NFA_MINT_PRICE = 100_000n * 10n ** 18n // 100,000 FLIP
+// NFA mint price in BNB (native token)
+export const NFA_MINT_PRICE = 10_000_000_000_000_000n // 0.01 BNB
 
 // Complete NFA ABI extracted from contracts/artifacts/contracts/NFA.sol/NFA.json
 // Including all ERC-721, BAP-578, and custom functions
@@ -44,7 +45,7 @@ export const NFA_ABI = [
     ],
     name: 'mint',
     outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'nonpayable',
+    stateMutability: 'payable',
     type: 'function',
   },
 

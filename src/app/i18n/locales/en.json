@@ -90,7 +90,7 @@
     "vaultUri": "Vault URI (Optional)",
     "vaultUriPlaceholder": "ipfs://... or https://...",
     "vaultUriHint": "Upload Agent data to IPFS and paste the address for off-chain verification",
-    "mintFee": "100,000 FLIP",
+    "mintFee": "0.01 BNB",
     "minting": "Minting...",
     "mintSuccess": "Agent minted successfully!",
     "mintFailed": "Mint failed",

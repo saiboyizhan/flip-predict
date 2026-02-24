@@ -73,8 +73,8 @@ contract PredictionMarket is ERC1155Supply, ReentrancyGuard, Ownable, Pausable {
     uint256 public constant MIN_RESERVE = 1e18;         // 1 USDT minimum reserve
     uint256 public constant FEE_BPS = 100;               // 1% = 100 basis points
     uint256 public constant BPS_DENOMINATOR = 10000;
-    uint256 public constant LP_FEE_SHARE = 8000;         // 80% of fee to LP
-    uint256 public constant PROTOCOL_FEE_SHARE = 2000;   // 20% of fee to protocol
+    uint256 public constant LP_FEE_SHARE = 10000;        // 100% of fee to LP
+    uint256 public constant PROTOCOL_FEE_SHARE = 0;      // 0% to protocol
     uint256 public constant MIN_INITIAL_LIQUIDITY = 50e18; // 50 USDT minimum
 
     // Events

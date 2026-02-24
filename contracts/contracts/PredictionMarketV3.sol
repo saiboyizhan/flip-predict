@@ -132,8 +132,8 @@ contract PredictionMarketV3 is
     uint256 public constant MIN_RESERVE = 1e18;
     uint256 public constant FEE_BPS = 100;
     uint256 public constant BPS_DENOMINATOR = 10000;
-    uint256 public constant LP_FEE_SHARE = 8000;
-    uint256 public constant PROTOCOL_FEE_SHARE = 2000;
+    uint256 public constant LP_FEE_SHARE = 10000;        // 100% of fee to LP
+    uint256 public constant PROTOCOL_FEE_SHARE = 0;       // 0% to protocol
     uint256 public constant MIN_INITIAL_LIQUIDITY = 10e18;
 
     // ============================================================

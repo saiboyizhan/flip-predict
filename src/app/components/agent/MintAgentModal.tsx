@@ -6,10 +6,9 @@ import { useTranslation } from "react-i18next";
 import { useAgentStore } from "@/app/stores/useAgentStore";
 import { mintAgent } from "@/app/services/api";
 import { PRESET_AVATARS } from "@/app/config/avatars";
-import { NFA_ABI, NFA_CONTRACT_ADDRESS, FLIP_TOKEN_ADDRESS, NFA_MINT_PRICE } from "@/app/config/nfaContracts";
-import { ERC20_ABI } from "@/app/config/contracts";
+import { NFA_ABI, NFA_CONTRACT_ADDRESS, NFA_MINT_PRICE } from "@/app/config/nfaContracts";
 import { useAccount, useChainId, usePublicClient, useWriteContract, useReadContract, useSwitchChain } from "wagmi";
-import { zeroAddress, zeroHash, formatUnits } from "viem";
+import { zeroAddress, zeroHash, formatEther } from "viem";
 import { getBscScanUrl } from "@/app/hooks/useContracts";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -68,29 +67,6 @@ export function MintAgentModal() {
     },
   });
   const MAX_AGENTS_PER_ADDRESS = maxAgentsData ? Number(maxAgentsData) : 3;
-
-  // Read FLIP token balance
-  const { data: flipBalance } = useReadContract({
-    address: FLIP_TOKEN_ADDRESS as `0x${string}`,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
-
-  // Read FLIP token allowance for NFA contract
-  const { data: flipAllowance, refetch: refetchFlipAllowance } = useReadContract({
-    address: FLIP_TOKEN_ADDRESS as `0x${string}`,
-    abi: ERC20_ABI,
-    functionName: "allowance",
-    args: address ? [address, NFA_CONTRACT_ADDRESS as `0x${string}`] : undefined,
-    query: { enabled: !!address },
-  });
-
-  const flipBalanceBigInt = (flipBalance as bigint) ?? 0n;
-  const flipAllowanceBigInt = (flipAllowance as bigint) ?? 0n;
-  const hasEnoughFlip = flipBalanceBigInt >= NFA_MINT_PRICE;
-  const needsApproval = flipAllowanceBigInt < NFA_MINT_PRICE;
 
   const avatarSrc = uploadedAvatar ?? (selectedAvatar !== null ? PRESET_AVATARS[selectedAvatar].src : null);
 
@@ -170,26 +146,13 @@ export function MintAgentModal() {
         );
       }
 
-      // Check FLIP balance
-      if (!hasEnoughFlip) {
-        throw new Error(t("agent.insufficientFlip", {
-          required: formatUnits(NFA_MINT_PRICE, 18),
-          defaultValue: `Insufficient FLIP balance. You need ${formatUnits(NFA_MINT_PRICE, 18)} FLIP to mint.`,
+      // Check BNB balance
+      const bnbBalance = await publicClient.getBalance({ address });
+      if (bnbBalance < NFA_MINT_PRICE) {
+        throw new Error(t("agent.insufficientBNB", {
+          required: formatEther(NFA_MINT_PRICE),
+          defaultValue: `Insufficient BNB balance. You need ${formatEther(NFA_MINT_PRICE)} BNB to mint.`,
         }));
-      }
-
-      // Approve FLIP if needed
-      if (needsApproval) {
-        toast.info(t("agent.approvingFlip", { defaultValue: "Approving FLIP tokens..." }));
-        const approveTx = await writeContractAsync({
-          address: FLIP_TOKEN_ADDRESS as `0x${string}`,
-          abi: ERC20_ABI,
-          functionName: "approve",
-          args: [NFA_CONTRACT_ADDRESS as `0x${string}`, NFA_MINT_PRICE],
-        });
-        await publicClient.waitForTransactionReceipt({ hash: approveTx });
-        await refetchFlipAllowance();
-        toast.success(t("agent.flipApproved", { defaultValue: "FLIP approved. Now minting..." }));
       }
 
       const avatarId = selectedAvatar != null && selectedAvatar >= 0 && selectedAvatar <= 255 ? selectedAvatar : 0;
@@ -211,6 +174,7 @@ export function MintAgentModal() {
           functionName: "mint",
           args: mintArgs,
           account: address,
+          value: NFA_MINT_PRICE,
         });
       } catch (simErr: any) {
         const reason = simErr?.cause?.reason || simErr?.shortMessage || simErr?.message || "Unknown simulation error";
@@ -222,6 +186,7 @@ export function MintAgentModal() {
         abi: NFA_ABI,
         functionName: "mint",
         args: mintArgs,
+        value: NFA_MINT_PRICE,
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
@@ -292,8 +257,6 @@ export function MintAgentModal() {
   if (!showMintModal) return null;
 
   const remaining = MAX_AGENTS_PER_ADDRESS - agentCount;
-  const flipDisplay = formatUnits(flipBalanceBigInt, 18);
-  const mintCostDisplay = formatUnits(NFA_MINT_PRICE, 18);
 
   return (
     <AnimatePresence>
@@ -502,24 +465,8 @@ export function MintAgentModal() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">{t("agent.mintCost")}</span>
-                      <span className="text-amber-400 font-semibold font-mono">{Number(mintCostDisplay).toLocaleString()} FLIP</span>
+                      <span className="text-amber-400 font-semibold font-mono">{formatEther(NFA_MINT_PRICE)} BNB</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">{t("agent.flipBalance", "FLIP Balance")}</span>
-                      <span className={`font-mono ${hasEnoughFlip ? 'text-foreground' : 'text-red-400'}`}>
-                        {Number(flipDisplay).toLocaleString()} FLIP
-                      </span>
-                    </div>
-                    {needsApproval && hasEnoughFlip && (
-                      <div className="text-xs text-amber-400 mt-1">
-                        {t("agent.needsApproval", "FLIP approval required before minting")}
-                      </div>
-                    )}
-                    {!hasEnoughFlip && (
-                      <div className="text-xs text-red-400 mt-1">
-                        {t("agent.insufficientFlipShort", "Insufficient FLIP balance")}
-                      </div>
-                    )}
                   </div>
                 </motion.div>
               )}
@@ -557,7 +504,7 @@ export function MintAgentModal() {
             ) : (
               <button
                 onClick={handleMint}
-                disabled={loading || !hasEnoughFlip}
+                disabled={loading}
                 className="flex items-center gap-2 px-6 py-2 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-white font-bold text-sm transition-colors"
               >
                 {loading ? (
@@ -568,10 +515,7 @@ export function MintAgentModal() {
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    {needsApproval
-                      ? t("agent.approveAndMint", "Approve FLIP & Mint")
-                      : t("agent.mintWithFlip", { cost: Number(mintCostDisplay).toLocaleString(), defaultValue: `Mint (${Number(mintCostDisplay).toLocaleString()} FLIP)` })
-                    }
+                    {t("agent.mintAgentBNB", { cost: formatEther(NFA_MINT_PRICE), defaultValue: `Mint Agent (${formatEther(NFA_MINT_PRICE)} BNB)` })}
                   </>
                 )}
               </button>
