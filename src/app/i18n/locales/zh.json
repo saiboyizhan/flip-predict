@@ -173,7 +173,7 @@
     "vaultUri": "Vault URI (可选)",
     "vaultUriPlaceholder": "ipfs://... 或 https://...",
     "vaultUriHint": "上传 Agent 数据到 IPFS 后填入地址，用于链下数据校验",
-    "mintFee": "Free Mint",
+    "mintFee": "100,000 FLIP",
     "minting": "铸造中...",
     "mintSuccess": "Agent 铸造成功!",
     "mintFailed": "铸造失败",
@@ -198,10 +198,10 @@
     "dropOrClick": "拖拽或点击上传",
     "confirmMint": "确认铸造",
     "confirmMintHint": "检查信息无误后点击铸造",
-    "freeMintLabel": "免费铸造",
+    "freeMintLabel": "铸造 Agent",
     "mintCost": "铸造费用",
     "initialBalance": "初始余额",
-    "mintFree": "免费铸造",
+    "mintFree": "铸造 Agent",
     "maxAgentsReached": "已达到每个地址最多 3 个 Agent 的上限",
     "limitReachedTitle": "Agent 名额已满",
     "limitReachedDesc": "每个钱包最多可持有 {{count}} 个 Agent，你已使用全部名额。",
@@ -243,7 +243,10 @@
     "insufficientFlipShort": "FLIP 余额不足",
     "approvingFlip": "正在授权 FLIP...",
     "flipApproved": "FLIP 已授权，正在铸造...",
-    "approveAndMint": "授权 FLIP 并铸造"
+    "approveAndMint": "授权 FLIP 并铸造",
+    "flipBalance": "FLIP 余额",
+    "needsApproval": "铸造前需先授权 FLIP",
+    "mintWithFlip": "铸造 ({{cost}} FLIP)"
   },
   "leaderboard": {
     "title": "排行榜",
