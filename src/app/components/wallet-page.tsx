@@ -254,9 +254,9 @@ export function WalletPage() {
                 <StatSkeleton />
               ) : (
                 <div className="bg-card border border-border rounded-lg p-4">
-                  <div className="text-blue-500 text-xs font-medium mb-1">{t('wallet.totalWinnings')}</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-blue-500">
-                    ${userStats ? userStats.totalProfit.toLocaleString() : "0"}
+                  <div className="text-muted-foreground text-xs font-medium mb-1">{t('wallet.totalWinnings')}</div>
+                  <div className={`text-xl sm:text-2xl font-semibold ${userStats && userStats.totalProfit > 0 ? 'text-emerald-400' : userStats && userStats.totalProfit < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>
+                    {userStats ? `${userStats.totalProfit >= 0 ? '+' : ''}$${userStats.totalProfit.toLocaleString()}` : "$0"}
                   </div>
                   <div className="text-muted-foreground text-xs mt-1">
                     {userStats ? t('wallet.winsAndRate', { wins: userStats.totalWins, rate: (userStats.winRate > 1 ? userStats.winRate : userStats.winRate * 100).toFixed(1) }) : t('common.noData')}

@@ -267,6 +267,16 @@ router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest,
       WHERE user_address = $1
     `, [address]);
 
+    // Net profit = winnings - cost on resolved markets
+    const resolvedSpend = await db.query(`
+      SELECT COALESCE(SUM(o.amount), 0) as spent
+      FROM orders o
+      JOIN markets m ON o.market_id = m.id
+      WHERE o.user_address = $1
+        AND o.status = 'filled' AND o.type = 'buy'
+        AND m.status IN ('resolved', 'closed')
+    `, [address]);
+
     const stats = tradeStats.rows[0] as any;
     const posStats = positionStats.rows[0] as any;
     const wins = winStats.rows[0] as any;
@@ -288,7 +298,8 @@ router.get('/portfolio/:address/stats', authMiddleware, async (req: AuthRequest,
         resolvedTrades,
         winningTrades,
         winRate,
-        totalProfit: parseFloat(wins.total_won) || 0,
+        totalWon: parseFloat(wins.total_won) || 0,
+        totalProfit: (parseFloat(wins.total_won) || 0) - (parseFloat(resolvedSpend.rows[0]?.spent) || 0),
       },
     });
   } catch (err: any) {
