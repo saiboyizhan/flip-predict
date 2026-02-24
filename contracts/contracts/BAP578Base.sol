@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "./interfaces/IBAP578.sol";
+import "./interfaces/IPancakeRouter.sol";
 
 /// @title BAP578Base - Non-Fungible Agent Standard (BNB Agent Protocol 578)
 /// @notice Abstract base contract implementing the BAP-578 agent NFT standard.
@@ -18,6 +19,7 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
 
     // ─── Constants ───────────────────────────────────────────────
     uint256 public constant MAX_AGENTS_PER_ADDRESS = 3;
+    address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     // ─── State ───────────────────────────────────────────────────
     IERC20 public usdtToken;
@@ -25,6 +27,8 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     uint256 public mintPrice;
     uint256 internal _nextTokenId;
     string internal _baseTokenURI;
+    IPancakeRouter public pancakeRouter;
+    bool public autoBuybackEnabled;
 
     mapping(uint256 => AgentState) internal _agentStates;
     mapping(uint256 => AgentMetadata) internal _agentMetadata;
@@ -35,6 +39,7 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
 
     // ─── Events (BAP-578 extension, not in IBAP578) ──────────────
     event VaultUpdated(uint256 indexed tokenId, string vaultURI, bytes32 vaultHash);
+    event BuybackAndBurn(uint256 bnbAmount, uint256 flipBurned);
 
     // ─── Modifiers ───────────────────────────────────────────────
     modifier onlyTokenOwner(uint256 tokenId) {
@@ -83,6 +88,12 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
         _safeMint(msg.sender, tokenId);
         _agentMetadata[tokenId] = metadata;
         _agentStates[tokenId] = AgentState.ACTIVE;
+
+        // Auto buyback & burn FLIP with mint fee
+        if (autoBuybackEnabled && address(pancakeRouter) != address(0)) {
+            _buybackAndBurn(msg.value);
+        }
+
         return tokenId;
     }
 
@@ -237,6 +248,42 @@ abstract contract BAP578Base is ERC721Enumerable, ReentrancyGuard, Pausable, Own
     /// @notice Update the mint price in BNB (owner only)
     function setMintPrice(uint256 newPrice) external onlyOwner {
         mintPrice = newPrice;
+    }
+
+    /// @notice Set PancakeSwap router for buyback (owner only)
+    function setPancakeRouter(address _router) external onlyOwner {
+        pancakeRouter = IPancakeRouter(_router);
+    }
+
+    /// @notice Enable/disable auto buyback & burn on mint (owner only)
+    function setAutoBuyback(bool enabled) external onlyOwner {
+        autoBuybackEnabled = enabled;
+    }
+
+    /// @notice Manual buyback & burn with accumulated BNB (owner only)
+    function buybackAndBurn(uint256 bnbAmount) external onlyOwner nonReentrant {
+        require(address(pancakeRouter) != address(0), "Router not set");
+        require(bnbAmount > 0 && bnbAmount <= address(this).balance, "Invalid amount");
+        _buybackAndBurn(bnbAmount);
+    }
+
+    /// @dev Swap BNB for FLIP via PancakeSwap and send to dead address
+    function _buybackAndBurn(uint256 bnbAmount) internal {
+        address[] memory path = new address[](2);
+        path[0] = pancakeRouter.WETH();
+        path[1] = address(flipToken);
+        uint256 flipBefore = flipToken.balanceOf(DEAD_ADDRESS);
+        try pancakeRouter.swapExactETHForTokensSupportingFeeOnTransferTokens{value: bnbAmount}(
+            0,
+            path,
+            DEAD_ADDRESS,
+            block.timestamp
+        ) {
+            uint256 flipBurned = flipToken.balanceOf(DEAD_ADDRESS) - flipBefore;
+            emit BuybackAndBurn(bnbAmount, flipBurned);
+        } catch {
+            // Swap failed (no liquidity etc.), BNB stays in contract for manual buyback
+        }
     }
 
     /// @notice Withdraw collected BNB from mint fees (owner only)

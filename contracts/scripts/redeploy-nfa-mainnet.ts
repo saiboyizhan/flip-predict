@@ -19,27 +19,39 @@ async function main() {
   const FLIP_TOKEN = "0x1ad1d35a9b443ed4501a6da16a688e86b5b07777";
   const MINT_PRICE = ethers.parseEther("0.01"); // 0.01 BNB
   const PM_PROXY = "0x82340f104eeabf5bD072081E28EB335fe90FdBAa";
+  const PANCAKE_ROUTER = "0x10ED43C718714eb63d5aA57B78B54704E256024E"; // PancakeSwap V2 Router
 
-  // Deploy NFA with real FLIP token
-  console.log("\nDeploying NFA with real FLIP token...");
+  // Deploy NFA with real FLIP token + buyback
+  console.log("\nDeploying NFA with buyback & burn...");
   const NFA = await ethers.getContractFactory("NFA");
   const nfa = await NFA.deploy(USDT_ADDRESS, FLIP_TOKEN, MINT_PRICE);
   await nfa.waitForDeployment();
   const nfaAddress = await nfa.getAddress();
   console.log(`  NFA: ${nfaAddress}`);
 
-  // Link NFA -> PM
   const nfaContract = NFA.attach(nfaAddress) as any;
+
+  // Link NFA -> PM
   const tx1 = await nfaContract.setPredictionMarket(PM_PROXY);
   await tx1.wait();
   console.log(`  NFA -> PM linked`);
 
-  // Link PM -> NFA (update PM to point to new NFA)
+  // Link PM -> NFA
   const PredictionMarketV3 = await ethers.getContractFactory("PredictionMarketV3");
   const pm = PredictionMarketV3.attach(PM_PROXY) as any;
   const tx2 = await pm.setNFAContract(nfaAddress);
   await tx2.wait();
   console.log(`  PM -> NFA linked`);
+
+  // Set PancakeSwap router
+  const tx3 = await nfaContract.setPancakeRouter(PANCAKE_ROUTER);
+  await tx3.wait();
+  console.log(`  PancakeSwap router set`);
+
+  // Enable auto buyback & burn
+  const tx4 = await nfaContract.setAutoBuyback(true);
+  await tx4.wait();
+  console.log(`  Auto buyback enabled`);
 
   console.log(`\n========== NEW NFA ADDRESS ==========`);
   console.log(`NFA_ADDRESS=${nfaAddress}`);

@@ -1,5 +1,5 @@
 // BSC Mainnet deployed address (fallback when env var not set, e.g. Cloudflare Pages)
-const DEFAULT_NFA_ADDRESS = '0xfD9fdB8B4aEE14133c29B16E7b9f4eC55650f953'
+const DEFAULT_NFA_ADDRESS = '0x8D0D83279770C9ED2215021721Bf3F6f37a6657E'
 
 export const NFA_CONTRACT_ADDRESS = (
   import.meta.env.VITE_NFA_CONTRACT_ADDRESS ||
