@@ -54,6 +54,7 @@ export interface Position {
   avgCost: number
   currentPrice: number
   timestamp: number
+  onChainMarketId?: string
 }
 
 export interface Order {

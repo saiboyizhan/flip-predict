@@ -1,8 +1,12 @@
 "use client";
 
+import { useMemo } from "react";
 import { motion } from "motion/react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useAccount } from "wagmi";
+import { formatUnits } from "viem";
+import { useContractPosition } from "@/app/hooks/useContracts";
 import type { Position } from "@/app/types/market.types";
 
 interface PositionCardProps {
@@ -12,11 +16,32 @@ interface PositionCardProps {
 
 export function PositionCard({ position, onSell }: PositionCardProps) {
   const { t } = useTranslation();
-  const totalCost = position.shares * position.avgCost;
-  const currentValue = position.shares * position.currentPrice;
+  const { address } = useAccount();
+
+  // Read on-chain position as source of truth
+  const marketIdBigint = useMemo(() => {
+    if (!position.onChainMarketId) return undefined;
+    try { return BigInt(position.onChainMarketId); } catch { return undefined; }
+  }, [position.onChainMarketId]);
+
+  const { position: onChainPos } = useContractPosition(marketIdBigint, address as `0x${string}` | undefined);
+
+  // Use on-chain shares if available, fallback to DB shares
+  const shares = useMemo(() => {
+    if (!onChainPos) return position.shares;
+    const yesAmount = Number(formatUnits(onChainPos.yesAmount, 18));
+    const noAmount = Number(formatUnits(onChainPos.noAmount, 18));
+    return position.side === 'yes' ? yesAmount : noAmount;
+  }, [onChainPos, position.shares, position.side]);
+
+  const totalCost = shares * position.avgCost;
+  const currentValue = shares * position.currentPrice;
   const pnl = currentValue - totalCost;
   const pnlPercent = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
   const isProfit = pnl >= 0;
+
+  // Don't render if on-chain shows 0 shares
+  if (onChainPos && shares <= 0.001) return null;
 
   return (
     <motion.div
@@ -71,7 +96,7 @@ export function PositionCard({ position, onSell }: PositionCardProps) {
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div>
           <div className="text-xs text-muted-foreground tracking-wider uppercase mb-1">{t('portfolio.shares')}</div>
-          <div className="text-foreground font-mono font-semibold">{position.shares.toFixed(2)}</div>
+          <div className="text-foreground font-mono font-semibold">{shares.toFixed(2)}</div>
         </div>
         <div>
           <div className="text-xs text-muted-foreground tracking-wider uppercase mb-1">{t('portfolio.avgCost')}</div>

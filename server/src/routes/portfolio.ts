@@ -87,6 +87,7 @@ router.get('/portfolio/:address', async (req: Request, res: Response) => {
 
     const { rows: rawPositions } = await db.query(`
       SELECT p.*, m.title as market_title, m.yes_price, m.no_price, m.status as market_status, m.market_type,
+        m.on_chain_market_id,
         COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) as current_price,
         COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) * p.shares as current_value,
         (COALESCE(mo.price, CASE WHEN p.side = 'yes' THEN m.yes_price ELSE m.no_price END) - p.avg_cost) * p.shares as unrealized_pnl
@@ -106,6 +107,7 @@ router.get('/portfolio/:address', async (req: Request, res: Response) => {
       current_price: Number(p.current_price),
       current_value: Number(p.current_value),
       unrealized_pnl: Number(p.unrealized_pnl),
+      on_chain_market_id: p.on_chain_market_id != null ? String(p.on_chain_market_id) : null,
     }));
 
     res.json({ positions });

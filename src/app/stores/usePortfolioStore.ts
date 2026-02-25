@@ -140,6 +140,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         avgCost: Number(p.avg_cost ?? p.avgCost) || 0,
         currentPrice: Number(p.current_price ?? p.currentPrice ?? p.avg_cost ?? p.avgCost) || 0,
         timestamp: Number(p.timestamp ?? p.created_at) || Date.now(),
+        onChainMarketId: p.on_chain_market_id ?? p.onChainMarketId ?? undefined,
       }))
       set({ positions, lastFetchTime: now })
     } catch (err) {

@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useTransitionNavigate } from "@/app/hooks/useTransitionNavigate";
 import { useTranslation } from "react-i18next";
+import { useAccount } from "wagmi";
 import { Loader2, RefreshCw } from "lucide-react";
 import { MarketDetail } from "../components/market/MarketDetail";
 import { useMarketStore } from "../stores/useMarketStore";
-import { usePortfolioStore } from "../stores/usePortfolioStore";
+import { useContractPosition, useContractPrice } from "../hooks/useContracts";
 import { CATEGORIES } from "../data/markets";
 import { fetchMarket } from "../services/api";
 import type { Market } from "../types/market.types";
+import { formatUnits } from "viem";
 
 function toCardMarket(m: Market) {
   const cat = CATEGORIES.find(c => c.id === m.category);
@@ -98,14 +100,29 @@ export default function MarketDetailPage() {
 
   const market = storeMarket || apiMarket;
 
-  // Get user position for this market from portfolio store
-  const positions = usePortfolioStore((s) => s.positions);
-  const userPosition = id
-    ? positions.find((p) => p.marketId === id)
-    : undefined;
-  const mappedPosition = userPosition
-    ? { side: userPosition.side, shares: userPosition.shares, avgCost: userPosition.avgCost }
-    : undefined;
+  // Read user position from on-chain (source of truth)
+  const { address } = useAccount();
+  const onChainMarketId = market?.onChainMarketId;
+  const marketIdBigint = useMemo(() => {
+    if (!onChainMarketId) return undefined;
+    try { return BigInt(onChainMarketId); } catch { return undefined; }
+  }, [onChainMarketId]);
+
+  const { position: onChainPosition } = useContractPosition(marketIdBigint, address as `0x${string}` | undefined);
+  const { yesPrice, noPrice } = useContractPrice(marketIdBigint);
+
+  const mappedPosition = useMemo(() => {
+    if (!onChainPosition) return undefined;
+    const yesAmount = Number(formatUnits(onChainPosition.yesAmount, 18));
+    const noAmount = Number(formatUnits(onChainPosition.noAmount, 18));
+    if (yesAmount <= 0 && noAmount <= 0) return undefined;
+    // Show the side with larger position; if both exist, show the larger one
+    const side = yesAmount >= noAmount ? 'yes' : 'no';
+    const shares = side === 'yes' ? yesAmount : noAmount;
+    const currentPrice = side === 'yes' ? yesPrice : noPrice;
+    // avgCost is not available on-chain, approximate with current price
+    return { side, shares, avgCost: currentPrice };
+  }, [onChainPosition, yesPrice, noPrice]);
 
   if (loading) {
     return (
