@@ -30,7 +30,8 @@
     "trending": "实时热点",
     "ai": "AI",
     "sports": "体育",
-    "news": "新闻"
+    "news": "新闻",
+    "other": "其他"
   },
   "common": {
     "loading": "加载中...",
@@ -342,7 +343,8 @@
       "trending": "实时热点",
       "ai": "AI",
       "sports": "体育",
-      "news": "新闻"
+      "news": "新闻",
+      "other": "其他"
     }
   },
   "rewards": {

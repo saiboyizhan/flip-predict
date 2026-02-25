@@ -18,6 +18,7 @@ const CATEGORY_IDS = [
   "ai",
   "sports",
   "news",
+  "other",
 ];
 
 export function CategoryNav({ selectedCategory, onCategoryChange }: CategoryNavProps) {

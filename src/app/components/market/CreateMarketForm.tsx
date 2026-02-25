@@ -20,7 +20,7 @@ interface OptionInput {
 }
 
 const CATEGORY_IDS = [
-  'flap', 'four-meme', 'versus', 'trending', 'ai', 'sports', 'news',
+  'flap', 'four-meme', 'versus', 'trending', 'ai', 'sports', 'news', 'other',
 ];
 
 const QUICK_TIME_KEYS = [

@@ -30,7 +30,8 @@
     "trending": "Trending",
     "ai": "AI",
     "sports": "Sports",
-    "news": "News"
+    "news": "News",
+    "other": "Other"
   },
   "common": {
     "loading": "Loading...",
@@ -255,7 +256,8 @@
       "trending": "Trending",
       "ai": "AI",
       "sports": "Sports",
-      "news": "News"
+      "news": "News",
+      "other": "Other"
     }
   },
   "rewards": {
