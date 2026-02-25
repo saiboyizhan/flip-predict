@@ -51,7 +51,7 @@ createAppKit({
   allowUnsupportedChain: true,
   enableEIP6963: true,
   enableInjected: true,
-  enableWalletConnect: false,
+  enableWalletConnect: true,
   metadata: {
     name: "Flip Prediction Market",
     description: "AI-Powered Prediction Market on BSC",
