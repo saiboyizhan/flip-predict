@@ -200,6 +200,49 @@ export function useRemoveLiquidity() {
 }
 
 // ----------------------------------------------------------------
+// useLpClaimAfterResolution  --  calls contract.lpClaimAfterResolution(marketId)
+// ----------------------------------------------------------------
+
+export function useLpClaimAfterResolution() {
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isWriting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    error: confirmError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const lpClaim = useCallback(
+    (marketId: bigint) => {
+      reset();
+      writeContract({
+        address: PREDICTION_MARKET_ADDRESS,
+        abi: PREDICTION_MARKET_ABI,
+        functionName: 'lpClaimAfterResolution',
+        args: [marketId],
+      });
+    },
+    [writeContract, reset],
+  );
+
+  return {
+    lpClaim,
+    txHash,
+    isWriting,
+    isConfirming,
+    isConfirmed,
+    error: writeError || confirmError,
+    reset,
+  };
+}
+
+// ----------------------------------------------------------------
 // useClaimWinnings  --  calls contract.claimWinnings(marketId)
 // ----------------------------------------------------------------
 

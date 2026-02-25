@@ -9,6 +9,7 @@ import { parseUnits, formatUnits } from "viem";
 import {
   useAddLiquidity,
   useRemoveLiquidity,
+  useLpClaimAfterResolution,
   useContractLpInfo,
   useContractBalance,
   useUsdtAllowance,
@@ -91,9 +92,20 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
     reset: removeReset,
   } = useRemoveLiquidity();
 
+  const {
+    lpClaim,
+    txHash: claimTxHash,
+    isWriting: claimWriting,
+    isConfirming: claimConfirming,
+    isConfirmed: claimConfirmed,
+    error: claimError,
+    reset: claimReset,
+  } = useLpClaimAfterResolution();
+
   useTxNotifier(approveTxHash, approveConfirming, approveConfirmed, approveError as Error | null, "USDT Approve");
   useTxNotifier(addTxHash, addConfirming, addConfirmed, addError as Error | null, "Add Liquidity");
   useTxNotifier(removeTxHash, removeConfirming, removeConfirmed, removeError as Error | null, "Remove Liquidity");
+  useTxNotifier(claimTxHash, claimConfirming, claimConfirmed, claimError as Error | null, "LP Claim");
 
   // After approve confirms, add liquidity
   const [pendingAdd, setPendingAdd] = useState(false);
@@ -125,8 +137,19 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
     }
   }, [removeConfirmed, removeTxHash, removeReset, refetchLp, t, onLiquidityChange]);
 
+  // Refresh after LP claim confirms
+  useEffect(() => {
+    if (claimConfirmed && claimTxHash) {
+      claimReset();
+      refetchLp();
+      toast.success(t('lp.claimSuccess', 'LP position claimed successfully'));
+      onLiquidityChange?.();
+    }
+  }, [claimConfirmed, claimTxHash, claimReset, refetchLp, t, onLiquidityChange]);
+
   const isActive = status === "active";
-  const isBusy = addWriting || addConfirming || removeWriting || removeConfirming || approveWriting || approveConfirming;
+  const isResolved = status === "settled" || status === "resolved";
+  const isBusy = addWriting || addConfirming || removeWriting || removeConfirming || approveWriting || approveConfirming || claimWriting || claimConfirming;
 
   const poolValueNum = Number(formatUnits(poolValue, 18));
   const yesReserveNum = Number(formatUnits(yesReserve, 18));
@@ -226,6 +249,18 @@ export function LiquidityPanel({ marketId, onChainMarketId, status, onLiquidityC
               <div className="text-xs text-muted-foreground bg-white/[0.02] rounded-lg px-3 py-2">
                 {t('lp.feeInfo', 'LP providers earn 80% of trading fees proportional to their share.')}
               </div>
+
+              {/* LP Claim after resolution */}
+              {isResolved && address && userSharesNum > 0 && marketIdBigint && (
+                <button
+                  onClick={() => lpClaim(marketIdBigint)}
+                  disabled={isBusy}
+                  className="w-full py-3 rounded-lg text-sm font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                >
+                  {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {t('lp.claimAfterResolution', 'Claim LP Payout')} ({formatUsd(userValueNum)})
+                </button>
+              )}
 
               {/* Add/Remove Form */}
               {isActive && address && (

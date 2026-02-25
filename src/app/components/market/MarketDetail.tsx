@@ -414,13 +414,21 @@ export function MarketDetail({ market, userPosition }: MarketDetailProps) {
             </div>
           )}
           {isResolved && outcome ? (
-            /* Show ClaimWinnings when resolved */
-            <ClaimWinnings
-              marketId={market.id}
-              onChainMarketId={market.onChainMarketId}
-              outcome={outcome}
-              userPosition={userPosition}
-            />
+            /* Show ClaimWinnings + LP claim when resolved */
+            <>
+              <ClaimWinnings
+                marketId={market.id}
+                onChainMarketId={market.onChainMarketId}
+                outcome={outcome}
+                userPosition={userPosition}
+              />
+              <LiquidityPanel
+                marketId={market.id}
+                onChainMarketId={market.onChainMarketId}
+                status={market.status}
+                onLiquidityChange={handleTradeComplete}
+              />
+            </>
           ) : (
             /* Show trading panels when active */
             <>
