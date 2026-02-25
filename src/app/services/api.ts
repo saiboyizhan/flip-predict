@@ -215,7 +215,7 @@ function normalizeMarket(raw: RawMarket): Market {
   const yesPrice = Number(raw.yesPrice ?? raw.yes_price ?? 0.5) || 0.5
   const noPrice = 1 - yesPrice  // always derived — guarantees yes + no === 1
 
-  const resolvedOutcome = String(raw.resolvedOutcome ?? raw.resolved_outcome ?? '').toLowerCase()
+  const resolvedOutcome = String(raw.resolvedOutcome ?? raw.resolved_outcome ?? raw.outcome ?? '').toLowerCase()
   const mappedOutcome = resolvedOutcome === 'yes' ? 'YES' : resolvedOutcome === 'no' ? 'NO' : undefined
   const tags = Array.isArray(raw.tags) ? raw.tags : []
 
