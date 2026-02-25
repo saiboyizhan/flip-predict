@@ -157,9 +157,22 @@ export function AppHeader() {
 
   // Handle user-initiated wallet connect
   const handleConnect = useCallback(() => {
+    // If wallet is already connected (wagmi auto-reconnect), directly trigger login
+    if (isConnected && address && !isAuthenticated) {
+      login(address, signMessageAsync).then((result) => {
+        if (result.success) {
+          toast.success(t("auth.loginSuccess"));
+        } else if (result.error === 'sign_rejected') {
+          // User cancelled signing - don't show error
+        } else {
+          toast.error(t("auth.signFailed"));
+        }
+      });
+      return;
+    }
     userInitiatedRef.current = true;
     openWeb3Modal();
-  }, [openWeb3Modal]);
+  }, [openWeb3Modal, isConnected, address, isAuthenticated, login, signMessageAsync, t]);
 
   // Login when wallet connects (only if user-initiated)
   useEffect(() => {
@@ -168,13 +181,22 @@ export function AppHeader() {
       // Only auto-sign if user explicitly clicked "Connect Wallet"
       if (userInitiatedRef.current) {
         userInitiatedRef.current = false;
+        console.log('[AppHeader] Auto-login triggered for', address);
         login(address, signMessageAsync).then((result) => {
           if (result.success) {
             toast.success(t("auth.loginSuccess"));
           } else if (result.error === 'sign_rejected') {
-            // User cancelled signing - don't show error
+            // User cancelled signing - don't show error, but allow retry
+            prevAddressRef.current = undefined;
+          } else if (result.error === 'nonce_failed') {
+            toast.error(t("auth.nonceFailed", "Network error - please click Sign In to retry"));
+            prevAddressRef.current = undefined;
+          } else if (result.error === 'verify_failed') {
+            toast.error(t("auth.verifyFailed", "Verification failed - please click Sign In to retry"));
+            prevAddressRef.current = undefined;
           } else {
             toast.error(t("auth.signFailed"));
+            prevAddressRef.current = undefined;
           }
         });
       }
@@ -186,13 +208,21 @@ export function AppHeader() {
   }, [isConnected, address, isAuthenticated, login, signMessageAsync, authDisconnect, t]);
 
   // Manual sign-in for auto-reconnected wallets
+  const [signInLoading, setSignInLoading] = useState(false);
   const handleSignIn = useCallback(() => {
     if (isConnected && address && !isAuthenticated) {
+      console.log('[AppHeader] Manual sign-in triggered for', address);
+      setSignInLoading(true);
       login(address, signMessageAsync).then((result) => {
+        setSignInLoading(false);
         if (result.success) {
           toast.success(t("auth.loginSuccess"));
         } else if (result.error === 'sign_rejected') {
           // User cancelled signing - don't show error
+        } else if (result.error === 'nonce_failed') {
+          toast.error(t("auth.nonceFailed", "Network error - please retry"));
+        } else if (result.error === 'verify_failed') {
+          toast.error(t("auth.verifyFailed", "Verification failed - please retry"));
         } else {
           toast.error(t("auth.signFailed"));
         }
@@ -489,10 +519,15 @@ export function AppHeader() {
               {!isAuthenticated && (
                 <button
                   onClick={handleSignIn}
-                  className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-blue-500/30 rounded-lg hover:border-blue-500/50 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+                  disabled={signInLoading}
+                  className="flex items-center gap-2 px-3 py-2 sm:px-4 border border-blue-500/50 rounded-lg hover:border-blue-500 bg-blue-500/20 hover:bg-blue-500/30 transition-colors disabled:opacity-50"
                 >
-                  <Zap className="w-4 h-4 text-blue-400" />
-                  <span className="text-blue-400 text-sm font-medium">{t("auth.signIn", "Sign In")}</span>
+                  {signInLoading ? (
+                    <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4 text-blue-400" />
+                  )}
+                  <span className="text-blue-400 text-sm font-bold">{signInLoading ? t("auth.signing", "Signing...") : t("auth.signIn", "Sign In")}</span>
                 </button>
               )}
               <button

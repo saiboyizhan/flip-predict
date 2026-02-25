@@ -27,7 +27,7 @@ const RISK_ACCEPTED_KEY = "prediction_risk_accepted";
 
 export function TradePanel({ marketId, onChainMarketId, marketTitle, status, marketType, options, onTradeComplete }: TradePanelProps) {
   const { t } = useTranslation();
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
@@ -248,7 +248,18 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
   // On-chain trade handler
   const handleOnChainTrade = useCallback(() => {
-    if (numAmount <= 0 || activeWriting || activeConfirming || approveWriting || approveConfirming || limitWriting || limitConfirming || erc1155ApproveWriting || erc1155ApproveConfirming) return;
+    if (numAmount <= 0) {
+      toast.error(t('trade.enterAmount', { defaultValue: 'Please enter a valid amount' }));
+      return;
+    }
+    if (!isConnected || !address) {
+      toast.error(t('trade.connectWallet', { defaultValue: 'Please connect your wallet first' }));
+      return;
+    }
+    if (activeWriting || activeConfirming || approveWriting || approveConfirming || limitWriting || limitConfirming || erc1155ApproveWriting || erc1155ApproveConfirming) {
+      toast.info(t('trade.txPending', { defaultValue: 'A transaction is already in progress' }));
+      return;
+    }
     if (!onChainMarketId || !marketIdBigint) {
       toast.error(t('trade.invalidMarketId'));
       return;
@@ -317,7 +328,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       const sharesWei = parseUnits(amount, 18);
       sell(marketIdBigint, side === "yes", sharesWei);
     }
-  }, [numAmount, activeWriting, activeConfirming, approveWriting, approveConfirming, limitWriting, limitConfirming, erc1155ApproveWriting, erc1155ApproveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, orderType, limitPrice, walletBalance, usdtAllowancePmRaw, usdtAllowanceLobRaw, usdtApprove, buy, sell, placeLimitOrder, erc1155Approved, erc1155Approve, t]);
+  }, [numAmount, isConnected, address, activeWriting, activeConfirming, approveWriting, approveConfirming, limitWriting, limitConfirming, erc1155ApproveWriting, erc1155ApproveConfirming, onChainMarketId, marketIdBigint, marketId, side, amount, tradeMode, orderType, limitPrice, walletBalance, usdtAllowancePmRaw, usdtAllowanceLobRaw, usdtApprove, buy, sell, placeLimitOrder, erc1155Approved, erc1155Approve, t]);
 
   const executeTradeInternal = useCallback(async () => {
     if (numAmount <= 0 || isSubmitting) return;
@@ -330,7 +341,15 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   }, [numAmount, isSubmitting, onChainMarketId, marketIdBigint, handleOnChainTrade, t]);
 
   const handleConfirm = useCallback(() => {
-    if (numAmount <= 0 || isSubmitting) return;
+    if (numAmount <= 0) {
+      toast.error(t('trade.enterAmount', { defaultValue: 'Please enter a valid amount' }));
+      return;
+    }
+    if (!isConnected || !address) {
+      toast.error(t('trade.connectWallet', { defaultValue: 'Please connect your wallet first' }));
+      return;
+    }
+    if (isSubmitting) return;
     const accepted = localStorage.getItem(RISK_ACCEPTED_KEY);
     if (!accepted) {
       pendingConfirmRef.current = true;
@@ -338,7 +357,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       return;
     }
     executeTradeInternal();
-  }, [numAmount, isSubmitting, executeTradeInternal]);
+  }, [numAmount, isSubmitting, isConnected, address, executeTradeInternal, t]);
 
   const handleRiskAccept = useCallback(() => {
     localStorage.setItem(RISK_ACCEPTED_KEY, "1");
@@ -497,7 +516,11 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
             <div className="text-xs text-muted-foreground px-1 flex items-center gap-1">
               <Zap className="w-3 h-3 text-blue-400" />
               <span>{t('trade.onChainTrade')}</span>
-              <span className="ml-auto text-blue-400 font-mono">{parseFloat(walletBalance).toFixed(2)} USDT</span>
+              {isConnected ? (
+                <span className="ml-auto text-blue-400 font-mono">{parseFloat(walletBalance).toFixed(2)} USDT</span>
+              ) : (
+                <span className="ml-auto text-amber-400 font-medium">{t('trade.connectWallet', { defaultValue: 'Please connect wallet' })}</span>
+              )}
             </div>
           )}
 
@@ -657,10 +680,18 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
 
           {/* Error */}
           {activeError && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-              {(activeError as Error).message?.includes("User rejected")
-                ? t('trade.txCancelledByUser')
-                : (activeError as Error).message?.slice(0, 150) || t('trade.txFailed')}
+            <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between">
+              <span>
+                {(activeError as Error).message?.includes("User rejected")
+                  ? t('trade.txCancelledByUser')
+                  : (activeError as Error).message?.slice(0, 150) || t('trade.txFailed')}
+              </span>
+              <button
+                onClick={() => { activeReset(); buyReset(); sellReset(); limitReset(); approveReset(); erc1155ApproveReset(); }}
+                className="ml-2 text-xs text-red-300 hover:text-white underline shrink-0"
+              >
+                {t('common.retry', { defaultValue: 'Retry' })}
+              </button>
             </div>
           )}
 
