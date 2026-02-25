@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAccount, useChainId } from "wagmi";
 import { useTradeStore } from "@/app/stores/useTradeStore";
+import { usePortfolioStore } from "@/app/stores/usePortfolioStore";
 import { useBuy, useSell, useContractBalance, useUsdtAllowance, useUsdtApprove, useTxNotifier, getBscScanUrl, useContractPrice, usePlaceLimitOrder, useIsApprovedForAll, useErc1155Approval } from "@/app/hooks/useContracts";
 import { PREDICTION_MARKET_ADDRESS, LIMIT_ORDER_BOOK_ADDRESS } from "@/app/config/contracts";
 import { parseUnits, formatUnits } from "viem";
@@ -192,6 +193,12 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
   useEffect(() => {
     if (activeConfirmed && activeTxHash && isMountedRef.current) {
       refetchBalance();
+      // Refetch portfolio positions from backend (delay to allow event-listener to process)
+      if (address) {
+        setTimeout(() => {
+          usePortfolioStore.getState().fetchFromAPI(address);
+        }, 3000);
+      }
       if (isMountedRef.current) setShowSuccess(true);
       const scanUrl = getBscScanUrl(chainId);
       const params = tradeParamsRef.current;
@@ -214,7 +221,7 @@ export function TradePanel({ marketId, onChainMarketId, marketTitle, status, mar
       onTradeComplete?.();
       return () => clearTimeout(timerId);
     }
-  }, [activeConfirmed, activeTxHash, chainId, t, refetchBalance, activeReset]);
+  }, [activeConfirmed, activeTxHash, chainId, t, refetchBalance, activeReset, address]);
 
   const numAmount = parseFloat(amount) || 0;
 
