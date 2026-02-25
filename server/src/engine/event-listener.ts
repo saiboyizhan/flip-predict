@@ -382,9 +382,9 @@ export function startEventListener(db: Pool): void {
           const finalNoPrice = outcomeStr === 'yes' ? 0 : 1;
 
           await client.query(
-            `UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = NOW(),
+            `UPDATE markets SET status = 'resolved', outcome = $1, resolved_at = $5,
              yes_price = $2, no_price = $3 WHERE id = $4`,
-            [outcomeStr, finalYesPrice, finalNoPrice, internalId]
+            [outcomeStr, finalYesPrice, finalNoPrice, internalId, Date.now()]
           );
           await client.query(
             'INSERT INTO price_history (market_id, yes_price, no_price, timestamp) VALUES ($1, $2, $3, NOW())',
