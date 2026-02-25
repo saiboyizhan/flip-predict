@@ -314,11 +314,6 @@ contract PredictionMarketV3 is
         noPrice = 1e18 - yesPrice;
     }
 
-    function getReserves(uint256 marketId) external view returns (uint256 yesReserve, uint256 noReserve) {
-        Market storage m = markets[marketId];
-        return (m.yesReserve, m.noReserve);
-    }
-
     // ============================================================
     //  LIQUIDITY PROVIDER
     // ============================================================
@@ -423,9 +418,10 @@ contract PredictionMarketV3 is
         uint256 winnerAmount = balanceOf(msg.sender, winningTokenId);
         if (winnerAmount == 0) revert NoWinningPosition();
 
-        uint256 winnerSupply = totalSupply(winningTokenId);
+        uint256 winningReserve = m.outcome ? m.yesReserve : m.noReserve;
+        uint256 totalWinning = totalSupply(winningTokenId) + winningReserve;
         _burn(msg.sender, winningTokenId, winnerAmount);
-        uint256 reward = (winnerAmount * m.totalCollateral) / winnerSupply;
+        uint256 reward = (winnerAmount * m.totalCollateral) / totalWinning;
         m.totalCollateral -= reward;
         if (!usdtToken.transfer(msg.sender, reward)) revert TransferFailed();
         emit WinningsClaimed(marketId, msg.sender, reward);
@@ -651,15 +647,20 @@ contract PredictionMarketV3 is
         uint256 userShares = lpShares[marketId][msg.sender];
         if (userShares == 0) revert NoLpShares();
 
-        uint256 payout = (userShares * m.totalCollateral) / m.totalLpShares;
+        uint256 winningTokenId = m.outcome ? getYesTokenId(marketId) : getNoTokenId(marketId);
+        uint256 winningReserve = m.outcome ? m.yesReserve : m.noReserve;
+        uint256 totalWinning = totalSupply(winningTokenId) + winningReserve;
+
+        uint256 lpWinningTokens = (userShares * winningReserve) / m.totalLpShares;
+        uint256 payout = totalWinning > 0 ? (lpWinningTokens * m.totalCollateral) / totalWinning : 0;
         if (payout == 0) revert ZeroOutput();
 
         lpShares[marketId][msg.sender] = 0;
         m.totalLpShares -= userShares;
         if (m.outcome) {
-            if (payout > m.yesReserve) m.yesReserve = 0; else m.yesReserve -= payout;
+            m.yesReserve -= lpWinningTokens;
         } else {
-            if (payout > m.noReserve) m.noReserve = 0; else m.noReserve -= payout;
+            m.noReserve -= lpWinningTokens;
         }
         m.totalCollateral -= payout;
         if (!usdtToken.transfer(msg.sender, payout)) revert TransferFailed();
@@ -755,7 +756,8 @@ contract PredictionMarketV3 is
         }
         if (winnerAmount == 0) revert NoWinningPosition();
 
-        uint256 winnerSupply = totalSupply(winningTokenId);
+        uint256 winningReserve = m.outcome ? m.yesReserve : m.noReserve;
+        uint256 totalWinning = totalSupply(winningTokenId) + winningReserve;
 
         if (m.outcome) {
             agentYesBalance[marketId][agentTokenId] = 0;
@@ -764,7 +766,7 @@ contract PredictionMarketV3 is
         }
 
         _burn(nfaContract, winningTokenId, winnerAmount);
-        uint256 reward = (winnerAmount * m.totalCollateral) / winnerSupply;
+        uint256 reward = (winnerAmount * m.totalCollateral) / totalWinning;
         m.totalCollateral -= reward;
 
         if (!usdtToken.transfer(nfaContract, reward)) revert TransferFailed();

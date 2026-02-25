@@ -158,16 +158,6 @@ export const PREDICTION_MARKET_ABI = [
     ],
   },
   {
-    name: 'getReserves',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
-    outputs: [
-      { name: 'yesReserve', type: 'uint256' },
-      { name: 'noReserve', type: 'uint256' },
-    ],
-  },
-  {
     name: 'getMarketAmm',
     type: 'function',
     stateMutability: 'view',
