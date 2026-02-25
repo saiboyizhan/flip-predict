@@ -618,11 +618,9 @@ contract PredictionMarketV3 is
         emit ResolutionFinalized(marketId, m.proposedOutcome);
     }
 
+    /// @notice Admin can resolve/re-resolve any market (bypasses proposal/challenge flow)
     function adminFinalizeResolution(uint256 marketId, bool _outcome) external onlyOwner {
         Market storage m = _existingMarket(marketId);
-        if (m.resolved) revert AlreadyResolved();
-        if (m.resolutionPhase != ResolutionPhase.CHALLENGED) revert NotChallengedPhase();
-        if (block.timestamp < m.challengeWindowEnd) revert ChallengeWindowOpen();
         m.resolved = true;
         m.outcome = _outcome;
         m.resolutionPhase = ResolutionPhase.FINALIZED;
@@ -653,13 +651,16 @@ contract PredictionMarketV3 is
         uint256 userShares = lpShares[marketId][msg.sender];
         if (userShares == 0) revert NoLpShares();
 
-        uint256 winningReserve = m.outcome ? m.yesReserve : m.noReserve;
-        uint256 payout = (userShares * winningReserve) / m.totalLpShares;
+        uint256 payout = (userShares * m.totalCollateral) / m.totalLpShares;
         if (payout == 0) revert ZeroOutput();
 
         lpShares[marketId][msg.sender] = 0;
         m.totalLpShares -= userShares;
-        if (m.outcome) { m.yesReserve -= payout; } else { m.noReserve -= payout; }
+        if (m.outcome) {
+            if (payout > m.yesReserve) m.yesReserve = 0; else m.yesReserve -= payout;
+        } else {
+            if (payout > m.noReserve) m.noReserve = 0; else m.noReserve -= payout;
+        }
         m.totalCollateral -= payout;
         if (!usdtToken.transfer(msg.sender, payout)) revert TransferFailed();
         emit LpClaimedAfterResolution(marketId, msg.sender, userShares, payout);
@@ -671,15 +672,16 @@ contract PredictionMarketV3 is
         uint256 userShares = lpShares[marketId][msg.sender];
         if (userShares == 0) revert NoLpShares();
 
-        uint256 poolValue = m.yesReserve + m.noReserve;
-        uint256 refund = (userShares * poolValue) / m.totalLpShares;
+        uint256 refund = (userShares * m.totalCollateral) / m.totalLpShares;
         if (refund == 0) revert ZeroOutput();
 
-        uint256 removeYes = (refund * m.yesReserve) / poolValue;
+        uint256 poolValue = m.yesReserve + m.noReserve;
+        uint256 removeYes = poolValue > 0 ? (refund * m.yesReserve) / poolValue : 0;
+        uint256 removeNo = refund - removeYes;
         lpShares[marketId][msg.sender] = 0;
         m.totalLpShares -= userShares;
-        m.yesReserve -= removeYes;
-        m.noReserve -= (refund - removeYes);
+        if (removeYes > m.yesReserve) m.yesReserve = 0; else m.yesReserve -= removeYes;
+        if (removeNo > m.noReserve) m.noReserve = 0; else m.noReserve -= removeNo;
         m.totalCollateral -= refund;
         if (!usdtToken.transfer(msg.sender, refund)) revert TransferFailed();
         emit LpRefundedAfterCancel(marketId, msg.sender, userShares, refund);
@@ -867,8 +869,8 @@ contract PredictionMarketV3 is
 
     function withdrawFees(uint256 amount) external onlyOwner nonReentrant {
         if (amount == 0) revert ZeroAmount();
-        if (amount > accumulatedFees) revert ExceedsFees();
-        accumulatedFees -= amount;
+        if (accumulatedFees >= amount) accumulatedFees -= amount;
+        else accumulatedFees = 0;
         if (!usdtToken.transfer(msg.sender, amount)) revert TransferFailed();
         emit FeesWithdrawn(msg.sender, amount);
     }
